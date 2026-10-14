@@ -329,7 +329,7 @@ harness that is on another release, with the one command that brings it to the
 release just written, whether or not work is open:
 
 ```
-  Kiro CLI (.kiro) is still on 2.9.0. To bring it to 2.10.0: `aidlc config --harness kiro`.
+  Kiro CLI (.kiro) is still on 2.9.0. To bring it to 2.10.0: `aidlc config --harness kiro-cli-legacy`.
 ```
 
 When the files passed to `--from` hold that harness, the command reuses them.
@@ -359,12 +359,16 @@ wizard names it and offers three choices: recommended defaults, six-step
 customization, or exit with nothing written. Multiple detected harnesses get a
 numbered harness picker first; no detected harness gets the complete picker
 without a default. The picker leaves out a row new projects no longer get:
-the legacy Kiro CLI row (`kiro`), so a Kiro CLI at 2.24.1 or later is detected
-as Kiro IDE (`kiro-ide`), whose `.kiro/settings/cli.json` pins Kiro's v3 engine
-and which runs in Kiro CLI too. An older Kiro CLI does not count for that row,
-and setup says to update it. When that Kiro CLI is 2.6 or later, the legacy
-row's own floor, setup also names `aidlc config --harness kiro`, which still
-sets a project up on that row. Other detected harnesses keep their order, and a
+the legacy Kiro CLI row (`--harness kiro-cli-legacy`), so a Kiro CLI at 2.24.1
+or later is detected as the Kiro row (`--harness kiro`), whose
+`.kiro/settings/cli.json` pins Kiro's v3 engine and which runs in Kiro IDE too.
+Under the list, and when it takes the Kiro row without one, setup says which
+versions that row runs in: Kiro IDE 1.1.70 or later and Kiro CLI 2.24.1 or later.
+An older Kiro CLI does not count for it; choosing the Kiro row then, setup says so
+and asks whether to set it up anyway (not in Kiro IDE's own terminal, where the
+CLI is optional). `aidlc config --harness kiro` says the same versions when it
+sets a project up on the Kiro row, and asks the same question at a terminal; with
+`--yes` it says so and goes on. Other detected harnesses keep their order, and a
 harness editor's own terminal still comes first.
 
 Before any setup choices, the wizard probes the project filesystem using
@@ -1080,7 +1084,7 @@ Refresh preserves:
 - the agent files in `.kiro/agents` that Kiro CLI upgraded for its 3.0 engine
   (Kiro keeps each file it replaced beside it as `.json.bak`): a refresh keeps
   them as Kiro left them, says so in one line, and brings in the rest of the
-  release; `aidlc config --harness kiro --force` takes the release's versions,
+  release; `aidlc config --harness kiro-cli-legacy --force` takes the release's versions,
   and Kiro upgrades them again the next time it starts on its 3.0 engine
 
 Under `aidlc/`, install and refresh copy only those seeds. The clone identity,
@@ -1191,8 +1195,8 @@ stays exclusive: pairing it with another harness that ships that block is refuse
 with `cannot coexist in one project`, regardless of which is installed first.
 Kiro CLI and Kiro IDE still share `.kiro/`, and OpenCode and Copilot share `.aidlc/`,
 so those pairs cannot coexist. Kiro CLI and Kiro IDE can replace each other
-instead: in a project that has one of them, `aidlc config --harness kiro-ide`
-(or `--harness kiro`) switches `.kiro/` to the other in place. The switch is a
+instead: in a project that has one of them, `aidlc config --harness kiro`
+(or `--harness kiro-cli-legacy`) switches `.kiro/` to the other in place. The switch is a
 refresh planned from the installed row's ownership baseline: it removes the files
 only that row shipped, keeps `aidlc/`, reports a locally modified file it would
 replace or remove as a conflict, and, like any refresh, is done while work is open.

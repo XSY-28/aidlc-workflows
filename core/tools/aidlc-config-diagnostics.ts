@@ -60,6 +60,7 @@ import {
   quoteCommandArgument,
   retiredRowLine,
   rowNewProjectsGet,
+  typedHarnessName,
 } from "./aidlc-runtime-paths.ts";
 import { AIDLC_VERSION } from "./aidlc-version.ts";
 import { compareVersions, VERSION_ID } from "./aidlc-channel.ts";
@@ -207,7 +208,7 @@ export function workspaceShellRefreshCommand(
   distribution: string,
 ): string {
   const invoke = invocationForHarness(harnessDir);
-  return `${invoke} config --harness ${distribution}${invoke === "aidlc" ? "" : " --download"}`;
+  return `${invoke} config --harness ${typedHarnessName(distribution)}${invoke === "aidlc" ? "" : " --download"}`;
 }
 
 export type RuntimeBinaryProbe = {
@@ -887,6 +888,10 @@ const HARNESS_CLI: Record<
     install: string;
     // A PATH folder whose `command` is a stand-in that must never be run.
     standIn?: (directory: string) => boolean;
+    // For a row that also runs in an editor with no CLI to ask: the CLI's own
+    // name, and the editor with the oldest version the row runs in.
+    cliName?: string;
+    editor?: { name: string; minimumVersion: string };
   }
 > = {
   claude: {
@@ -921,16 +926,18 @@ const HARNESS_CLI: Record<
     install: "Install or upgrade Kiro CLI to 2.6.0 or later.",
   },
   // Probed so a machine with a supported Kiro CLI detects this row, the one new
-  // projects get for Kiro CLI (rowNewProjectsGet). 2.24.1 is the oldest Kiro
-  // CLI this row has been checked on (its v3 engine runs the hooks, and
-  // `/aidlc --doctor` reports no problem); an older one counts only for the
-  // legacy kiro row, so first-run setup says to update it (and, when the legacy
-  // row takes that version, how to name that row), and doctor warns about it
-  // here.
+  // projects get for Kiro CLI and Kiro IDE (rowNewProjectsGet). 2.24.1 is the
+  // oldest Kiro CLI this row has been checked on (its v3 engine runs the hooks,
+  // and `/aidlc --doctor` reports no problem), and Kiro IDE 1.1.70 the oldest
+  // Kiro IDE (it has no CLI to ask, so only setup's line names it); an older
+  // Kiro CLI counts only for the legacy kiro row, setup asks before it sets the
+  // row up on one, and doctor warns about it here.
   "kiro-ide": {
     command: "kiro-cli",
     required: false,
     minimumVersion: "2.24.1",
+    cliName: "Kiro CLI",
+    editor: { name: "Kiro IDE", minimumVersion: "1.1.70" },
     install: "Kiro CLI is optional here: to run AI-DLC from a terminal, install or upgrade Kiro CLI to 2.24.1 or later; Kiro IDE-only installs may omit it.",
   },
   opencode: {
@@ -2695,7 +2702,7 @@ export function workspaceSiblingIssues(
     remediation: `Run ${
       harnessDir
         ? workspaceShellRefreshCommand(harnessDir, harness)
-        : `aidlc config --harness ${harness}`
+        : `aidlc config --harness ${typedHarnessName(harness)}`
     } to restore the complete ${harness} projection, including sibling directories.`,
   }));
 }
@@ -2887,6 +2894,34 @@ export function codexHookTrustStep(issueId: string): string | null {
 /** The oldest version of a row's CLI that counts for it, if it has one. */
 export function rowCliFloor(row: string): string | undefined {
   return Object.hasOwn(HARNESS_CLI, row) ? HARNESS_CLI[row as ModelHarness].minimumVersion : undefined;
+}
+
+/**
+ * For a row that also runs in an editor (the kiro-ide row): the one line that
+ * says which versions it runs in, or null. Setup shows it under the harness
+ * list and when it sets the row up.
+ */
+export function rowVersionCondition(row: string): string | null {
+  const spec = Object.hasOwn(HARNESS_CLI, row) ? HARNESS_CLI[row as ModelHarness] : undefined;
+  if (!spec?.editor || !spec.cliName || !spec.minimumVersion) return null;
+  return `AI-DLC's ${HARNESS_PRODUCT_NAMES[row as ModelHarness]} row runs in ${spec.editor.name} ${spec.editor.minimumVersion} or later ` +
+    `and in ${spec.cliName} ${spec.minimumVersion} or later; older versions are not supported.`;
+}
+
+/**
+ * When this machine's CLI is older than such a row needs: what was found,
+ * said in one line, or null (the CLI is missing, recent enough, or the row
+ * has no such condition).
+ */
+export function rowOlderCli(row: string, options: RuntimeProbeOptions = {}): string | null {
+  const spec = Object.hasOwn(HARNESS_CLI, row) ? HARNESS_CLI[row as ModelHarness] : undefined;
+  if (!spec?.editor || !spec.cliName || !spec.minimumVersion) return null;
+  const probe = probeHarnessCli(row as ModelHarness, options);
+  if (probe.status !== "too-old") return null;
+  const version = probe.version ? /\d+\.\d+\.\d+/.exec(probe.version)?.[0] : undefined;
+  return `${spec.cliName}${version ? ` ${version}` : ""} is older than ${spec.minimumVersion}. ` +
+    `AI-DLC's ${HARNESS_PRODUCT_NAMES[row as ModelHarness]} row works in ${spec.cliName} ${spec.minimumVersion} or later ` +
+    `(and in ${spec.editor.name} ${spec.editor.minimumVersion} or later).`;
 }
 
 // The runtimes this shell finds that the system-wide PATH does not. A harness

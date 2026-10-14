@@ -1711,10 +1711,10 @@ if (args[0] === "engine" && args[1] === "orchestrate") {
       expect(result.stderr).toContain("file://aidlc/active-memory/**/*.md");
       // The shipped file reads the engine's copy of the active space, so the
       // step named is the one that puts the shipped file back, and that route is real.
-      expect(result.stderr).toContain("config --harness kiro` in a terminal to put AI-DLC's Kiro files back");
+      expect(result.stderr).toContain("config --harness kiro-cli-legacy` in a terminal to put AI-DLC's Kiro files back");
       expect(result.stderr).not.toContain("/aidlc space switch");
       expect(result.stderr).toContain("/aidlc --doctor");
-      expect(resolveAction(["config", "--harness", "kiro"]).type).not.toBe("error");
+      expect(resolveAction(["config", "--harness", "kiro-cli-legacy"]).type).not.toBe("error");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

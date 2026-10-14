@@ -285,13 +285,13 @@ setup asks there about Kiro settings for all your projects: it turns Kiro's
 Workflows feature off (while it is on, AI-DLC's reviews and helpers do not run)
 and, when Command Prompt is Kiro's terminal on Windows, sets it to PowerShell.
 To turn Workflows back on, run
-`aidlc config trust --harness kiro-ide --kiro-workflows on --yes`.
+`aidlc config trust --harness kiro --kiro-workflows on --yes`.
 
 Without `--harness`, it stops before writing anything:
 
 ```text
 $ aidlc config < /dev/null
-error: multiple harnesses are installed; pass --harness <claude|codex|copilot|cursor|kiro-ide|opencode>
+error: multiple harnesses are installed; pass --harness <claude|codex|copilot|cursor|kiro|opencode>
 fix: aidlc config --harness <name>
 ```
 

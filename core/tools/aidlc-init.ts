@@ -162,9 +162,12 @@ import {
   type ProjectHarness,
   hasControlCharacters,
   quoteCommandArgument,
+  harnessIdFromTyped,
   retiredRowLine,
+  retiredTypedHarnessName,
   rowNewProjectsGet,
   runtimeHarnessDir,
+  typedHarnessName,
 } from "./aidlc-runtime-paths.ts";
 import {
   applyKiroSessionPlan,
@@ -306,6 +309,8 @@ import {
   readPluginSelection,
   readConfigDiagnosticRecords,
   rowCliFloor,
+  rowOlderCli,
+  rowVersionCondition,
   reconcileProviderActions,
   runtimeFixesNeeded,
   runtimeIssues,
@@ -1165,7 +1170,7 @@ function modelStateData(
 // harness when the project has more than one, since config would otherwise
 // ask which.
 function namedHarness(projectDir: string, harness: string | undefined): string {
-  return harness && discoverProjectHarnesses(projectDir).length > 1 ? ` --harness ${harness}` : "";
+  return harness && discoverProjectHarnesses(projectDir).length > 1 ? ` --harness ${typedHarnessName(harness)}` : "";
 }
 
 // A `config models` command about one harness of the project, run as shown
@@ -1931,7 +1936,7 @@ function checkDiagnosticSection(
     ? `providers needs no answer for ${selected.harness}; ` +
       sessionProvidersDetail(
         selected.harness,
-        `'${configInvocationFor(projectDir)} config providers --harness ${selected.harness}${projectTarget(projectDir)}'`,
+        `'${configInvocationFor(projectDir)} config providers --harness ${typedHarnessName(selected.harness)}${projectTarget(projectDir)}'`,
       )
     : providersUnrecorded
     ? `providers has no recorded answer for ${selected.harness}; the shipped fallback is in use. ` +
@@ -2299,7 +2304,7 @@ function statusLineSwitch(argv: readonly string[]): CommandResult {
   const installed = discoverProjectHarnesses(projectDir);
   const named = requested ? installed.filter((harness) => harness.distribution === requested) : installed;
   if (requested && named.length === 0) {
-    return usage(`this project is not set up for ${requested}`, configCommand(`--harness ${requested}${projectTarget(projectDir)}`));
+    return usage(`this project is not set up for ${requested}`, configCommand(`--harness ${typedHarnessName(requested)}${projectTarget(projectDir)}`));
   }
   const targets = [...new Set(
     named.map((harness) => statusLineHarness(harness.distribution)).filter((harness): harness is StatusLineHarness => harness !== null),
@@ -2620,6 +2625,9 @@ function sameFile(left: string, right: string): boolean {
 // name this harness's tool there, not the first install the project shows.
 let configTargetHarnessDir: string | null = null;
 
+// Set for a config run another one starts: its --harness values are row ids.
+const HARNESS_IDS_ENV = "AIDLC_CONFIG_HARNESS_IDS";
+
 // What config tells a project on a row new projects no longer get, in this
 // run's command form, or null.
 function retiredRowNote(projectDir: string, distribution: string): string | null {
@@ -2812,7 +2820,7 @@ function setupMapRows(
   return [
     {
       label: "Harnesses",
-      detail: `${distribution} recorded`,
+      detail: `${typedHarnessName(distribution)} recorded`,
       needs: false,
     },
     {
@@ -4260,7 +4268,7 @@ function switchRefreshSteps(
   projectDir: string,
   remedy: { harness: string; moveAside?: string },
 ): string {
-  const refresh = `${configInvocationFor(projectDir)} config --harness ${remedy.harness}${projectTarget(projectDir)}`;
+  const refresh = `${configInvocationFor(projectDir)} config --harness ${typedHarnessName(remedy.harness)}${projectTarget(projectDir)}`;
   return remedy.moveAside
     ? `move ${join(projectDir, remedy.moveAside)} aside, then run \`${refresh}\``
     : refresh;
@@ -6609,7 +6617,7 @@ function prepareRefreshSource(
     if (rowChanged && current.trust !== undefined && prior) {
       notes.push(
         `The trust review recorded for ${prior.distribution} does not carry to ${descriptor.distribution}; once switched, review it again with ` +
-          `\`${configInvocationFor(projectDir)} config trust --harness ${descriptor.distribution}${projectTarget(projectDir)}\`.`,
+          `\`${configInvocationFor(projectDir)} config trust --harness ${typedHarnessName(descriptor.distribution)}${projectTarget(projectDir)}\`.`,
       );
     }
   }
@@ -7434,7 +7442,7 @@ function selectSource(
       // harness is the request to switch.
       if (switchesInPlace(existingDistribution, stamp.distribution)) {
         throw new SwitchRefusal(
-          `existing project uses ${existingDistribution}; refusing ${stamp.distribution} without --harness ${stamp.distribution}, which switches ${stamp.harnessDir} to it in place`,
+          `existing project uses ${existingDistribution}; refusing ${stamp.distribution} without --harness ${typedHarnessName(stamp.distribution)}, which switches ${stamp.harnessDir} to it in place`,
           { kind: "switch", harness: stamp.distribution },
         );
       }
@@ -7454,8 +7462,8 @@ function selectSource(
       requiredVersion && versionFiltered.length === 0
         ? `project requires ${requiredVersion}, which is not installed; run aidlc config --pin ${requiredVersion}`
         : requiredVersion
-        ? `harness ${selectedName} is not installed in ${requiredVersion}; run aidlc config --pin ${requiredVersion}`
-        : `harness ${selectedName} is not installed`,
+        ? `harness ${typedHarnessName(selectedName)} is not installed in ${requiredVersion}; run aidlc config --pin ${requiredVersion}`
+        : `harness ${typedHarnessName(selectedName)} is not installed`,
       selectedName,
       requiredVersion,
     );
@@ -7492,6 +7500,7 @@ function selectSource(
         `  ${index + 1}. ${candidate.descriptor.productName}\n`,
       );
     }
+    writeVersionConditions(offered);
     const selected = offered[
       promptChoice("Harness", offered.length) - 1
     ];
@@ -7500,7 +7509,7 @@ function selectSource(
   }
   throw new Error(
     `multiple harnesses are installed; pass --harness <${
-      offered.map((item) => item.stamp.distribution).join("|")
+      offered.map((item) => typedHarnessName(item.stamp.distribution)).join("|")
     }>`,
   );
 }
@@ -7635,8 +7644,6 @@ type FirstRunDetection = {
     probed?: boolean;
     version?: string;
     path?: string;
-    // The oldest version that counts, when the one found is older.
-    needs?: string;
   }>;
   aws: ReturnType<typeof detectAwsCredentials>;
   runtimeIssues: ReturnType<typeof runtimeIssues>;
@@ -7907,7 +7914,6 @@ function detectFirstRun(
       probed: probe.status !== "not-applicable",
       ...(probe.version ? { version: probe.version } : {}),
       ...(probe.path ? { path: probe.path } : {}),
-      ...(probe.status === "too-old" && probe.minimumVersion ? { needs: probe.minimumVersion } : {}),
     };
   }
   const first = candidates[0];
@@ -7964,35 +7970,6 @@ function newProjectChoices(candidates: readonly InstalledSourceCandidate[]): Ins
   });
 }
 
-// When the tool the row new projects get needs was found too old for it (a
-// Kiro CLI below the kiro-ide row's floor), the one line that says so, and
-// what to do: update it, and, when the old row takes that version, name the
-// old row. Not in that row's own editor terminal (Kiro IDE), where the row is
-// taken and its CLI is optional.
-function olderToolLine(
-  projectDir: string,
-  candidates: readonly InstalledSourceCandidate[],
-  detection: FirstRunDetection,
-): string | null {
-  for (const candidate of candidates) {
-    const row = candidate.stamp.distribution;
-    const instead = candidates.find((other) => other.stamp.distribution === rowNewProjectsGet(row));
-    const needs = instead ? detection.harnesses[instead.stamp.distribution]?.needs : undefined;
-    if (!instead || !needs || launchedFromCandidateEditor(instead)) continue;
-    const product = candidate.descriptor.productName;
-    const found = detection.harnesses[instead.stamp.distribution]?.version;
-    const version = found ? /\d+\.\d+\.\d+/.exec(found)?.[0] : undefined;
-    const said = `${product}${version ? ` ${version}` : ""} is older than ${needs}, which AI-DLC's ` +
-      `\`${instead.stamp.distribution}\` row needs, so setup does not count it. Update ${product}`;
-    // The old row is named only when it takes this version itself.
-    return detection.harnesses[row]?.found === true
-      ? `${said}, or run \`${configInvocationFor(projectDir)} config --harness ${row}${projectTarget(projectDir)}\` ` +
-        `to set this project up on the legacy \`${row}\` row.`
-      : `${said}.`;
-  }
-  return null;
-}
-
 function detectedCandidateChoices(
   candidates: readonly InstalledSourceCandidate[],
   detection: FirstRunDetection,
@@ -8027,6 +8004,16 @@ function renderHarnessChoices(
       }\n`,
     );
   }
+  writeVersionConditions(candidates);
+}
+
+// Under a harness list, the versions each listed row that also runs in an
+// editor runs in (the kiro-ide row: Kiro IDE and Kiro CLI).
+function writeVersionConditions(candidates: readonly InstalledSourceCandidate[]): void {
+  const lines = candidates.flatMap((candidate) => rowVersionCondition(candidate.stamp.distribution) ?? []);
+  if (lines.length === 0) return;
+  process.stdout.write("\n");
+  for (const line of lines) writeMenuRow("  ", line);
 }
 
 function chooseHarness(
@@ -8083,6 +8070,8 @@ function runConfigChild(
   // Setup writes the person's Kiro session itself, after every child: those
   // settings are outside the rollback snapshot.
   env.AIDLC_CONFIG_DEFER_KIRO_SESSION = "1";
+  // The child is handed row ids, not the names a person types.
+  env[HARNESS_IDS_ENV] = "1";
   const commandArgs = isCompiledExecutable()
     ? ["config", ...args]
     : [fileURLToPath(import.meta.url), "config", ...args];
@@ -9129,11 +9118,6 @@ async function runFirstRunWizard(projectDir: string): Promise<boolean> {
   const detection = detectFirstRun(projectDir, installed);
   const candidates = newProjectChoices(installed);
   const detected = detectedCandidateChoices(candidates, detection);
-  const older = olderToolLine(projectDir, installed, detection);
-  if (older) {
-    process.stdout.write("\n");
-    writeMenuRow("  ", older);
-  }
   let candidate: InstalledSourceCandidate;
   if (detected.length === 1) {
     candidate = detected[0];
@@ -9143,6 +9127,25 @@ async function runFirstRunWizard(projectDir: string): Promise<boolean> {
   } else {
     process.stdout.write("\n  No supported harness CLI was detected. Choose one to configure:\n\n");
     candidate = chooseHarness(candidates, detection);
+  }
+  // Taken without a list, a row that also runs in an editor still says which
+  // versions it runs in. One whose CLI is here but older than it needs is set
+  // up only when the person says so; in that row's own editor terminal its CLI
+  // is optional.
+  const condition = detected.length === 1 ? rowVersionCondition(candidate.stamp.distribution) : null;
+  if (condition) {
+    process.stdout.write("\n");
+    writeMenuRow("  ", condition);
+  }
+  const older = launchedFromCandidateEditor(candidate) ? null : rowOlderCli(candidate.stamp.distribution);
+  if (older) {
+    process.stdout.write("\n");
+    writeMenuRow("  ", older);
+    const answer = configPrompt("  Set up anyway? [y/N]:");
+    if (!answer || !/^y(?:es)?$/i.test(answer.trim())) {
+      process.stdout.write("\n  Nothing written.\n");
+      return true;
+    }
   }
   const aws = awsSummary(detection.aws);
   const runtimeCount = detection.runtimeIssues.length;
@@ -9908,7 +9911,7 @@ function planRootIntegrations(
         actions.push({
           path: integration.path,
           action: "conflict",
-          detail: `${missingCopy.distribution} is missing its shipped block copy (${missingCopy.harnessDir}/tools/data/root-blocks/${marker}); run aidlc config --harness ${missingCopy.distribution} first`,
+          detail: `${missingCopy.distribution} is missing its shipped block copy (${missingCopy.harnessDir}/tools/data/root-blocks/${marker}); run aidlc config --harness ${typedHarnessName(missingCopy.distribution)} first`,
         });
         continue;
       }
@@ -11667,7 +11670,7 @@ function treesLeftBehindLines(
       : predatesFrameworkVersion(tree.frameworkVersion, written.version)
       ? `is still on ${tree.frameworkVersion}`
       : `is on ${tree.frameworkVersion}`;
-    const harness = `--harness ${tree.distribution}`;
+    const harness = `--harness ${typedHarnessName(tree.distribution)}`;
     const plain = installed.filter((candidate) => candidate.stamp.distribution === tree.distribution);
     // A copied tree no config run has recorded the files of reads every file
     // as unowned against another release, so it first records them at its
@@ -12019,6 +12022,27 @@ export async function main(
   if (!internal.setupWalkChild) configTargetHarnessDir = null;
   let argv = stripVerb(input);
   const options = globalOptions(argv);
+  // What the person typed after --harness reads as a row id here, once
+  // (harnessIdFromTyped); a config run this one starts passes ids and says so.
+  // A typed name that is retired gets the one to type instead.
+  let typedHarness: string | undefined;
+  if (!internal.setupWalkChild && process.env[HARNESS_IDS_ENV] !== "1") {
+    argv = [...argv];
+    for (let i = 0; i < argv.length - 1; i++) {
+      if (argv[i] !== "--harness" || argv[i + 1].startsWith("--")) continue;
+      const typed = argv[i + 1];
+      const instead = retiredTypedHarnessName(typed);
+      if (instead) {
+        emitResult(
+          usage(`\`${typed}\` is now called \`${instead}\``, configCommand(`--harness ${instead}`)),
+          options,
+        );
+        return;
+      }
+      typedHarness ??= typed;
+      argv[i + 1] = harnessIdFromTyped(typed);
+    }
+  }
   const positionals = configPositionals(argv);
   const section = positionals[0];
   if (section && !VALID_CONFIG_SECTIONS.has(section.value)) {
@@ -12219,7 +12243,7 @@ export async function main(
       refreshCommands: (dir) => {
         const harnesses = discoverProjectHarnesses(dir).map((harness) => harness.distribution).sort();
         return harnesses.length > 1
-          ? harnesses.map((name) => `${configInvocationFor(dir)} config --harness ${name}${projectTarget(dir)}`)
+          ? harnesses.map((name) => `${configInvocationFor(dir)} config --harness ${typedHarnessName(name)}${projectTarget(dir)}`)
           : [`${configInvocationFor(dir)} config${projectTarget(dir)}`];
       },
     }), options);
@@ -12612,7 +12636,7 @@ export async function main(
       if (downloadCleanup && !args.includes("--download")) args.push("--download");
       const handed = spawnSync(process.execPath, [newerTool, "config", ...args], {
         cwd: process.cwd(),
-        env: { ...process.env, AIDLC_CONFIG_HANDOFF: ranTool, AIDLC_PROJECT_DIR: projectDir },
+        env: { ...process.env, AIDLC_CONFIG_HANDOFF: ranTool, AIDLC_PROJECT_DIR: projectDir, [HARNESS_IDS_ENV]: "1" },
         stdio: "inherit",
       });
       if (handed.error) throw handed.error;
@@ -12641,6 +12665,24 @@ export async function main(
     // row says nothing of it, and a preview says what its run says.
     const retired = existing.distribution ? retiredRowNote(projectDir, stamp.distribution) : null;
     if (retired) sourceNotes.push(retired);
+    // A run that puts a project on a row that also runs in an editor says which
+    // versions it runs in; with this machine's CLI older than that, a person at
+    // a terminal is asked first, and any other run says so and goes on.
+    if (!existing.distribution) {
+      const condition = rowVersionCondition(stamp.distribution);
+      if (condition) sourceNotes.push(condition);
+      const inEditor = descriptor.editorTerminalApp !== undefined && launchedFromEditorTerminal(descriptor.editorTerminalApp);
+      const older = inEditor ? null : rowOlderCli(stamp.distribution);
+      if (older && configInputIsTty() && options.mode === "human" && !argv.includes("--yes") && !internal.setupWalkChild) {
+        const answer = configPrompt(`${older} Set up anyway? [y/N]:`);
+        if (!answer || !/^y(?:es)?$/i.test(answer.trim())) {
+          process.stdout.write("Nothing written.\n");
+          return;
+        }
+      } else if (older) {
+        sourceNotes.push(older);
+      }
+    }
     const installed = discoverProjectHarnesses(projectDir);
     // The harness this run replaces in its own directory, if any. A switch is
     // a refresh of that directory: it plans from the occupant's ownership
@@ -12665,6 +12707,24 @@ export async function main(
         recordOnly = false;
       }
     }
+    // `--harness kiro` named the legacy row before it named the Kiro row: on a
+    // project still on the legacy row, a person at a terminal is asked before
+    // it moves; any other run moves as asked.
+    if (
+      switchingFrom && typedHarness === typedHarnessName(stamp.distribution) &&
+      rowNewProjectsGet(switchingFrom.distribution) === stamp.distribution &&
+      configInputIsTty() && options.mode === "human" && !argv.includes("--yes") && !argv.includes("--dry-run")
+    ) {
+      const answer = configPrompt(
+        `This project is on the legacy \`${typedHarnessName(switchingFrom.distribution)}\` row, and \`--harness ${typedHarness}\` ` +
+          `now names the ${descriptor.productName} row. Move ${descriptor.harnessDir} to it in place (aidlc/ is kept)? To stay, ` +
+          `run \`${configCommand(`--harness ${typedHarnessName(switchingFrom.distribution)}`)}\`. [y/N]:`,
+      );
+      if (!answer || !/^y(?:es)?$/i.test(answer.trim())) {
+        process.stdout.write("Nothing written.\n");
+        return;
+      }
+    }
     const refreshing = Boolean(existing.distribution || switchingFrom);
     const switchedRows = switchingFrom ? { from: switchingFrom.distribution, to: stamp.distribution } : undefined;
     for (const sibling of installed) {
@@ -12682,21 +12742,21 @@ export async function main(
                 if (currentHash && contribution.hash === currentHash) continue;
               }
               throw new Error(
-                `refusing to refresh ${stamp.distribution} while installed ${sibling.distribution} co-owns ${integration.path} but has no readable projection descriptor (${sibling.harnessDir}/tools/data/aidlc-projection.json); run aidlc config --harness ${sibling.distribution} first`,
+                `refusing to refresh ${stamp.distribution} while installed ${sibling.distribution} co-owns ${integration.path} but has no readable projection descriptor (${sibling.harnessDir}/tools/data/aidlc-projection.json); run aidlc config --harness ${typedHarnessName(sibling.distribution)} first`,
               );
             } else if (
               sibling.frameworkVersion !== undefined && baseline === null &&
               !unchangedManagedBlockHash(projectDir, selected.root, descriptor.harnessDir, integration)
             ) {
               throw new Error(
-                `refusing to refresh ${stamp.distribution} while installed ${sibling.distribution} has lost its projection descriptor and ownership baseline; run aidlc config --harness ${sibling.distribution} first`,
+                `refusing to refresh ${stamp.distribution} while installed ${sibling.distribution} has lost its projection descriptor and ownership baseline; run aidlc config --harness ${typedHarnessName(sibling.distribution)} first`,
               );
             }
           }
           continue;
         }
         throw new Error(
-          `harness ${stamp.distribution} cannot be added while installed ${sibling.distribution} has no readable projection descriptor (${sibling.harnessDir}/tools/data/aidlc-projection.json); run aidlc config --harness ${sibling.distribution} first`,
+          `harness ${stamp.distribution} cannot be added while installed ${sibling.distribution} has no readable projection descriptor (${sibling.harnessDir}/tools/data/aidlc-projection.json); run aidlc config --harness ${typedHarnessName(sibling.distribution)} first`,
         );
       }
       for (const integration of descriptor.rootIntegrations) {
@@ -12716,7 +12776,7 @@ export async function main(
             predatesFrameworkVersion(sibling.frameworkVersion, stamp.frameworkVersion)
           ) {
             throw new Error(
-              `harness ${stamp.distribution} shares ${integration.path} with installed ${sibling.distribution}, whose install predates shared onboarding; run aidlc config --harness ${sibling.distribution} first — if it still refuses afterwards, its ${integration.path} is exclusive and they cannot coexist in one project`,
+              `harness ${stamp.distribution} shares ${integration.path} with installed ${sibling.distribution}, whose install predates shared onboarding; run aidlc config --harness ${typedHarnessName(sibling.distribution)} first — if it still refuses afterwards, its ${integration.path} is exclusive and they cannot coexist in one project`,
             );
           }
           throw new Error(
@@ -13041,7 +13101,7 @@ export async function main(
       prepared.notes.push(kiroUpgradedNote(
         kiroUpgraded,
         descriptor.harnessDir,
-        configCommandForHarness(descriptor.harnessDir, `--harness ${stamp.distribution} --force`),
+        configCommandForHarness(descriptor.harnessDir, `--harness ${typedHarnessName(stamp.distribution)} --force`),
       ));
     }
     // Older releases shipped an effort map in the project's Kiro settings; a
@@ -13650,7 +13710,7 @@ export async function main(
       const offline = copyChannel
         ? takesSource
           ? `offline: get ${url} and its .sha256 into one folder, then add --from <that file>`
-          : `offline: get ${url} and its .sha256 into one folder, run ${configInvocationFor(projectDir)} config --harness ${release.distribution} --from <that file>${projectTarget(projectDir)}, then rerun this command`
+          : `offline: get ${url} and its .sha256 into one folder, run ${configInvocationFor(projectDir)} config --harness ${typedHarnessName(release.distribution)} --from <that file>${projectTarget(projectDir)}, then rerun this command`
         : `offline: ${
           configCommand(`--pin ${release.version} --offline --from <release directory>${projectTarget(projectDir)}`)
         }, then rerun this command`;
@@ -13721,9 +13781,9 @@ export async function main(
           ? error.remedy.text
           : error.remedy.kind === "refresh"
           ? switchRefreshSteps(projectDir, error.remedy)
-          : `${configInvocationFor(projectDir)} config ${from ? `--from ${quoteCommandArgument(from)} ` : ""}--harness ${
+          : `${configInvocationFor(projectDir)} config ${from ? `--from ${quoteCommandArgument(from)} ` : ""}--harness ${typedHarnessName(
             error.remedy.harness
-          }${projectTarget(projectDir)}`
+          )}${projectTarget(projectDir)}`
         : from
         ? `pass --from the release files: aidlc-copy-runtime-X.Y.Z.tar.gz, the runtime/ folder inside it, or one harness folder such as runtime/${requestedHarness ?? copiedHarness?.distribution ?? "claude"}/; or fetch them with ${
           configRerunWith(input, projectDir, ["--download"], ["--from"]) ?? configCommand(`--download${projectTarget(projectDir)}`)

@@ -1336,13 +1336,13 @@ describe("t244 management lifecycle", () => {
     expect(missingChoice.status).toBe(2);
     expect(missingChoice.stdout + missingChoice.stderr).toContain("--harness");
     const configured = run(DISPATCHER, [
-      "config", "--project-dir", project, "--harness", "kiro", "--mcp", "none",
+      "config", "--project-dir", project, "--harness", "kiro-cli-legacy", "--mcp", "none",
     ], project, env);
     expect(configured.status, configured.stdout + configured.stderr).toBe(0);
     expect(existsSync(join(project, ".kiro"))).toBe(true);
     const multi = run(DISPATCHER, [
       "config", "--project-dir", temp("aidlc-t241-multi-project-"),
-      "--harness", "claude", "--harness", "kiro", "--mcp", "none",
+      "--harness", "claude", "--harness", "kiro-cli-legacy", "--mcp", "none",
     ], project, env);
     expect(multi.status).toBe(2);
     expect(multi.stdout + multi.stderr).toContain("multi-harness config is not supported yet");

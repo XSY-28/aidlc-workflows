@@ -7,11 +7,12 @@
 // row, hear nothing of it. (The first-run picker is t299.)
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { REPO_ROOT } from "../harness/fixtures.ts";
 import { retiredRowLine, rowNewProjectsGet } from "../../core/tools/aidlc-runtime-paths.ts";
+import { typedHarnessName } from "../../core/tools/aidlc-runtime-paths.ts";
 
 setDefaultTimeout(120_000);
 
@@ -24,8 +25,8 @@ const HOST_ENV = [
   "AIDLC_PROJECT_DIR", "AIDLC_HARNESS_NAME", "AIDLC_HARNESS_DIR", "AIDLC_RUNTIME_ROOT",
   "AIDLC_RUNTIME_HARNESS_ROOT", "AIDLC_COMPILED_EXECUTABLE", "AIDLC_TEST_CONFIG_DETECTION_JSON",
 ];
-const STANDS = "AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working.";
-const MOVE = "To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI 2.24.1 or later on its v3 engine, run `aidlc config --harness kiro-ide`.";
+const STANDS = "AI-DLC now sets new projects up on the `kiro` row; this project is on the legacy `kiro-cli-legacy` row, which keeps working.";
+const MOVE = "To move it to `kiro`, which runs in Kiro IDE and in Kiro CLI 2.24.1 or later on its v3 engine, run `aidlc config --harness kiro`.";
 
 const temporary: string[] = [];
 afterAll(() => {
@@ -46,7 +47,7 @@ function install(harness: "kiro" | "kiro-ide"): { project: string; out: string }
   mkdirSync(join(project, ".git"));
   const result = spawnSync(
     process.execPath,
-    [INIT, "config", "--from", join(RELEASE, harness), "--harness", harness, "--mcp", "none", "--yes"],
+    [INIT, "config", "--from", join(RELEASE, harness), "--harness", typedHarnessName(harness), "--mcp", "none", "--yes"],
     { cwd: project, env: childEnv(), encoding: "utf-8" },
   );
   if (result.error) throw result.error;
@@ -65,7 +66,7 @@ describe("the legacy kiro row new projects no longer get", () => {
     expect(retiredRowLine("kiro", "aidlc", "", "2.24.1")).toBe(`${STANDS} ${MOVE}`);
     // A copied project's tool, named for a run from another folder.
     expect(retiredRowLine("kiro", "bun .kiro/tools/aidlc.ts", " --project-dir /p", "2.24.1")).toContain(
-      "run `bun .kiro/tools/aidlc.ts config --harness kiro-ide --project-dir /p`.",
+      "run `bun .kiro/tools/aidlc.ts config --harness kiro --project-dir /p`.",
     );
   });
 
@@ -92,8 +93,8 @@ describe("the legacy kiro row new projects no longer get", () => {
       expect(result.status).not.toBe(0);
       return `${result.stdout ?? ""}${result.stderr ?? ""}`;
     };
-    expect(configIn(runtimeOf(["kiro", "kiro-ide"]))).toContain("multiple harnesses are installed; pass --harness <kiro-ide>");
-    expect(configIn(runtimeOf(["claude", "kiro"]))).toContain("multiple harnesses are installed; pass --harness <claude|kiro>");
+    expect(configIn(runtimeOf(["kiro", "kiro-ide"]))).toContain("multiple harnesses are installed; pass --harness <kiro>");
+    expect(configIn(runtimeOf(["claude", "kiro"]))).toContain("multiple harnesses are installed; pass --harness <claude|kiro-cli-legacy>");
   });
 
   test("config tells a legacy project how to move it on a refresh, not the run that chose the row, and nothing on kiro-ide", () => {
@@ -113,9 +114,9 @@ describe("the legacy kiro row new projects no longer get", () => {
     };
     // A preview says what the run says, and naming the row, as the Kiro CLI
     // guide does, refreshes it like any run; the row stays.
-    expect(refresh(["--dry-run"])).toContain(`Note: ${STANDS} To move it to \`kiro-ide\``);
-    expect(refresh(["--harness", "kiro"])).toContain(`Note: ${STANDS} To move it to \`kiro-ide\``);
-    expect(refresh([])).toContain(`Note: ${STANDS} To move it to \`kiro-ide\``);
+    expect(refresh(["--dry-run"])).toContain(`Note: ${STANDS} To move it to \`kiro\``);
+    expect(refresh(["--harness", "kiro-cli-legacy"])).toContain(`Note: ${STANDS} To move it to \`kiro\``);
+    expect(refresh([])).toContain(`Note: ${STANDS} To move it to \`kiro\``);
     expect(existsSync(join(legacy.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
 
     expect(install("kiro-ide").out).not.toContain("now sets new projects up");
@@ -126,7 +127,7 @@ describe("the legacy kiro row new projects no longer get", () => {
     mkdirSync(join(fresh, ".git"));
     const preview = spawnSync(
       process.execPath,
-      [INIT, "config", "--from", join(RELEASE, "kiro"), "--harness", "kiro", "--mcp", "none", "--dry-run"],
+      [INIT, "config", "--from", join(RELEASE, "kiro"), "--harness", "kiro-cli-legacy", "--mcp", "none", "--dry-run"],
       { cwd: fresh, env: childEnv(), encoding: "utf-8" },
     );
     const previewed = `${preview.stdout ?? ""}${preview.stderr ?? ""}`;
@@ -149,7 +150,7 @@ describe("the legacy kiro row new projects no longer get", () => {
     const legacy = doctor(legacyProject);
     // Shown without --verbose, and counted as passed: a team may stay on purpose.
     expect(legacy).toMatch(
-      /\n {2}ok {4}AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working\. To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI 2\.24\.1 or later on its v3 engine, run `[^`\n]* config --harness kiro-ide`\.\n/,
+      /\n {2}ok {4}AI-DLC now sets new projects up on the `kiro` row; this project is on the legacy `kiro-cli-legacy` row, which keeps working\. To move it to `kiro`, which runs in Kiro IDE and in Kiro CLI 2\.24\.1 or later on its v3 engine, run `[^`\n]* config --harness kiro`\.\n/,
     );
     expect(legacy).not.toContain("warn  AI-DLC now sets new projects up");
     // Run from another folder, the step names the project it diagnosed.
@@ -180,7 +181,7 @@ describe("the legacy kiro row new projects no longer get", () => {
       env: childEnv({ AIDLC_HARNESS_DIR: ".claude" }),
       encoding: "utf-8",
     });
-    expect(`${result.stdout ?? ""}${result.stderr ?? ""}`).toContain("this project is on the legacy `kiro` row");
+    expect(`${result.stdout ?? ""}${result.stderr ?? ""}`).toContain("this project is on the legacy `kiro-cli-legacy` row");
   });
 
   // The Kiro CLI guide's way through for a project whose agents Kiro CLI 3.0
@@ -192,7 +193,7 @@ describe("the legacy kiro row new projects no longer get", () => {
     const agent = join(project, ".kiro", "agents", "aidlc.json");
     writeFileSync(`${agent}.bak`, readFileSync(agent));
     writeFileSync(agent, JSON.stringify({ ...JSON.parse(readFileSync(agent, "utf-8")), upgraded: true }));
-    const switchArgs = [INIT, "config", "--from", join(RELEASE, "kiro-ide"), "--harness", "kiro-ide", "--mcp", "none", "--yes"];
+    const switchArgs = [INIT, "config", "--from", join(RELEASE, "kiro-ide"), "--harness", "kiro", "--mcp", "none", "--yes"];
     const stopped = spawnSync(process.execPath, switchArgs, { cwd: project, env: childEnv(), encoding: "utf-8" });
     const said = `${stopped.stdout ?? ""}${stopped.stderr ?? ""}`;
     expect(stopped.status, said).not.toBe(0);
@@ -208,5 +209,95 @@ describe("the legacy kiro row new projects no longer get", () => {
     expect(moved.stdout).toContain("switched .kiro in place from kiro to kiro-ide (aidlc/ kept)");
     expect(existsSync(join(project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
     expect(existsSync(`${agent}.bak`)).toBe(true);
+  });
+
+  // The names a person types: `kiro` is the Kiro row (id kiro-ide),
+  // `kiro-cli-legacy` the legacy row (id kiro); the retired `kiro-ide` says
+  // what to type instead and writes nothing.
+  test("--harness kiro sets up the Kiro row and says the versions it runs in; kiro-ide says to type kiro", () => {
+    const fresh = (): string => {
+      const project = realpathSync(mkdtempSync(join(tmpdir(), "aidlc-t-legacy-kiro-")));
+      temporary.push(project);
+      mkdirSync(join(project, ".git"));
+      return project;
+    };
+    const config = (project: string, args: string[]) => {
+      const result = spawnSync(process.execPath, [INIT, "config", "--from", join(RELEASE, "kiro-ide"), ...args], {
+        cwd: project,
+        env: childEnv(),
+        encoding: "utf-8",
+      });
+      return { status: result.status, out: `${result.stdout ?? ""}${result.stderr ?? ""}` };
+    };
+    const kiro = fresh();
+    const set = config(kiro, ["--harness", "kiro", "--mcp", "none", "--yes"]);
+    expect(set.status, set.out).toBe(0);
+    expect(set.out).toContain(
+      "Note: AI-DLC's Kiro row runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.",
+    );
+    expect(existsSync(join(kiro, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
+
+    const retired = fresh();
+    const named = config(retired, ["--harness", "kiro-ide", "--mcp", "none", "--yes"]);
+    expect(named.status).not.toBe(0);
+    expect(named.out).toContain("`kiro-ide` is now called `kiro`");
+    expect(named.out).toMatch(/config --harness kiro\n/);
+    expect(existsSync(join(retired, ".kiro"))).toBe(false);
+  });
+
+  // At a terminal, `--harness kiro` on a project still on the legacy row asks
+  // before it moves it (the name meant the legacy row before); "n" writes
+  // nothing, and --yes moves it.
+  test("--harness kiro on a legacy project asks at a terminal before it moves it", () => {
+    const { project } = install("kiro");
+    const args = [INIT, "config", "--from", join(RELEASE, "kiro-ide"), "--harness", "kiro", "--mcp", "none"];
+    const asked = spawnSync(process.execPath, args, {
+      cwd: project,
+      env: childEnv({ AIDLC_TEST_CONFIG_TTY: "1" }),
+      input: "n\n",
+      encoding: "utf-8",
+    });
+    const said = `${asked.stdout ?? ""}${asked.stderr ?? ""}`;
+    expect(said.replace(/\s+/g, " ")).toContain(
+      "This project is on the legacy `kiro-cli-legacy` row, and `--harness kiro` now names the Kiro row. Move .kiro to it in place (aidlc/ is kept)?",
+    );
+    expect(said).toContain("Nothing written.");
+    expect(existsSync(join(project, ".kiro", "agents", "aidlc.json"))).toBe(true);
+
+    const moved = spawnSync(process.execPath, [...args, "--yes"], { cwd: project, env: childEnv(), encoding: "utf-8" });
+    expect(moved.status, `${moved.stdout ?? ""}${moved.stderr ?? ""}`).toBe(0);
+    expect(moved.stdout).toContain("switched .kiro in place from kiro to kiro-ide (aidlc/ kept)");
+  });
+
+  // With this machine's Kiro CLI older than the Kiro row needs, a person at a
+  // terminal is asked first; --yes says so and goes on.
+  test.skipIf(process.platform === "win32")("--harness kiro with an older Kiro CLI asks first at a terminal, and --yes says so", () => {
+    const bin = realpathSync(mkdtempSync(join(tmpdir(), "aidlc-t-legacy-kiro-bin-")));
+    temporary.push(bin);
+    writeFileSync(join(bin, "kiro-cli"), "#!/bin/sh\necho 'kiro-cli 2.20.0'\n");
+    chmodSync(join(bin, "kiro-cli"), 0o755);
+    const env = (extra: Record<string, string> = {}) => childEnv({ PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`, ...extra });
+    const older =
+      "Kiro CLI 2.20.0 is older than 2.24.1. AI-DLC's Kiro row works in Kiro CLI 2.24.1 or later (and in Kiro IDE 1.1.70 or later).";
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "aidlc-t-legacy-kiro-")));
+    temporary.push(project);
+    mkdirSync(join(project, ".git"));
+    const args = [INIT, "config", "--from", join(RELEASE, "kiro-ide"), "--harness", "kiro", "--mcp", "none"];
+    const asked = spawnSync(process.execPath, args, {
+      cwd: project,
+      env: env({ AIDLC_TEST_CONFIG_TTY: "1" }),
+      input: "n\n",
+      encoding: "utf-8",
+    });
+    const said = `${asked.stdout ?? ""}${asked.stderr ?? ""}`;
+    expect(said.replace(/\s+/g, " ")).toContain(`${older} Set up anyway? [y/N]:`);
+    expect(said).toContain("Nothing written.");
+    expect(existsSync(join(project, ".kiro"))).toBe(false);
+
+    const went = spawnSync(process.execPath, [...args, "--yes"], { cwd: project, env: env(), encoding: "utf-8" });
+    const out = `${went.stdout ?? ""}${went.stderr ?? ""}`;
+    expect(went.status, out).toBe(0);
+    expect(out).toContain(`Note: ${older}`);
+    expect(existsSync(join(project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
   });
 });

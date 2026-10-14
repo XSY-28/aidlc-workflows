@@ -8,15 +8,17 @@
 > [Running AI-DLC on Kiro IDE](kiro-ide.md).
 
 > [!IMPORTANT]
-> This page covers the legacy `kiro` row, which pins no Kiro engine. New
-> projects no longer get it: the interactive `aidlc config` offers the
-> `kiro-ide` row for Kiro CLI, which pins Kiro's v3 engine and runs in Kiro CLI
-> 2.24.1 or later as well as Kiro IDE. A project that already has this row keeps
-> working on it, and `aidlc config` and `aidlc doctor` say how to move it:
-> `aidlc config --harness kiro-ide` switches `.kiro/`
-> to that row in place and keeps `aidlc/`. With a Kiro CLI older than 2.24.1,
-> setup says to update it; `aidlc config --harness kiro` still sets a new project
-> up on this row when you name it.
+> This page covers the legacy Kiro CLI row (`--harness kiro-cli-legacy`;
+> projects record it as `kiro`), which pins no Kiro engine. New projects no
+> longer get it: `aidlc config` offers the Kiro row (`--harness kiro`, recorded
+> as `kiro-ide`), which pins Kiro's v3 engine and runs in Kiro CLI 2.24.1 or later
+> as well as Kiro IDE 1.1.70 or later. A project that already has the legacy row
+> keeps working on it, and a refresh with `aidlc config` and `aidlc doctor` say
+> how to move it: `aidlc config --harness kiro` switches `.kiro/` to the Kiro row
+> in place and keeps `aidlc/` (at a terminal it asks first). With a Kiro CLI older
+> than 2.24.1, setup asks before it sets the Kiro row up; `aidlc config --harness
+> kiro-cli-legacy` still sets a project up on the legacy row when you name it.
+> `--harness kiro-ide`, the Kiro row's earlier name, now says to type `kiro`.
 >
 > If Kiro CLI 3.0 already upgraded this project's agents (it keeps each
 > original beside it as a `.json.bak`), the switch stops on those agent files,
@@ -56,11 +58,11 @@ curl -fsSL \
 sh "$tmp/install.sh"
 rm -rf "$tmp"
 cd your-project
-aidlc config --harness kiro
+aidlc config --harness kiro-cli-legacy
 aidlc doctor
 ```
 
-The installer verifies the release metadata, executable, and all-harness runtime archive against the published SHA-256 checksums. The installed runtime does not require Bun, Node.js, or Git. Harness selection happens in `aidlc config`; name this page's row with `--harness kiro`, since a plain `aidlc config` does not offer it to a new project while `kiro-ide` is installed, as it is in every release.
+The installer verifies the release metadata, executable, and all-harness runtime archive against the published SHA-256 checksums. The installed runtime does not require Bun, Node.js, or Git. Harness selection happens in `aidlc config`; name this page's row with `--harness kiro-cli-legacy`, since a plain `aidlc config` does not offer it to a new project while `kiro-ide` is installed, as it is in every release.
 
 On Windows, download `install.ps1` and run
 `& $installer`. See [Windows installation](../18-install-and-lifecycle.md#windows-powershell)
@@ -69,7 +71,7 @@ For an air-gapped package, use
 `install.sh --from <release-directory> --offline` on Unix or
 `& $installer -From <release-directory> -Offline` on Windows.
 
-`aidlc config --harness kiro` projects the Kiro shell before the first chat session. Then start
+`aidlc config --harness kiro-cli-legacy` projects the Kiro shell before the first chat session. Then start
 Kiro from the project root:
 
 ```bash
@@ -93,7 +95,7 @@ then set `RUNTIME_ROOT` to the extracted `runtime/` directory.
 mkdir -p your-project/.kiro your-project/aidlc
 cp -R "$RUNTIME_ROOT/kiro/.kiro/." your-project/.kiro/
 cp -R "$RUNTIME_ROOT/kiro/aidlc/." your-project/aidlc/    # the workspace shell (spaces/default/memory) — a sibling of .kiro/, not inside it
-cd your-project && bun .kiro/tools/aidlc.ts config --from "$RUNTIME_ROOT" --harness kiro
+cd your-project && bun .kiro/tools/aidlc.ts config --from "$RUNTIME_ROOT" --harness kiro-cli-legacy
 ```
 
 The `aidlc/` directory is the workspace shell — it ships the pre-built
@@ -280,7 +282,7 @@ and start `kiro-cli chat --agent-engine v2 --agent aidlc` in this folder
 instead (an ACP client starts `kiro-cli acp --agent-engine v2`). To run Kiro
 CLI on its v3 engine, use the
 [Kiro IDE](kiro-ide.md) distribution instead; in an existing project,
-`aidlc config --harness kiro-ide` switches `.kiro/` to it in place and keeps
+`aidlc config --harness kiro` switches `.kiro/` to it in place and keeps
 `aidlc/`. See
 [Kiro CLI hooks not running](../15-troubleshooting.md#kiro-cli-hooks-not-running).
 

@@ -227,7 +227,7 @@ function nativePreloadError(projectDir: string, agents: string[]): PreloadFailur
       `Expected resources to include ${expected}, resolving to at least one existing Markdown file. ` +
       `${agent.startsWith("aidlc-") ? step : `Add ${expected} to the resources array in the plugin's agent JSON and repair the active-space memory files before retrying.`}\n`,
   });
-  const reinstall = `Run \`${aidlcInvocation()} config --harness kiro\` in a terminal to put AI-DLC's Kiro files back, ` +
+  const reinstall = `Run \`${aidlcInvocation()} config --harness kiro-cli-legacy\` in a terminal to put AI-DLC's Kiro files back, ` +
     `then start the specialist again; /aidlc --doctor names anything still wrong.`;
   for (const agent of new Set(workers)) {
     const file = join(projectDir, ".kiro", "agents", `${agent}.json`);

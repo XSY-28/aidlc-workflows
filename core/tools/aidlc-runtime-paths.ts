@@ -442,6 +442,32 @@ export function runtimeHarnessName(
   return "claude";
 }
 
+// The name a person types after --harness for a row, where it differs from
+// the row's id. Installed projects keep the ids (`kiro` = the legacy agent-v1
+// row, `kiro-ide` = the Kiro row for Kiro IDE and Kiro CLI), so only what is
+// typed and printed changes. The retired typed name `kiro-ide` is answered
+// with the name to type instead (retiredTypedHarnessName).
+const TYPED_HARNESS_NAMES: Readonly<Record<string, string>> = Object.freeze({
+  kiro: "kiro-cli-legacy",
+  "kiro-ide": "kiro",
+});
+
+/** The name to print after --harness for a row id. */
+export function typedHarnessName(id: string): string {
+  return Object.hasOwn(TYPED_HARNESS_NAMES, id) ? TYPED_HARNESS_NAMES[id] : id;
+}
+
+/** The row id a typed --harness name means. */
+export function harnessIdFromTyped(name: string): string {
+  const id = Object.entries(TYPED_HARNESS_NAMES).find(([, typed]) => typed === name)?.[0];
+  return id ?? name;
+}
+
+/** For a typed name the person no longer types (`kiro-ide`): the one to type instead, or null. */
+export function retiredTypedHarnessName(name: string): string | null {
+  return name === "kiro-ide" ? typedHarnessName("kiro-ide") : null;
+}
+
 // The rows AI-DLC no longer offers a new project, each with the row new
 // projects get instead and what that row runs on. A project that has one keeps
 // it: it refreshes and switches either way, and config and doctor say how to
@@ -475,9 +501,10 @@ export function retiredRowLine(
 ): string | null {
   if (!Object.hasOwn(NEW_PROJECTS_GET, distribution)) return null;
   const { row, runsOn } = NEW_PROJECTS_GET[distribution];
-  const command = `${invoke} config --harness ${row}${target}`;
-  return `AI-DLC now sets new projects up on the \`${row}\` row; this project is on the legacy \`${distribution}\` row, which keeps working. ` +
-    `To move it to \`${row}\`, which runs in ${runsOn(floor)}, run \`${command}\`.`;
+  const command = `${invoke} config --harness ${typedHarnessName(row)}${target}`;
+  return `AI-DLC now sets new projects up on the \`${typedHarnessName(row)}\` row; this project is on the legacy ` +
+    `\`${typedHarnessName(distribution)}\` row, which keeps working. ` +
+    `To move it to \`${typedHarnessName(row)}\`, which runs in ${runsOn(floor)}, run \`${command}\`.`;
 }
 
 // The tools that hide a Stop-hook block's reason from the person: Kiro CLI
@@ -571,7 +598,7 @@ const HOST_LABELS: Readonly<Record<string, string>> = {
   copilot: "GitHub Copilot",
   cursor: "Cursor",
   kiro: "Kiro CLI",
-  "kiro-ide": "Kiro IDE",
+  "kiro-ide": "Kiro",
   opencode: "opencode",
 };
 

@@ -11,7 +11,7 @@ Harness-specific onboarding lives in `.kiro/steering/aidlc-onboarding.md`,
 whose `inclusion: always` frontmatter loads it automatically. The root
 `AGENTS.md` block is harness-neutral and shared with other installed harnesses;
 engine directories must still differ (the `kiro` and `kiro-ide` distributions cannot share `.kiro/`; in a project with
-`kiro`, `aidlc config --harness kiro-ide` switches `.kiro/` to this distribution in place).
+`kiro`, `aidlc config --harness kiro` switches `.kiro/` to this distribution in place).
 
 > [!IMPORTANT]
 > **Run AI-DLC on Kiro with Claude Opus 4.8.** The conductor drives a
@@ -59,7 +59,7 @@ curl -fsSL \
 sh "$tmp/install.sh"
 rm -rf "$tmp"
 cd your-project
-aidlc config --harness kiro-ide
+aidlc config --harness kiro
 aidlc doctor
 ```
 
@@ -122,7 +122,7 @@ if [ -f your-project/.kiro/settings/cli.json ]; then
 fi
 cp -R "$RUNTIME_ROOT/kiro-ide/.kiro/." your-project/.kiro/
 cp -R "$RUNTIME_ROOT/kiro-ide/aidlc/." your-project/aidlc/     # the workspace shell (spaces/default/memory) — a sibling of .kiro/, not inside it
-cd your-project && bun .kiro/tools/aidlc.ts config --from "$RUNTIME_ROOT" --harness kiro-ide
+cd your-project && bun .kiro/tools/aidlc.ts config --from "$RUNTIME_ROOT" --harness kiro
 ```
 
 The first removal loop is the v2.5.57 hook-name migration. The second removes

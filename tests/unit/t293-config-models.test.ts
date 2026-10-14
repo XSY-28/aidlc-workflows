@@ -39,6 +39,7 @@ import {
   projectSettingsPath,
   resolveAidlcSettings,
 } from "../../core/tools/aidlc-settings.ts";
+import { typedHarnessName } from "../../core/tools/aidlc-runtime-paths.ts";
 
 setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
@@ -107,7 +108,7 @@ function install(harness: string): string {
     "--from",
     join(DIST_RELEASE, harness),
     "--harness",
-    harness,
+    typedHarnessName(harness),
     "--mcp",
     "none",
     "--yes",
@@ -1649,7 +1650,7 @@ describe("t293 doctor model policy advisory", () => {
     for (const [harness, product] of [
       ["copilot", "GitHub Copilot"],
       ["cursor", "Cursor"],
-      ["kiro-ide", "Kiro IDE"],
+      ["kiro-ide", "Kiro"],
     ] as const) {
       const project = temp(`aidlc-t293-doctor-session-${harness}-`);
       cpSync(join(DIST, harness), project, { recursive: true });
@@ -1719,7 +1720,7 @@ describe("t293 doctor model policy advisory", () => {
     const inert = "the recorded balanced preset does not apply here";
     expect(modelsPolicyCheck(hosts, true)).toEqual({
       pass: true,
-      label: `Models: every agent uses your Kiro IDE session's model and effort; ${inert}; ` +
+      label: `Models: every agent uses your Kiro session's model and effort; ${inert}; ` +
         `every agent uses your Cursor session's model and effort; ${inert}`,
     });
   });

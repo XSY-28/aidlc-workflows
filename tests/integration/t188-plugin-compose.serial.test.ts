@@ -41,6 +41,7 @@ import {
   REPO_ROOT,
   runOrchestrateNext,
 } from "../harness/fixtures.ts";
+import { typedHarnessName } from "../../core/tools/aidlc-runtime-paths.ts";
 import {
   HARNESS_MATRIX,
   harnessByName,
@@ -900,7 +901,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
       const config = (...extra: string[]) =>
         spawnSync(BUN, [
           join(REPO_ROOT, "core", "tools", "aidlc-init.ts"),
-          "config", "--project-dir", project, "--from", release, "--harness", harness, "--mcp", "none", ...extra,
+          "config", "--project-dir", project, "--from", release, "--harness", typedHarnessName(harness), "--mcp", "none", ...extra,
         ], { cwd: project, encoding: "utf-8", env, timeout: remainingOperationTimeoutMs(NATIVE_FIXTURE_SETUP_TIMEOUT_MS) });
       const installed = config("--yes");
       expect(installed.status, `${installed.stdout}${installed.stderr}`).toBe(0);

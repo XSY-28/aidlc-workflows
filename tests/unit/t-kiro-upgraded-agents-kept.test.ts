@@ -4,7 +4,7 @@
 // 2.0 agent files; Enter enables it) rewrites every agent JSON in .kiro/agents
 // into Kiro's own format, which has a `permissions` block, and keeps each file
 // it replaced beside it as `<name>.json.bak`. Measured on Kiro CLI 2.29.0: the
-// next `aidlc config --harness kiro` stopped on 15 "locally modified or
+// next `aidlc config --harness kiro-cli-legacy` stopped on 15 "locally modified or
 // unowned" conflicts and wrote nothing, so no other file of the release
 // arrived. A refresh keeps the files Kiro upgraded as they are, says so once
 // with the way to take this release's versions, and delivers the rest. A file
@@ -35,7 +35,7 @@ afterAll(() => {
 function config(project: string, extra: string[]): { status: number; out: string } {
   const result = spawnSync(process.execPath, [
     INIT, "config", "--project-dir", project, "--from", join(REPO_ROOT, "dist-release", "kiro"),
-    "--harness", "kiro", "--mcp", "none", ...extra,
+    "--harness", "kiro-cli-legacy", "--mcp", "none", ...extra,
   ], { cwd: project, encoding: "utf-8", timeout: NATIVE_STARTUP_TIMEOUT_MS });
   if (result.error) throw result.error;
   return { status: result.status ?? -1, out: `${result.stdout ?? ""}${result.stderr ?? ""}` };
@@ -81,7 +81,7 @@ const snapshot = (project: string, rels: string[]): Map<string, string> =>
   new Map(rels.map((rel) => [rel, readFileSync(join(project, rel), "utf-8")]));
 
 const NOTE =
-  /^ {2}Note: Kiro upgraded 15 agent files in \.kiro\/agents for its 3\.0 engine and they were kept as they are; to take this release's versions run `[^`]*config --harness kiro --force`, and Kiro upgrades them again the next time it starts on its 3\.0 engine\.$/m;
+  /^ {2}Note: Kiro upgraded 15 agent files in \.kiro\/agents for its 3\.0 engine and they were kept as they are; to take this release's versions run `[^`]*config --harness kiro-cli-legacy --force`, and Kiro upgrades them again the next time it starts on its 3\.0 engine\.$/m;
 
 describe("a refresh keeps the agent files Kiro upgraded for its 3.0 engine", () => {
   test("the files Kiro upgraded stay as they are, one line says so, and the rest of the release lands", () => {

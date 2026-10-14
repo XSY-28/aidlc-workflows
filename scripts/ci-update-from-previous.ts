@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { KIRO_HOOK_GROUPS } from "../harness/kiro-ide/hooks/aidlc-kiro-tool-names.ts";
+import { typedHarnessName } from "../core/tools/aidlc-runtime-paths.ts";
 
 export const HARNESSES = ["claude", "codex", "copilot", "cursor", "kiro", "kiro-ide", "opencode"] as const;
 const HARNESS_DIRS: Record<(typeof HARNESSES)[number], string> = {
@@ -308,7 +309,8 @@ function check(previous: string, candidate: string, target: string, root: string
   for (const { harness, project } of projects) {
     const known = failures.length;
     const count = hooks(harness, project, `before the refresh`);
-    aidlc(`aidlc config --yes for ${harness}`, ["config", "--project-dir", project, "--harness", harness, "--mcp", "none", "--yes", "--quiet"]);
+    // This release reads the names a person types (`kiro` is the Kiro row, `kiro-cli-legacy` the legacy row).
+    aidlc(`aidlc config --yes for ${harness}`, ["config", "--project-dir", project, "--harness", typedHarnessName(harness), "--mcp", "none", "--yes", "--quiet"]);
     hooks(harness, project, "after the refresh");
     aidlc(`aidlc doctor for ${harness}`, ["doctor", "--project-dir", project, "--quiet"]);
     const result = failures.length === known ? "all passed" : `${failures.length - known} failed`;

@@ -1545,7 +1545,7 @@ describe("t304 first-run prompt and detection safety", () => {
     const result = runWizard("5\n\n");
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain(
-      "no provider settings; model access comes with Kiro IDE",
+      "no provider settings; model access comes with Kiro",
     );
     const harness = JSON.parse(
       readFileSync(join(result.project, ".kiro", "tools", "data", "harness.json"), "utf-8"),
@@ -1564,7 +1564,7 @@ describe("t304 first-run prompt and detection safety", () => {
     expect(toKiro.status, toKiro.stdout + toKiro.stderr).toBe(0);
     expect(toKiro.stdout).toContain("2. Provider     keep current");
     // Kiro brings its own model access, so the row says so and records nothing.
-    expect(toKiro.stdout).toContain("2. Provider     comes with Kiro IDE");
+    expect(toKiro.stdout).toContain("2. Provider     comes with Kiro");
     expect(toKiro.stdout).not.toContain("Verify Amazon Bedrock model access");
     const kiro = JSON.parse(
       readFileSync(join(toKiro.project, ".kiro", "tools", "data", "harness.json"), "utf-8"),

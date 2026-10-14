@@ -62,6 +62,7 @@ import {
 } from "../../core/tools/aidlc-config-diagnostics.ts";
 import { collectDoctorReport, firingHooksLastFired, kiroDisabledHookChecks } from "../../core/tools/aidlc-utility.ts";
 import * as runtimePaths from "../../core/tools/aidlc-runtime-paths.ts";
+import { typedHarnessName } from "../../core/tools/aidlc-runtime-paths.ts";
 
 setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
@@ -135,7 +136,7 @@ function install(harness: string, source = join(DIST_RELEASE, harness)): string 
     "--from",
     source,
     "--harness",
-    harness,
+    typedHarnessName(harness),
     "--mcp",
     "defaults",
     "--yes",
@@ -5165,7 +5166,7 @@ process.exit(0);
           "--from",
           join(DIST_RELEASE, harness),
           "--harness",
-          harness,
+          typedHarnessName(harness),
           "--yes",
         ], project, env);
         // A Claude hook edit is a conflict; the team's opencode.json entries are theirs to keep.
@@ -5213,7 +5214,7 @@ process.exit(0);
           "--from",
           join(DIST_RELEASE, harness),
           "--harness",
-          harness,
+          typedHarnessName(harness),
           "--yes",
         ], project, env);
         expect(refreshed.status, refreshed.stdout + refreshed.stderr).toBe(0);
@@ -5987,7 +5988,7 @@ process.exit(0);
         "--from",
         join(DIST_RELEASE, harness),
         "--harness",
-        harness,
+        typedHarnessName(harness),
         "--yes",
       ];
       const preview = run([...args, "--dry-run", "--json"], project, env);
@@ -6344,7 +6345,7 @@ process.exit(0);
     const show = run([...args, "--show"], project, env);
     expect(show.status, show.stdout + show.stderr).toBe(0);
     expect(show.stdout).toContain(
-      "Model access: comes with Kiro IDE; AI-DLC configures no model provider",
+      "Model access: comes with Kiro; AI-DLC configures no model provider",
     );
     expect(show.stdout).toContain("Legacy provider answer present and ignored;");
     expect(show.stdout).toContain("config providers --reset");
@@ -6438,7 +6439,7 @@ process.exit(0);
       "--from",
       join(DIST_RELEASE, "kiro"),
       "--harness",
-      "kiro",
+      "kiro-cli-legacy",
       "--yes",
     ], kiro, noCredentials);
     expect(refresh.status, refresh.stdout + refresh.stderr).toBe(0);
@@ -6469,7 +6470,7 @@ process.exit(0);
       "--from",
       join(DIST_RELEASE, "kiro"),
       "--harness",
-      "kiro",
+      "kiro-cli-legacy",
       "--yes",
     ], kiro, noCredentials);
     expect(kept.status, kept.stdout + kept.stderr).toBe(0);
@@ -6508,7 +6509,7 @@ process.exit(0);
     next.mcpServers["aws-pricing"].args = ["awslabs.aws-pricing-mcp-server@9.9.9"];
     delete next.mcpServers["aws-iac"];
     writeFileSync(releaseMcpPath, `${JSON.stringify(next, null, 2)}\n`);
-    const args = ["config", "--project-dir", kiro, "--from", release, "--harness", "kiro", "--yes"];
+    const args = ["config", "--project-dir", kiro, "--from", release, "--harness", "kiro-cli-legacy", "--yes"];
 
     const refresh = run(args, kiro);
     expect(refresh.status, refresh.stdout + refresh.stderr).toBe(0);
@@ -6549,7 +6550,7 @@ process.exit(0);
     const mcpPath = join(project, ".kiro", "settings", "mcp.json");
     writeFileSync(mcpPath, `${JSON.stringify({ mcpServers: { "team-docs": { command: "team-docs-server" } } }, null, 2)}\n`);
     const result = run(
-      ["config", "--project-dir", project, "--from", join(DIST_RELEASE, "kiro"), "--harness", "kiro", "--yes"],
+      ["config", "--project-dir", project, "--from", join(DIST_RELEASE, "kiro"), "--harness", "kiro-cli-legacy", "--yes"],
       project,
     );
     expect(result.status, result.stdout + result.stderr).toBe(0);
@@ -6574,7 +6575,7 @@ process.exit(0);
     const env = { KIRO_HOME: kiroHome };
     const project = temp("aidlc-t294-kiro-grants-");
     mkdirSync(join(project, ".git"));
-    const args = ["config", "--project-dir", project, "--from", join(DIST_RELEASE, "kiro"), "--harness", "kiro", "--yes"];
+    const args = ["config", "--project-dir", project, "--from", join(DIST_RELEASE, "kiro"), "--harness", "kiro-cli-legacy", "--yes"];
     const shippedAgent = JSON.parse(readFileSync(join(DIST_RELEASE, "kiro", ".kiro", "agents", "aidlc.json"), "utf-8")) as Agent;
     const shippedServers = Object.keys((JSON.parse(
       readFileSync(join(DIST_RELEASE, "kiro", ".kiro", "settings", "mcp.json"), "utf-8"),

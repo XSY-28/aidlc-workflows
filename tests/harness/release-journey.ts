@@ -21,6 +21,7 @@ import { auditBlockField, readAuditShardEvents } from "../../dist/claude/.claude
 import { REPO_ROOT } from "./fixtures.ts";
 import { expectPersonFirst } from "./person-turns.ts";
 import { NATIVE_FIXTURE_SETUP_TIMEOUT_MS, remainingOperationTimeoutMs } from "./test-budget.ts";
+import { typedHarnessName } from "../../core/tools/aidlc-runtime-paths.ts";
 
 export type ReleaseJourneyHarness = "copilot" | "kiro";
 
@@ -98,7 +99,7 @@ export function setupReleaseJourneyProject(
   git(proj, ["commit", "-qm", "greeter with the bug"]);
   cpSync(join(runtime, harness), proj, { recursive: true });
   const project = { harness, root, runtime, proj };
-  const config = aidlcCommand(project, ["config", "--from", runtime, "--harness", harness, "--yes"], env);
+  const config = aidlcCommand(project, ["config", "--from", runtime, "--harness", typedHarnessName(harness), "--yes"], env);
   if (config.status !== 0) throw new Error(`config --from failed (${config.status}):\n${config.out.slice(-3000)}`);
   const doctor = aidlcCommand(project, ["doctor"], env);
   if (doctor.status !== 0) throw new Error(`doctor failed after setup (${doctor.status}):\n${doctor.out.slice(-3000)}`);
