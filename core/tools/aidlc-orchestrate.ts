@@ -4825,7 +4825,7 @@ export function parseNextFlags(argv: string[]): ParsedFlags {
   // only the tokens in front of the `--` mark, so neither the mark nor a word
   // behind it is ever a flag's value.
   const read = readNextTokens(args);
-  for (const { role, token: a, value, rest } of read.tokens) {
+  for (const { role, token: a, value } of read.tokens) {
     if (role === "word") {
       // Among the person's own words a flag-shaped token is one of their words,
       // never noise (#847), and so is a utility flag ("add a --version flag
@@ -4881,14 +4881,12 @@ export function parseNextFlags(argv: string[]): ParsedFlags {
     // agent sees it gets the same answer. After the `--` delimiter nothing
     // reaches here (the words behind it are theirs), and one quoted argument
     // holding a sentence is not flag-shaped, so `--help flag for the reverser`
-    // is still what they asked for, unless its first word is a flag-shaped
-    // token AI-DLC does not take (#2401, nextTokenKind). Each flag below comes with the value the
+    // is still what they asked for. Each flag below comes with the value the
     // table says it takes: `value` is undefined when nothing it can take
     // follows it.
     if (role === "untaken") {
       flags.untakenFlag ??= a;
       wordTokens.push(a);
-      if (rest !== undefined) wordTokens.push(rest);
       if (value !== undefined) {
         flags.untakenFlagValue ??= value;
         wordTokens.push(value);

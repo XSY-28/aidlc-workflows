@@ -40416,40 +40416,11 @@ export function argumentIsFlagShaped(arg: string): boolean {
  *
  * `following` is the token after it, which is what settles the four flags this
  * engine takes only when something follows them.
- *
- * One quoted argument holding a sentence is the person's words, a flag-shaped
- * word in it included, except at its front: an argument that opens with a
- * flag-shaped token AI-DLC does not take (`'--description Northwind Mini Bank:
- * ...'`) is the shape of an agent putting a flag of its own inside the quotes,
- * and taken as words it named the work after that flag (#2401). It is untaken
- * like the token on its own. A sentence that opens with a flag AI-DLC does take
- * ("--help flag for the reverser"), or with dashes that name no flag (`---`
- * front matter), stays their words, and so does every word behind `--`, which
- * never reaches here.
  */
 export function nextTokenKind(token: string, following: string | undefined): "flag" | "untaken" | "words" {
   const shape = nextFlagShape(token);
   if (shape !== null && (shape.needsFollowing !== true || following !== undefined)) return "flag";
-  if (argumentIsFlagShaped(token)) return "untaken";
-  return untakenOpeningFlag(token) === null ? "words" : "untaken";
-}
-
-/**
- * The flag at the front of one argument holding a sentence, when it has a
- * flag's name and AI-DLC does not take it, with the rest of the argument;
- * null otherwise.
- */
-export function untakenOpeningFlag(token: string): { flag: string; rest: string } | null {
-  const match = /^\s*(--[A-Za-z][\w.-]*(?:=\S*)?)\s+(\S[\s\S]*)$/.exec(token);
-  if (match === null || aidlcTakesFlag(match[1])) return null;
-  return { flag: match[1], rest: match[2].trimEnd() };
-}
-
-/** Whether `next`, or a command it reads off the same line, takes this flag at all. */
-function aidlcTakesFlag(token: string): boolean {
-  return nextFlagShape(token) !== null || READ_ONLY_FLAGS.has(token) || DOCTOR_EXPORT_FLAGS.has(token) ||
-    (ORCHESTRATOR_LAUNCHER_OPTIONS as readonly string[]).includes(token) ||
-    ["--config", "--statusline", "--pick", "--request-file"].includes(token);
+  return argumentIsFlagShaped(token) ? "untaken" : "words";
 }
 
 /**
@@ -40505,15 +40476,13 @@ export function beforeDelimiter(args: readonly string[]): string[] {
  * the value that flag takes), a flag-shaped token it does not take (with the
  * word after it), a word of the person's, a utility flag (only on a line with
  * no words of theirs), one of `--doctor`'s own options, or the leading
- * `compose` verb. `at` is its place in the arguments. `rest` is the sentence
- * after an untaken flag that opened one argument (#2401).
+ * `compose` verb. `at` is its place in the arguments.
  */
 export interface NextToken {
   role: "flag" | "untaken" | "word" | "read-only" | "doctor-arg" | "compose";
   token: string;
   at: number;
   value?: string;
-  rest?: string;
 }
 
 /**
@@ -40562,13 +40531,6 @@ export function readNextTokens(args: readonly string[]): {
     const kind = nextTokenKind(token, following);
     if (kind === "words") {
       tokens.push({ role: "word", token, at });
-      continue;
-    }
-    // A sentence opening with a flag AI-DLC does not take names that flag
-    // alone; the rest of the sentence is still their words.
-    const opening = kind === "untaken" && !argumentIsFlagShaped(token) ? untakenOpeningFlag(token) : null;
-    if (opening !== null) {
-      tokens.push({ role: "untaken", token: opening.flag, at, rest: opening.rest });
       continue;
     }
     const shape = kind === "flag" ? nextFlagShape(token) : null;
