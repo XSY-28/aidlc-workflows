@@ -7055,7 +7055,7 @@ function selectSource(
   if (offered.length === 0) {
     throw new Error(
       requiredVersion
-        ? `${requiredVersion} holds only harnesses AI-DLC no longer ships; pin a release that ships yours (aidlc config --pin <version>; aidlc versions list shows the installed ones), or name one with --harness <name>`
+        ? `${requiredVersion} holds only harnesses AI-DLC no longer ships; pin a release that ships yours (aidlc config --pin <version>; aidlc versions list shows the installed ones)`
         : "the installed runtimes hold only harnesses AI-DLC no longer ships; run aidlc update",
     );
   }

@@ -237,8 +237,8 @@ one row, both with this line:
 ```
 
 After `aidlc update`, the project's Kiro CLI chat hands the agent the same line
-when a chat starts and with each message, and blocks every file write and shell
-command the agent tries with it, until you do this. A project pinned to an older
+when a chat starts and with each message, and blocks every file write, shell
+command and agent dispatch the agent tries with it, until you do this. A project pinned to an older
 release keeps running that release until its pin changes. Config for another
 harness in the same project still runs. To move the project, in a terminal
 outside Kiro CLI (the agent's own shell commands are blocked):

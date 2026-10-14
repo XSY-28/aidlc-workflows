@@ -30,7 +30,6 @@ import {
   isCompiledExecutable,
   packagedDistributionRoot,
   discoverableRuntimeHarnessDir,
-  retiredProjectTree,
   retiredRow,
   retiredRowLine,
   runtimeHarnessDir,
@@ -1277,41 +1276,30 @@ const ADAPTER_HARNESS_LEAF: Record<AdapterHarness, string> = {
 };
 
 // The retired Kiro CLI harness's JSON agents call `adapter kiro`, whose runtime
-// no longer ships. Its tool-call checks say what to do and block (Kiro CLI's v2
-// engine stops a tool call on exit 2), so nothing changes without AI-DLC's
-// checks; the chat start and each prompt hand the agent the same line to tell
-// the person; the rest pass quietly (a blocked stop would only come back as the
-// next prompt). Once the tree is moved aside, a chat started before the move
-// is told to start again, and nothing blocks.
-const RETIRED_KIRO_BLOCKS: ReadonlySet<string> = new Set([
-  "deliver-stage-rules",
-  "guard-tool-call",
-  "plan-approval-guard",
-  "review-freeze",
-  "reviewer-scope",
-  "state-transition-guard",
+// no longer ships: only that agent calls it, so the call itself says the chat
+// runs it. Its checks before a tool call (and any target this list does not
+// know) say what to do and block, since Kiro CLI's v2 engine stops a tool call
+// on exit 2 and nothing then changes without AI-DLC's checks; the chat start
+// and each prompt hand the agent the same line; the stop and after-tool hooks
+// pass quietly (a blocked stop would only come back as the next prompt).
+const RETIRED_KIRO_PASSES: ReadonlySet<string> = new Set([
+  "audit-and-sensors",
+  "continue-workflow",
+  "log-subagent",
+  "rebuild-stage-graph",
+  "sync-workflow-state",
 ]);
 const RETIRED_KIRO_TELLS: ReadonlySet<string> = new Set(["session-start", "verb-intercept"]);
 
-function retiredKiroAdapter(target: string): Action {
-  let line = "This Kiro CLI chat still runs the legacy Kiro CLI harness's agent, which AI-DLC no longer ships; " +
-    "start kiro-cli again in this project.";
-  let blocks = false;
-  try {
-    const tree = retiredProjectTree(runtimeProjectDir());
-    // Only the installed aidlc runs this (a copied legacy tree runs its own
-    // older tool, and config never refreshes one), and the tree's tool is the
-    // one moved aside.
-    if (tree) {
-      line = retiredRowLine(tree, "aidlc", "");
-      blocks = true;
-    }
-  } catch {
-    // The line above still says what to do.
-  }
-  if (RETIRED_KIRO_BLOCKS.has(target)) return { type: "stub", message: `${line}\n`, code: blocks ? 2 : 0 };
+function retiredKiroAdapter(harness: string, target: string): Action {
+  if (RETIRED_KIRO_PASSES.has(target)) return { type: "stub", message: "", code: 0 };
+  // Only the installed aidlc runs this (a copied legacy tree runs its own older
+  // tool, and config never refreshes one), and the tree's own tool is the one
+  // moved aside.
+  const line = `${retiredRowLine({ root: "", harnessDir: ".kiro", distribution: harness }, "aidlc", "")} ` +
+    "If you have done that already, start kiro-cli again: this chat still runs the old agent.";
   if (RETIRED_KIRO_TELLS.has(target)) return { type: "stub", message: `${line}\n`, code: 0, stdout: true };
-  return { type: "stub", message: "", code: 0 };
+  return { type: "stub", message: `${line}\n`, code: 2 };
 }
 
 function isAdapterHarness(value: string): value is AdapterHarness {
@@ -1910,7 +1898,7 @@ function handleRouteOnly(route: Route, argv: string[]): Action {
     const harness = argv[1];
     const target = argv[2];
     if (!harness) return nounError("adapter", undefined);
-    if (retiredRow(harness)) return retiredKiroAdapter(argv[2] ?? "");
+    if (retiredRow(harness)) return retiredKiroAdapter(harness, target ?? "");
     if (!isAdapterHarness(harness)) return nounError("adapter", harness);
     if (!target) return nounError("adapter", undefined);
     if (!isSafeName(target)) return nounError("adapter", target);

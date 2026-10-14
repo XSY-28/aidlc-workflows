@@ -166,10 +166,11 @@ describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
   });
 
   // The legacy harness's JSON agents call `engine adapter kiro`, whose runtime is
-  // gone: a tool-call check says the line and blocks (exit 2 stops Kiro CLI's
-  // tool call), a prompt hands the agent the line, a stop passes quietly (a
-  // blocked stop would come back as the next prompt), and once .kiro is moved
-  // aside an old chat is told to start again and nothing blocks.
+  // gone, and only that agent calls it: a tool-call check (or a target it does
+  // not know) says the line and blocks (exit 2 stops Kiro CLI's tool call), a
+  // prompt hands the agent the line, and a stop passes quietly (a blocked stop
+  // would come back as the next prompt). The line also says to start kiro-cli
+  // again, for a chat that runs on after .kiro was moved aside.
   test("a legacy hook blocks a tool call with the line, tells a prompt, and never blocks a stop", () => {
     const project = legacyProject();
     const hook = (target: string, cwd = project) => {
@@ -188,11 +189,12 @@ describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
     const prompt = hook("verb-intercept");
     expect(prompt.status).toBe(0);
     expect(prompt.stdout).toContain(said);
+    expect(guard.stderr).toContain("If you have done that already, start kiro-cli again: this chat still runs the old agent.");
     expect(hook("continue-workflow")).toEqual({ status: 0, stdout: "", stderr: "" });
+    expect(hook("a-target-no-release-shipped").status).toBe(2);
+    // The call itself says a legacy agent runs, whatever the tree looks like now.
     renameSync(join(project, ".kiro"), join(project, ".kiro.old"));
-    const moved = hook("state-transition-guard");
-    expect(moved.status).toBe(0);
-    expect(moved.stderr).toContain("start kiro-cli again in this project");
+    expect(hook("state-transition-guard").status).toBe(2);
   });
 
   // The names a person types: `kiro` is the Kiro harness (id kiro-ide); the earlier
