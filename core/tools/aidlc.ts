@@ -30,6 +30,7 @@ import {
   isCompiledExecutable,
   packagedDistributionRoot,
   discoverableRuntimeHarnessDir,
+  retiredProjectTree,
   retiredRow,
   retiredRowLine,
   runtimeHarnessDir,
@@ -1293,11 +1294,22 @@ const RETIRED_KIRO_TELLS: ReadonlySet<string> = new Set(["session-start", "verb-
 
 function retiredKiroAdapter(harness: string, target: string): Action {
   if (RETIRED_KIRO_PASSES.has(target)) return { type: "stub", message: "", code: 0 };
-  // Only the installed aidlc runs this (a copied legacy tree runs its own older
+  // The project decides only what the line says, never whether it blocks. Only
+  // the installed aidlc runs this (a copied legacy tree runs its own older
   // tool, and config never refreshes one), and the tree's own tool is the one
   // moved aside.
-  const line = `${retiredRowLine({ root: "", harnessDir: ".kiro", distribution: harness }, "aidlc", "")} ` +
-    "If you have done that already, start kiro-cli again: this chat still runs the old agent.";
+  let legacyTree = true;
+  try {
+    legacyTree = retiredProjectTree(runtimeProjectDir()) !== null;
+  } catch {
+    // Unreadable: the steps to move a legacy tree are the likely ones.
+  }
+  const line = legacyTree
+    ? `${retiredRowLine({ root: "", harnessDir: ".kiro", distribution: harness }, "aidlc", "")} ` +
+      "If you have done that already, start kiro-cli again: this chat still runs the old agent."
+    : "This chat's agent calls the hooks of the legacy Kiro CLI harness, which AI-DLC no longer ships " +
+      "(`engine adapter kiro`). Start kiro-cli again with the aidlc agent; an agent of your own that calls " +
+      "these hooks needs them taken out.";
   if (RETIRED_KIRO_TELLS.has(target)) return { type: "stub", message: `${line}\n`, code: 0, stdout: true };
   return { type: "stub", message: `${line}\n`, code: 2 };
 }
@@ -1898,7 +1910,7 @@ function handleRouteOnly(route: Route, argv: string[]): Action {
     const harness = argv[1];
     const target = argv[2];
     if (!harness) return nounError("adapter", undefined);
-    if (retiredRow(harness)) return retiredKiroAdapter(harness, target ?? "");
+    if (retiredRow(harness) && target) return retiredKiroAdapter(harness, target);
     if (!isAdapterHarness(harness)) return nounError("adapter", harness);
     if (!target) return nounError("adapter", undefined);
     if (!isSafeName(target)) return nounError("adapter", target);

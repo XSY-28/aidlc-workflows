@@ -189,12 +189,21 @@ describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
     const prompt = hook("verb-intercept");
     expect(prompt.status).toBe(0);
     expect(prompt.stdout).toContain(said);
-    expect(guard.stderr).toContain("If you have done that already, start kiro-cli again: this chat still runs the old agent.");
-    expect(hook("continue-workflow")).toEqual({ status: 0, stdout: "", stderr: "" });
+    const restart = "If you have done that already, start kiro-cli again: this chat still runs the old agent.";
+    expect(guard.stderr).toContain(restart);
+    expect(prompt.stdout).toContain(restart);
+    for (const quiet of ["continue-workflow", "audit-and-sensors", "log-subagent", "rebuild-stage-graph", "sync-workflow-state"]) {
+      expect(hook(quiet), quiet).toEqual({ status: 0, stdout: "", stderr: "" });
+    }
     expect(hook("a-target-no-release-shipped").status).toBe(2);
-    // The call itself says a legacy agent runs, whatever the tree looks like now.
+    // The call itself says a legacy agent runs, whatever the tree looks like
+    // now; the tree only picks the words.
     renameSync(join(project, ".kiro"), join(project, ".kiro.old"));
-    expect(hook("state-transition-guard").status).toBe(2);
+    const moved = hook("state-transition-guard");
+    expect(moved.status).toBe(2);
+    expect(moved.stderr).toContain(
+      "This chat's agent calls the hooks of the legacy Kiro CLI harness, which AI-DLC no longer ships (`engine adapter kiro`). Start kiro-cli again with the aidlc agent",
+    );
   });
 
   // The names a person types: `kiro` is the Kiro harness (id kiro-ide); the earlier
