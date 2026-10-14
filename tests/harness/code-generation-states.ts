@@ -1,5 +1,5 @@
 // code-generation-states.ts - every Code Generation state a person can be in,
-// built through the installed tools, and the seven harness shapes of one tool
+// built through the installed tools, and the six harness shapes of one tool
 // call against the plan-approval guard.
 //
 // The no-dead-end sweep (tests/unit/t-code-generation-no-dead-end.test.ts)
@@ -526,7 +526,7 @@ export const STATES: StateBuilder[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// The seven harness shapes of one tool call
+// The six harness shapes of one tool call
 // ---------------------------------------------------------------------------
 
 export type ToolCall =

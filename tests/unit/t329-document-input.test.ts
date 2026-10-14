@@ -198,7 +198,7 @@ describe("t329 project-description and document-input boundaries", () => {
       }
     }
     // Two core files plus both stages in every generated install.
-    expect(copies.length).toBeGreaterThanOrEqual(2 + 2 * 7 * 2);
+    expect(copies.length).toBeGreaterThanOrEqual(2 + 2 * 6 * 2);
     for (const file of copies) {
       const flat = readFileSync(join(REPO_ROOT, file), "utf-8").replace(/\s+/g, " ");
       for (const phrase of [
@@ -237,7 +237,6 @@ describe("t329 project-description and document-input boundaries", () => {
       "codex",
       "copilot",
       "cursor",
-      "kiro",
       "kiro-ide",
       "opencode",
     ]) {

@@ -833,7 +833,6 @@ describe("t318 session binding helpers", () => {
       "codex",
       "copilot",
       "cursor",
-      "kiro",
       "kiro-ide",
       "opencode",
     ]) {

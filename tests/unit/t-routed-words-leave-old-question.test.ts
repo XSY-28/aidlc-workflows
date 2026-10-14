@@ -61,7 +61,7 @@ const SESSION = "01995000-7a11-7000-8000-00000000b001";
 const CHANGE = "also add a test for an empty title";
 
 type Policy = "off" | "strict";
-type Harness = "claude" | "kiro" | "kiro-ide" | "codex";
+type Harness = "claude" | "kiro-ide" | "codex";
 
 interface Emitted {
   kind: string;
@@ -160,8 +160,8 @@ function say(proj: string, prompt: string, harness: Harness = "claude", session 
       { ...unset, CODEX_THREAD_ID: undefined, CODEX_SESSION_ID: undefined });
     return;
   }
-  run(proj, [join(proj, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), harness === "kiro" ? "verb-intercept" : "record-human-turn"],
-    JSON.stringify({ hook_event_name: harness === "kiro" ? "userPromptSubmit" : "UserPromptSubmit", session_id: SESSION, cwd: proj, prompt }),
+  run(proj, [join(proj, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "record-human-turn"],
+    JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: SESSION, cwd: proj, prompt }),
     unset);
 }
 

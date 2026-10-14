@@ -4227,8 +4227,14 @@ export async function collectDoctorReport(
   // The Kiro and Codex trees also carry the authored host adapter.
   const harness = harnessDir();
   const harnessName = runtimeHarnessName(projectDir, harness);
+  // A tree on a row AI-DLC no longer ships gets none of a shipped row's file
+  // and wiring rows: their repairs are for a tree it is told to move aside, and
+  // its own doctor row says what to do.
+  const retiredHere = retiredProjectTree(projectDir)?.harnessDir === harness;
   const isCopilot = harnessName === "copilot";
-  if (harness === ".claude") {
+  if (retiredHere) {
+    // Nothing of the shipped rows' hook presence applies.
+  } else if (harness === ".claude") {
     // Claude Code: the EXPECTED roster is the set of aidlc-*.ts hooks that
     // settings.json actually wires (its `hooks` event blocks + the `statusLine`
     // command) — that is the CONTRACT Claude Code will try to run. Each
@@ -4577,11 +4583,12 @@ export async function collectDoctorReport(
   }
 
   // 4. Harness wiring config present. Claude Code: settings.json (hooks +
-  // permissions live there). Kiro: agents/aidlc-aidlc.md (a tree on a row
-  // AI-DLC no longer ships has its own doctor row instead). Codex CLI:
+  // permissions live there). Kiro: agents/aidlc-aidlc.md. Codex CLI:
   // config.toml + hooks.json (the hook wiring) + rules/default.rules
   // (permissions).
-  if (harness === ".kiro" && retiredProjectTree(projectDir)?.harnessDir !== ".kiro") {
+  if (retiredHere) {
+    // Nor its wiring.
+  } else if (harness === ".kiro") {
     const markdownAgentPath = join(projectDir, harness, "agents", KIRO_CONDUCTOR_AGENT_FILE);
     results.push({
       pass: existsSync(markdownAgentPath) || existsSync(join(projectDir, harness, "agents", "aidlc.md")),

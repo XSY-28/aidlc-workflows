@@ -124,7 +124,7 @@ function project(prefix = "aidlc-statusline-project-"): string {
   return dir;
 }
 
-function setUp(m: Machine, harness: "claude" | "codex", dir = project()): string {
+function setUp(m: Machine, harness: "claude" | "codex" | "kiro-ide", dir = project()): string {
   const result = run(m, ["config", "--project-dir", dir, "--from", join(RUNTIME, harness), "--harness", typedHarnessName(harness), "--yes"]);
   expect(result.status, result.out).toBe(0);
   return dir;
@@ -578,9 +578,9 @@ describe("the chat switch", () => {
 
   test("a tool with no status line says so in one line", () => {
     const m = machine();
-    const dir = setUp(m, "kiro" as never);
+    const dir = setUp(m, "kiro-ide");
     const result = run(m, ["config", "--statusline", "on", "--project-dir", dir]);
     expect(result.status, result.out).toBe(0);
-    expect(result.stdout).toBe("Kiro CLI has no status line for AI-DLC's progress; /aidlc --status shows where the work stands.\n");
+    expect(result.stdout).toBe("Kiro has no status line for AI-DLC's progress; /aidlc --status shows where the work stands.\n");
   });
 });

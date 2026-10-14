@@ -44,7 +44,7 @@ export type KiroPersonalSession =
   }
   | { ok: false; reason: string };
 
-export type KiroSessionWrite = { model?: string; effort?: { model: string; effort: KiroEffort } };
+export type KiroSessionWrite = { model?: string };
 
 export const KIRO_EFFORT_ORDER: readonly KiroEffort[] = ["low", "medium", "high", "xhigh", "max"];
 
@@ -254,59 +254,21 @@ export function recommendedKiroModel(
   return models.find((model) => model.tag === null)?.id ?? null;
 }
 
-export function mergedKiroModelDefaults(
-  current: Record<string, unknown>,
-  model: string,
-  effort: KiroEffort,
-): Record<string, unknown> {
-  const entry = current[model] && typeof current[model] === "object" && !Array.isArray(current[model])
-    ? current[model] as Record<string, unknown>
-    : {};
-  const output = entry.output_config && typeof entry.output_config === "object" &&
-      !Array.isArray(entry.output_config)
-    ? entry.output_config as Record<string, unknown>
-    : {};
-  return { ...current, [model]: { ...entry, output_config: { ...output, effort } } };
-}
-
 export function writeKiroPersonalSession(
   cli: string,
   write: KiroSessionWrite,
   env: NodeJS.ProcessEnv = process.env,
-): { ok: true } | { ok: false; reason: string; savedModel: boolean } {
-  const calls: string[][] = [];
-  if (write.model) calls.push(["settings", "chat.defaultModel", write.model]);
-  if (write.effort) {
-    // Merge onto the map as it is now, not as it was when the run began, so a
-    // change made in Kiro meanwhile is kept; if it cannot be read, write nothing.
-    const fresh = readKiroPersonalSession(cli, env);
-    if (!fresh.ok) {
-      return { ok: false, reason: "Kiro could not read your settings again before saving", savedModel: false };
-    }
-    calls.push([
-      "settings",
-      "chat.modelDefaults",
-      JSON.stringify(mergedKiroModelDefaults(fresh.modelDefaults, write.effort.model, write.effort.effort)),
-    ]);
-  }
+): { ok: true } | { ok: false; reason: string } {
+  if (!write.model) return { ok: true };
+  const args = ["settings", "chat.defaultModel", write.model];
   const seam = kiroSessionTestSeam(env);
-  let savedModel = false;
-  for (const args of calls) {
-    const failed = seam
-      ? seam.failWrite === args[1]
-      : withEmptyFolder((folder) =>
-        spawnSync(cli, args, { cwd: folder, encoding: "utf-8", env: kiroEnv(env), timeout: SETTINGS_TIMEOUT_MS })
-      ).status !== 0;
-    if (failed) {
-      return {
-        ok: false,
-        reason: `Kiro did not save the ${args[1] === "chat.defaultModel" ? "model" : "effort"}`,
-        savedModel,
-      };
-    }
-    if (seam?.writes && isSeamWriteLog(seam.writes)) appendFileSync(seam.writes, `${JSON.stringify(args)}\n`);
-    if (args[1] === "chat.defaultModel") savedModel = true;
-  }
+  const failed = seam
+    ? seam.failWrite === args[1]
+    : withEmptyFolder((folder) =>
+      spawnSync(cli, args, { cwd: folder, encoding: "utf-8", env: kiroEnv(env), timeout: SETTINGS_TIMEOUT_MS })
+    ).status !== 0;
+  if (failed) return { ok: false, reason: "Kiro did not save the model" };
+  if (seam?.writes && isSeamWriteLog(seam.writes)) appendFileSync(seam.writes, `${JSON.stringify(args)}\n`);
   return { ok: true };
 }
 

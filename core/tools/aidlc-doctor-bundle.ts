@@ -1082,7 +1082,7 @@ export interface NormalizedEvidence {
   auditEvents: Array<Record<string, string>>;
   graph: { stageCount: number; stages: GraphStageLite[] } | null;
   hooks: HookHealthSnapshot;
-  markers: MarkerSnapshot & { turnCounter: string | null; readonlyLatch: boolean };
+  markers: MarkerSnapshot;
   timeline: Timeline;
 }
 
@@ -1647,15 +1647,11 @@ function readMarkers(projectDir: string): NormalizedEvidence["markers"] {
     }
   }
   const stopDir = stopHookDir(projectDir);
-  const turnCounterPath = join(projectDir, "aidlc", ".aidlc-turn-counter");
-  const latchPath = join(projectDir, "aidlc", ".aidlc-readonly-latch");
   return {
     planExists,
     planParseable,
     recoveryExists: existsSync(recoveryFilePath(projectDir)),
     stopHookDirExists: existsSync(stopDir),
-    turnCounter: existsSync(turnCounterPath) ? safeRead(turnCounterPath).trim() : null,
-    readonlyLatch: existsSync(latchPath),
   };
 }
 

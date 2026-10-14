@@ -4856,7 +4856,7 @@ export function parseNextFlags(argv: string[]): ParsedFlags {
     // in-flight recompose over an active one). DELIBERATELY its own check, NOT a
     // WORKSPACE_VERBS entry: that set feeds classifyTerminalCommand, which the
     // Kiro verb-intercept hook runs OFF-BAND as a terminal aidlc-utility
-    // subcommand (and arms the roll-forward latch) - compose is workflow work
+    // subcommand (and holds the rest of that turn) - compose is workflow work
     // the conductor must dispatch, never a terminal utility. Only the FIRST
     // positional token counts, so freeform prose containing "compose"
     // mid-sentence stays intent text. Any text after the verb is the compose
@@ -8251,13 +8251,9 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
   // still engage normally. So is `team-board`, a read-only board; `park` is
   // not, because the park it names mutates workflow state.
   //
-  // DELIBERATELY BEFORE Branch 0 (the roll-forward latch) below, so a `next` the
-  // latch swallows as a no-op still counts as engagement. That is the correct
-  // parity: on the transcript path a bare `next` counts too, latch or no latch —
-  // isEngineToolCall reads the command, not its outcome. Moving this after the
-  // latch would make the two predicates disagree about the same command. The
-  // same reasoning keeps it before the flag-validation early returns: an
-  // errored command still counted on the transcript path.
+  // DELIBERATELY before the flag-validation early returns: on the transcript
+  // path a command counts whatever its outcome (isEngineToolCall reads the
+  // command, not what it did), so an errored command still counts here too.
   // A modifier-only next it refuses is terminal on every harness, like the
   // refused --config alias: see isRefusedModifierNextArgv.
   const engagesWorkflow = nextEngagesWorkflow(args, flags);
@@ -8646,55 +8642,6 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
         `print its output verbatim, then stop. Re-run ${entrySkillInvocation()} after the claim registry changes.`,
     ));
     return;
-  }
-
-  // Branch 0 — turn-scoped no-op-next guard (Kiro roll-forward defense). On Kiro
-  // the userPromptSubmit seam handles a read-only/navigation command
-  // deterministically off-band but CANNOT block the turn, so the conductor relays
-  // the output AND may still fire a bare `next` (sometimes several times the same
-  // turn), rolling the active workflow forward. The seam stamps
-  // aidlc/.aidlc-readonly-latch with the CURRENT turn counter; here, BEFORE any
-  // state inspection, a TRULY BARE advancing next (none of its own flags set)
-  // checks the latch: when latch.turn === the current counter (the SAME turn) we
-  // emit `done` instead of routing to a run-stage. Turn-scoped — a legitimate
-  // advancing next in a LATER turn (counter bumped, latch now stale) is never
-  // swallowed. Inert on Claude/Codex: the latch files are never written there (no
-  // seam) → fresh is always false → falls through. Advisory: any failure fails
-  // open to the normal `next`.
-  if (!flags.readOnly && !flags.config && !flags.configCommand && !flags.workspaceCommand && !flags.orchestratorVerb && !flags.pluginCommand && !flags.knowledgeCommand && !flags.stage && !flags.phase &&
-      !flags.scope && !flags.positionalScope && !flags.intent && !flags.resume &&
-      !flags.depth && !flags.testStrategy && !flags.projectType && !flags.review &&
-      !flags.single && !flags.compose && !flags.newScope && !flags.report &&
-      !flags.claim && !flags.release) {
-    try {
-      const pdLatch = resolveProjectDir(projectDir);
-      const latchPath = join(pdLatch, "aidlc", ".aidlc-readonly-latch");
-      const counterPath = join(pdLatch, "aidlc", ".aidlc-turn-counter");
-      let counter = -1;
-      let latchTurn = -2;
-      let label = "the read-only command";
-      if (existsSync(counterPath)) {
-        const n = Number.parseInt(readFileSync(counterPath, "utf-8").trim(), 10);
-        if (Number.isFinite(n)) counter = n;
-      }
-      if (existsSync(latchPath)) {
-        const lr = JSON.parse(readFileSync(latchPath, "utf-8")) as { turn?: number; flag?: string; source?: string };
-        if (typeof lr.turn === "number") latchTurn = lr.turn;
-        if (typeof lr.flag === "string") {
-          // Read-only flags render with `--`; noun commands render as typed.
-          const nounCommand = lr.source === "workspace-verb" || lr.source === "plugin-verb" ||
-            lr.source === "knowledge-verb";
-          label = nounCommand ? `\`${lr.flag}\`` : `--${lr.flag}`;
-        }
-      }
-      if (counter >= 0 && latchTurn === counter) {
-        emit({
-          kind: "done",
-          reason: `The terminal command (${label}) already ran this turn and its output was shown above. This was a utility, configuration request, or workspace switch, not workflow work - there is nothing to advance. The workflow is unchanged; if one is active it remains paused where it was. STOP.`,
-        });
-        return;
-      }
-    } catch { /* advisory: guard is best-effort, never blocks a real next */ }
   }
 
   // A bare `next` with no workflow selected carries on with the request a
@@ -9393,7 +9340,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
   // engine NAMES the dispatch (print) and stays read-only. Deliberately NOT a
   // WORKSPACE_VERBS/classifyTerminalCommand entry (that would make the Kiro
   // verb-intercept hook run `compose` off-band as a terminal aidlc-utility
-  // subcommand and arm the roll-forward latch - compose is workflow work the
+  // subcommand and hold the rest of that turn - compose is workflow work the
   // conductor dispatches). Two modes split on the state file: no state = the
   // FRONT composer (propose a scope before creation); state present = the
   // IN-FLIGHT composer (propose pending-stage flips over the running

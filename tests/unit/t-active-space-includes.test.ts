@@ -116,17 +116,6 @@ describe("t-active-space-includes: every shipped include reads the copy", () => 
     expect(stub).not.toContain("aidlc/spaces/default/memory");
   });
 
-  test("Kiro CLI: every agent JSON's resources glob reads the copy", () => {
-    const agentsDir = distSurface("kiro", ".kiro", "agents");
-    const withMemory = readdirSync(agentsDir).filter((name) => name.endsWith(".json")).filter((name) => {
-      const config = JSON.parse(readFileSync(join(agentsDir, name), "utf-8")) as { resources?: string[] };
-      if (!Array.isArray(config.resources)) return false;
-      expect(config.resources.some((entry) => entry.startsWith("file://aidlc/spaces/")), name).toBe(false);
-      return config.resources.includes(`file://${COPY}/**/*.md`);
-    });
-    expect(withMemory.length).toBeGreaterThanOrEqual(15);
-  });
-
   test("Cursor: the standing and phase rules and the persona bodies read the copy", () => {
     const rulesDir = distSurface("cursor", ".cursor", "rules");
     const standing = readFileSync(join(rulesDir, "aidlc.mdc"), "utf-8");
@@ -174,7 +163,7 @@ describe("t-active-space-includes: every shipped include reads the copy", () => 
     const harnesses = readdirSync(join(REPO_ROOT, "harness"), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
-    expect(harnesses.length).toBeGreaterThanOrEqual(7);
+    expect(harnesses.length).toBeGreaterThanOrEqual(6);
     for (const harness of harnesses) {
       const ignore = readFileSync(join(REPO_ROOT, "harness", harness, "dot-gitignore"), "utf-8");
       expect(ignore.split("\n"), harness).toContain("aidlc/active-memory/");
@@ -268,8 +257,8 @@ describe("t-active-space-includes: refreshActiveMemory writes the space's memory
   });
 });
 
-// The same through the real CLI, in a git repository, on the harness whose
-// switch rewrote the most tracked files (15 Kiro agent JSONs).
+// The same through the real CLI, in a git repository, on the Kiro row, whose
+// steering file carries the memory text itself and so changes on every switch.
 describe("t-active-space-includes: a space switch changes no tracked file", () => {
   const BUN = process.execPath;
   const UTILITY = join(REPO_ROOT, "core", "tools", "aidlc-utility.ts");
@@ -307,12 +296,12 @@ describe("t-active-space-includes: a space switch changes no tracked file", () =
     expect(started.status, `${started.stdout}${started.stderr}`).toBe(0);
   }
 
-  test("Kiro CLI: switch leaves git clean, the copy holds the switched space, and the hook carries an edit", () => {
+  test("Kiro: switch leaves git clean, the copy holds the switched space, and the hook carries an edit", () => {
     const root = freshRoot();
-    cpSync(distSurface("kiro", ".kiro"), join(root, ".kiro"), { recursive: true });
-    cpSync(distSurface("kiro", "aidlc"), join(root, "aidlc"), { recursive: true });
-    cpSync(distSurface("kiro", ".gitignore"), join(root, ".gitignore"));
-    const env = { AIDLC_HARNESS_DIR: ".kiro", AIDLC_HARNESS_NAME: "kiro" };
+    cpSync(distSurface("kiro-ide", ".kiro"), join(root, ".kiro"), { recursive: true });
+    cpSync(distSurface("kiro-ide", "aidlc"), join(root, "aidlc"), { recursive: true });
+    cpSync(distSurface("kiro-ide", ".gitignore"), join(root, ".gitignore"));
+    const env = { AIDLC_HARNESS_DIR: ".kiro", AIDLC_HARNESS_NAME: "kiro-ide" };
     // The first chat of a copied install adds AI-DLC's part of the root files
     // and writes the copy; the team commits that state.
     sessionStart(root, env);
@@ -334,8 +323,7 @@ describe("t-active-space-includes: a space switch changes no tracked file", () =
     expect(git(root, "status", "--porcelain")).toBe("");
     expect(copyFile(root, "team.md")).toContain("dead-letter alarm");
     expect(copyFile(root, "org.md")).toBe(copied("teamb", "org.md", readFileSync(join(root, "aidlc", "spaces", "teamb", "memory", "org.md"), "utf-8")));
-    expect(JSON.parse(readFileSync(join(root, ".kiro", "agents", "aidlc-developer-agent.json"), "utf-8")).resources)
-      .toContain(`file://${COPY}/**/*.md`);
+    expect(readFileSync(join(root, ".kiro", "steering", "aidlc-active-memory.md"), "utf-8")).toContain("dead-letter alarm");
 
     writeFileSync(join(root, "aidlc", "spaces", "teamb", "memory", "team.md"), "# Team\n\nEvery alarm names its runbook.\n");
     sessionStart(root, env);
@@ -466,11 +454,11 @@ describe("t-active-space-includes: AI-DLC's part of the team's root files", () =
   // plain part: one comment line, then every harness's entries.
   test("an earlier part with notes, alone or combined, becomes the plain part", () => {
     const root = copiedProject();
-    cpSync(distSurface("kiro", ".kiro"), join(root, ".kiro"), { recursive: true });
-    const kiroBlock = readFileSync(join(distSurface("kiro", ".kiro"), "tools", "data", "root-blocks", "gitignore"), "utf-8");
+    cpSync(distSurface("kiro-ide", ".kiro"), join(root, ".kiro"), { recursive: true });
+    const kiroBlock = readFileSync(join(distSurface("kiro-ide", ".kiro"), "tools", "data", "root-blocks", "gitignore"), "utf-8");
     const plain = unionBlocks([
       { distribution: "copilot", text: readFileSync(join(blocks, "gitignore"), "utf-8") },
-      { distribution: "kiro", text: kiroBlock },
+      { distribution: "kiro-ide", text: kiroBlock },
     ]);
     const entries = plain.split("\n").filter((line) => !line.startsWith("#"));
     const earlier = [

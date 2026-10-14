@@ -436,6 +436,7 @@ describe("t316 standalone plugin compose test", () => {
     const result = run([pluginRoot, "--install", installRoot]);
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("install is ambiguous");
+    expect(result.stderr).toContain("kiro:.kiro");
     expect(result.stderr).toContain("--harness <name>");
   });
 
@@ -446,6 +447,9 @@ describe("t316 standalone plugin compose test", () => {
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("--harness kiro expects .kiro/ under");
     expect(result.stderr).not.toContain("unknown harness");
+    const earlier = run([pluginRoot, "--install", installRoot, "--harness", "kiro-ide"]);
+    expect(earlier.status).toBe(2);
+    expect(earlier.stderr).toContain("`kiro-ide` is now called `kiro`");
   });
 
   test("--dist is reserved and usage errors exit 2", () => {

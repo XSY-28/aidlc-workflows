@@ -2,7 +2,7 @@
 //
 // The Plan Approval questions file says "write your answer after `[Answer]:`
 // and tell me in chat when you are done". These cases drive the real `next` and the real human-turn
-// hook (Claude Code's payload, and Kiro CLI's userPromptSubmit payload through
+// hook (Claude Code's payload, and Kiro's UserPromptSubmit payload through
 // its adapter) over one poc workflow at Code Generation, under Guard Policy off
 // and strict, and check that:
 //
@@ -291,7 +291,7 @@ describe("an answer written in the Plan Approval questions file", () => {
   });
 });
 
-describe("the same answer through Kiro CLI's userPromptSubmit hook", () => {
+describe("the same answer through Kiro's UserPromptSubmit hook", () => {
   function tool(proj: string, tools: string, [name, ...args]: string[], input?: string): string {
     const result = spawnSync(BUN, [join(tools, name), ...args], {
       cwd: proj,
@@ -309,11 +309,11 @@ describe("the same answer through Kiro CLI's userPromptSubmit hook", () => {
   }
 
   for (const policy of ["off", "strict"] as const) {
-    test(`Approve Plan in the file, then done in Kiro CLI chat: recorded, and the build arrives (Guard Policy ${policy})`, () => {
+    test(`Approve Plan in the file, then done in Kiro chat: recorded, and the build arrives (Guard Policy ${policy})`, () => {
       const proj = createTestProject();
       created.push(proj);
-      cpSync(join(REPO_ROOT, "dist", "kiro", "aidlc"), join(proj, "aidlc"), { recursive: true });
-      cpSync(join(REPO_ROOT, "dist", "kiro", ".kiro"), join(proj, ".kiro"), { recursive: true });
+      cpSync(join(REPO_ROOT, "dist", "kiro-ide", "aidlc"), join(proj, "aidlc"), { recursive: true });
+      cpSync(join(REPO_ROOT, "dist", "kiro-ide", ".kiro"), join(proj, ".kiro"), { recursive: true });
       writeFileSync(seededStateFile(proj), `# AI-DLC State Tracking
 
 ## Project Information
@@ -357,9 +357,9 @@ describe("the same answer through Kiro CLI's userPromptSubmit hook", () => {
       // Without a word from the person, next shows the question again and keeps their answer.
       expect(engine(proj, kiro, ["next"]).kind).toBe("ask");
       expect(answerLine(proj)).toBe("[Answer]: Approve Plan");
-      // The person types "done" in Kiro CLI chat; its userPromptSubmit hook reads it.
-      const context = tool(proj, kiro, ["aidlc.ts", "engine", "adapter", "kiro", "verb-intercept"], JSON.stringify({
-        hook_event_name: "userPromptSubmit", cwd: proj, session_id: SESSION, prompt: "done",
+      // The person types "done" in Kiro chat; its UserPromptSubmit hook reads it.
+      const context = tool(proj, kiro, ["aidlc.ts", "engine", "adapter", "kiro-ide", "person-message"], JSON.stringify({
+        hook_event_name: "UserPromptSubmit", cwd: proj, session_id: SESSION, prompt: "done",
       }));
       expect(context).toContain("is recorded");
       expect(answerLine(proj)).toBe("[Answer]: A. Approve Plan");

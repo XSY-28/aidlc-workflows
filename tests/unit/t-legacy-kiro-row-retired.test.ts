@@ -65,7 +65,7 @@ const INSTALL = join(REPO_ROOT, "tests", "fixtures", "legacy-kiro-install");
 function legacyProject(): string {
   const project = fresh();
   writeFileSync(join(project, ".gitignore"), readFileSync(join(INSTALL, "gitignore")));
-  writeFileSync(join(project, "AGENTS.md"), readFileSync(join(INSTALL, "AGENTS.md")));
+  writeFileSync(join(project, "AGENTS.md"), readFileSync(join(INSTALL, "agents-md")));
   mkdirSync(join(project, ".kiro", "tools", "data"), { recursive: true });
   mkdirSync(join(project, ".kiro", "agents"), { recursive: true });
   mkdirSync(join(project, "aidlc", "spaces", "default"), { recursive: true });
@@ -153,6 +153,9 @@ describe("the legacy Kiro CLI row AI-DLC no longer ships", () => {
     expect(here.out.replace(/\s+/g, " ").replace("ships fix: Move", "ships. Move")).toMatch(SAID);
     expect(here.out).toMatch(/fail\s+\.kiro is set up for the legacy Kiro CLI row, which AI-DLC no longer ships\n\s+fix: Move \.kiro aside/);
     expect(here.out).not.toContain("agents/aidlc-aidlc.md present");
+    // Nor another row's (a fall to the Claude rows), nor its own hook files.
+    expect(here.out).not.toContain("settings.json present");
+    expect(here.out).not.toMatch(/aidlc-[a-z-]+\.ts present/);
     const elsewhere = run(DOCTOR, ["--project-dir", project], tmpdir());
     expect(elsewhere.out.replace(/\s+/g, " ")).toContain(`config --harness kiro --project-dir ${project}\``);
 

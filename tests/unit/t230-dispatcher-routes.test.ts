@@ -1407,9 +1407,7 @@ describe("t230 version-aware startup", () => {
     },
   );
 
-  // `kiro` reaches the same KAS adapter once the rows share that name: the
-  // installed tree's layout, not the adapter name, keeps stdin unread.
-  for (const harness of ["kiro-ide", "kiro"] as const) test(`Kiro IDE adapter routing never waits for its open stdin pipe (engine adapter ${harness})`, async () => {
+  for (const harness of ["kiro-ide"] as const) test(`Kiro IDE adapter routing never waits for its open stdin pipe (engine adapter ${harness})`, async () => {
     const project = makeProject();
     cpSync(
       join(REPO_ROOT, "dist", "kiro-ide", ".kiro"),
@@ -1839,7 +1837,6 @@ describe("t230 dispatcher global flag translation", () => {
         const argv of [
           ["engine", "statusline"],
           ["engine", "adapter", "codex", "validate-state"],
-          ["engine", "adapter", "kiro", "record-human-turn"],
           ["engine", "adapter", "kiro-ide", "record-human-turn"],
         ]
       ) {
@@ -3486,13 +3483,13 @@ describe("t230 dispatcher hook routing", () => {
     const kiro = resolveAction([
       "engine",
       "adapter",
-      "kiro",
+      "kiro-ide",
       "reviewer-scope",
       "aidlc-product-lead-agent",
     ]);
     expect(kiro.type).toBe("adapter");
     if (kiro.type === "adapter") {
-      expect(kiro.harness).toBe("kiro");
+      expect(kiro.harness).toBe("kiro-ide");
       expect(kiro.target).toBe("reviewer-scope");
       expect(kiro.extraArgs).toEqual(["aidlc-product-lead-agent"]);
       expect(kiro.path.endsWith("aidlc-kiro-adapter.ts")).toBe(true);

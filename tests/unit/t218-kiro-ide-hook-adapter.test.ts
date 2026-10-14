@@ -7627,9 +7627,8 @@ describe("t218 terminal-command-guard holds a command with a lone carriage retur
 });
 
 // A terminal command typed as the chat message (`/aidlc --help`) runs inside the
-// UserPromptSubmit hook and leaves this chat's terminal latch. The engine's own
-// Branch 0 guard reads only the latch files the retired agent-v1 adapter
-// wrote, so on this row the PreToolUse hook is what keeps a `next` that same
+// UserPromptSubmit hook and leaves this chat's terminal latch. The engine
+// keeps no guard of its own for this, so the PreToolUse hook is what keeps a `next` that same
 // turn from handing out the next stage: the agent was told to relay the output and stop, so no other
 // shell call of that chat runs, however it is spelled. Another chat, a later
 // turn, a tool that is not a shell, or a payload with no session is not this

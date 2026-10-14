@@ -332,13 +332,13 @@ describe("(a) the person writes while a review has no verdict: the agent hears t
     }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
   }
 
-  test("Kiro CLI: the prompt adapter carries the note, with Kiro's own next", () => {
+  test("Kiro: the prompt adapter carries the note, with Kiro's own next", () => {
     const p = inception("off");
-    cpSync(join(REPO_ROOT, "dist", "kiro", ".kiro"), join(p, ".kiro"), { recursive: true });
+    cpSync(join(REPO_ROOT, "dist", "kiro-ide", ".kiro"), join(p, ".kiro"), { recursive: true });
     expect(raReview(p).status).toBe(0);
-    const r = spawnSync(process.execPath, [join(p, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "verb-intercept"], {
+    const r = spawnSync(process.execPath, [join(p, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "person-message"], {
       cwd: p,
-      input: JSON.stringify({ cwd: p, session_id: SESSION, prompt: AS_IT_IS }),
+      input: JSON.stringify({ hook_event_name: "UserPromptSubmit", cwd: p, session_id: SESSION, prompt: AS_IT_IS }),
       encoding: "utf-8",
       env: { ...agentEnv(), CLAUDE_PROJECT_DIR: p, AIDLC_SESSION_OVERRIDE: SESSION },
       timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
@@ -511,7 +511,7 @@ describe("a verdict that comes in after the person approved the Unit as it is", 
 describe("the reviewer protocol says when the agent retries and when it runs next", () => {
   test("core and every projected copy carry the rule", () => {
     const module = join("aidlc-common", "protocols", "stage-protocol-reviewer.md");
-    for (const path of [join(REPO_ROOT, "core", module), join(AIDLC_SRC, module), join(REPO_ROOT, "dist", "kiro", ".kiro", module)]) {
+    for (const path of [join(REPO_ROOT, "core", module), join(AIDLC_SRC, module), join(REPO_ROOT, "dist", "kiro-ide", ".kiro", module)]) {
       const body = readFileSync(path, "utf-8").replace(/\s+/g, " ");
       const labelled = `${path}\n${body}`;
       expect(labelled).toContain(

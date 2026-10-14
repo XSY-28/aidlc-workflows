@@ -2,9 +2,8 @@
 //
 // Every harness delivers its own injected prompts through the same seam as a
 // typed message, with the same payload keys: Kiro IDE's workflow creator, step
-// and finish sentences (captured live, Kiro IDE 1.2.37 with Workflows on), Kiro
-// CLI's sub-agent synthesis prompt (reported privately: "[SYSTEM] Sub-agent
-// synthesis: ..." recorded as HUMAN_TURN to the second), and Claude Code's
+// and finish sentences (captured live, Kiro IDE 1.2.37 with Workflows on) and
+// Claude Code's
 // background-task notification (captured live, Claude Code 2.1.280). A
 // HUMAN_TURN is the one thing humanRepliedSinceGate and its readers trust as "a
 // person acted", so an approval the agent reports after one of them went
@@ -40,7 +39,6 @@ setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TREES = {
-  kiro: { dist: join(REPO_ROOT, "dist", "kiro", ".kiro"), dir: ".kiro" },
   "kiro-ide": { dist: join(REPO_ROOT, "dist", "kiro-ide", ".kiro"), dir: ".kiro" },
   claude: { dist: join(REPO_ROOT, "dist", "claude", ".claude"), dir: ".claude" },
 } as const;
@@ -60,11 +58,6 @@ const KIRO_IDE_BRIEF =
   "below wins. Verify your work against these words, not against a paraphrase of them.\n\n" +
   '<message index="1">/aidlc Build a tiny command-line hello app in TypeScript that prints a greeting.</message>\n' +
   "</original_user_request>\n\nBuild a tiny command-line hello app in TypeScript that prints a greeting.";
-// Kiro CLI (reported privately; the opening is the reporter's quote, the body
-// after it is a stand-in until a capture on that kiro-cli build exists).
-const KIRO_CLI_SYNTHESIS =
-  "[SYSTEM] Sub-agent synthesis: the sub-agent aidlc-architecture-reviewer-agent has finished. " +
-  "Review its result and continue the task.";
 // Claude Code 2.1.280, UserPromptSubmit `prompt` when a background Bash task finished.
 const CLAUDE_TASK_NOTIFICATION =
   "<task-notification>\n<task-id>b7nfvh2bk</task-id>\n<tool-use-id>toolu_bdrk_01ThWnbFJqA69yRhjoDHXLTB</tool-use-id>\n" +
@@ -199,49 +192,21 @@ function expectHostRow(dir: string, index: number, reason: string, source: strin
 }
 
 describe("a prompt the host injected is not the person's turn", () => {
-  test("Kiro CLI: the sub-agent synthesis prompt records HOST_TURN, not the person's turn; the person's message counts", () => {
-    const project = scratchProject("kiro");
+  test("Kiro: Kiro's chat record decides first: a tagged message counts whatever its words, a synthetic one does not", () => {
+    const project = scratchProject("kiro-ide");
     try {
-      const chat = "f39cbb3b-b272-4b1e-8a0a-000000002121";
-      // kiro-cli 2.12.1's payload: no session_id; the chat is in the environment.
-      const submit = (prompt: string) =>
-        run(project, [join(project.dir, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "verb-intercept"],
-          JSON.stringify({ hook_event_name: "userPromptSubmit", cwd: project.dir, prompt }), { KIRO_SESSION_ID: chat });
-      expect(state(project, "kiro", ["gate-start", "feasibility"]).code).toBe(0);
-      const synthesis = submit(KIRO_CLI_SYNTHESIS);
-      expect(synthesis.code, synthesis.out).toBe(0);
-      expect(humanTurns(project.dir)).toBe(0);
-      expectHostRow(project.dir, 0, "kiro sub-agent synthesis", "template");
-      expect(hostTurns(project.dir)[0]).not.toContain("Sub-agent synthesis");
-      expect(messageRecords(project.dir)).toBe(0);
-      agentApproves(project, "kiro", false);
-
-      expect(submit("Approve").code).toBe(0);
-      expect(humanTurns(project.dir)).toBe(1);
-      expect(rows(project.dir, "HUMAN_TURN")[0]).toContain("**Origin**: person\n**Source**: typed\n");
-      expect(messageRecords(project.dir)).toBe(1);
-      agentApproves(project, "kiro", true);
-    } finally {
-      rmSync(project.dir, { recursive: true, force: true });
-    }
-  });
-
-  test("Kiro CLI: Kiro's chat record decides first: a tagged message counts whatever its words, a synthetic one does not", () => {
-    const project = scratchProject("kiro");
-    try {
-      // kiro-cli 2.23.1's payload: session_id equals the chat in the environment.
       const chat = "sess_deea90a2-b06d-4be3-808e-7c3e9d5b7975";
-      const submit = (prompt: string) =>
-        run(project, [join(project.dir, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "verb-intercept"],
-          JSON.stringify({ hook_event_name: "userPromptSubmit", cwd: project.dir, session_id: chat, prompt }),
+      const submit = (prompt: string, session = chat) =>
+        run(project, [join(project.dir, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "record-human-turn"],
+          JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: session, cwd: project.dir, prompt }),
           { KIRO_SESSION_ID: chat });
-      expect(state(project, "kiro", ["gate-start", "feasibility"]).code).toBe(0);
+      expect(state(project, "kiro-ide", ["gate-start", "feasibility"]).code).toBe(0);
       // The person pasted the host's sentence: Kiro tagged it as typed, so it is theirs.
-      kiroRecord(project.home, chat, [typedEntry("/aidlc start"), typedEntry(KIRO_CLI_SYNTHESIS)]);
-      expect(submit(KIRO_CLI_SYNTHESIS).code).toBe(0);
+      kiroRecord(project.home, chat, [typedEntry("/aidlc start"), typedEntry(KIRO_IDE_FINISH)]);
+      expect(submit(KIRO_IDE_FINISH).code).toBe(0);
       expect(humanTurns(project.dir)).toBe(1);
       expect(hostTurns(project.dir)).toHaveLength(0);
-      agentApproves(project, "kiro", true);
+      agentApproves(project, "kiro-ide", true);
       // A message Kiro made, marked so in its record, is the host's even with
       // words no template names.
       kiroRecord(project.home, chat, [typedEntry("/aidlc start"), syntheticEntry("Continue with the next step.", "agent-initiated-prompt")]);
@@ -249,57 +214,12 @@ describe("a prompt the host injected is not the person's turn", () => {
       expect(humanTurns(project.dir)).toBe(1);
       expectHostRow(project.dir, 0, "agent-initiated-prompt", "record");
       // A prompt under another session than the chat's, with no record and no
-      // host sentence, is unknown, so it stays the person's: KIRO_SESSION_ID
-      // named the chat even for a workflow step's prompt, so a message typed in
+      // host sentence, is unknown, so it stays the person's: a message typed in
       // another chat tab must never be dropped on the session id alone.
-      const other = run(project, [join(project.dir, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "verb-intercept"],
-        JSON.stringify({ hook_event_name: "userPromptSubmit", cwd: project.dir, session_id: "8dd07b3f-3eb9-48f4-93ee-0edc0872de22", prompt: "Say your line." }),
-        { KIRO_SESSION_ID: chat });
+      const other = submit("Say your line.", "sess_8dd07b3f-3eb9-48f4-93ee-0edc0872de22");
       expect(other.code, other.out).toBe(0);
       expect(humanTurns(project.dir)).toBe(2);
       expect(hostTurns(project.dir)).toHaveLength(1);
-    } finally {
-      rmSync(project.dir, { recursive: true, force: true });
-    }
-  });
-
-  test("Kiro CLI v2 over ACP: a chat record at the other path with no tag decides nothing; the person's message counts, the synthesis opening is the host's", () => {
-    // Kiro CLI 2.23.1's v2 engine (measured live) keeps the chat at
-    // ~/.kiro/sessions/cli/<session>.jsonl, one `kind: "Prompt"` entry per
-    // message with `data.message_id` and `meta`, and no `userMessageTag`
-    // anywhere (an /aidlc line is stored as the expanded skill text). The
-    // reader looks only at <workspace>/<session>/messages.jsonl, so this file
-    // is never opened: the record says nothing, unknown stays the person's,
-    // and only the anchored opening makes a host's turn.
-    const project = scratchProject("kiro");
-    try {
-      const chat = "7edb160d-20eb-4aa8-a104-8173449728a3";
-      const cli = join(project.home, ".kiro", "sessions", "cli");
-      mkdirSync(cli, { recursive: true });
-      const promptEntry = (content: string) => JSON.stringify({
-        kind: "Prompt",
-        data: { message_id: "0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b", content },
-        meta: { timestamp: "2026-10-08T01:35:00.000Z", additionalContext: "" },
-      });
-      // A long record (a session's worth of turns), so a reader that opened it would show.
-      const filler = Array.from({ length: 4000 }, (_, i) => promptEntry(`turn ${i}: ${"x".repeat(400)}`));
-      writeFileSync(join(cli, `${chat}.jsonl`), `${[...filler, promptEntry(KIRO_CLI_SYNTHESIS), promptEntry("Approve")].join("\n")}\n`, "utf-8");
-      const submit = (prompt: string) =>
-        run(project, [join(project.dir, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "verb-intercept"],
-          JSON.stringify({ hook_event_name: "userPromptSubmit", cwd: project.dir, session_id: chat, prompt }),
-          { KIRO_SESSION_ID: chat });
-      expect(state(project, "kiro", ["gate-start", "feasibility"]).code).toBe(0);
-      const synthesis = submit(KIRO_CLI_SYNTHESIS);
-      expect(synthesis.code, synthesis.out).toBe(0);
-      expect(humanTurns(project.dir)).toBe(0);
-      expectHostRow(project.dir, 0, "kiro sub-agent synthesis", "template");
-      agentApproves(project, "kiro", false);
-
-      const typed = submit("Approve");
-      expect(typed.code, typed.out).toBe(0);
-      expect(humanTurns(project.dir)).toBe(1);
-      expect(hostTurns(project.dir)).toHaveLength(1);
-      agentApproves(project, "kiro", true);
     } finally {
       rmSync(project.dir, { recursive: true, force: true });
     }

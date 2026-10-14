@@ -1262,14 +1262,14 @@ describe("t121 aidlc-continue-workflow hook — forwarding-loop enforcement (mig
       "Otherwise, if you carry on with the work, first say that line to the person once, on its own line; " +
       "it is AI-DLC's line, not the person's, and confirms nothing, so record nothing as theirs because of it. " +
       "Say nothing else about this note.";
-    for (const tool of ["claude", "codex", "copilot", "cursor", "kiro", "kiro-ide", "opencode"]) {
+    for (const tool of ["claude", "codex", "copilot", "cursor", "kiro-ide", "opencode"]) {
       const proj = makeProject();
       seedActive(proj, "requirements-analysis");
       const r = runHook(proj, '{"stop_hook_active":false}', "run-stage", "", "", "requirements-analysis", "", false, {
         AIDLC_HARNESS_NAME: tool,
       });
       const reason = (JSON.parse(r.out) as { reason: string }).reason;
-      const hides = tool === "kiro" || tool === "kiro-ide" || tool === "opencode";
+      const hides = tool === "kiro-ide" || tool === "opencode";
       expect(reason, tool).toBe(hides ? `${line}\n${agentStep}` : line);
       expect(reason.split("\n")[0], tool).toBe(line);
     }
@@ -1375,7 +1375,7 @@ describe("t121 aidlc-continue-workflow hook — forwarding-loop enforcement (mig
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("(a) every other tool keeps the block its adapter reads, with the same transcript", () => {
-    for (const tool of ["codex", "copilot", "cursor", "kiro", "kiro-ide", "opencode"]) {
+    for (const tool of ["codex", "copilot", "cursor", "kiro-ide", "opencode"]) {
       const parsed = freshStop(tool, (proj) => claudeTranscriptAt(proj, "2.1.296"));
       expect(parsed.decision, tool).toBe("block");
       expect((parsed.reason as string).split("\n")[0], tool).toBe(CARRY_ON_LINE);

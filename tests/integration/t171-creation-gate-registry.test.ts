@@ -1816,14 +1816,6 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
         runEmittedCommand(command, proj, env);
         expect(tree(), `${label} writes nothing`).toEqual(before);
       }
-      // Kiro's same-turn latch swallows a bare next after a terminal command.
-      writeFileSync(join(proj, "aidlc", ".aidlc-turn-counter"), "7\n");
-      writeFileSync(join(proj, "aidlc", ".aidlc-readonly-latch"), `${JSON.stringify({ turn: 7, flag: "status" })}\n`);
-      const beforeLatch = tree();
-      const latched = JSON.parse(runEmittedCommand(`${ORCH_SH} next`, proj, retention).stdout.trim());
-      expect(latched.kind).toBe("done");
-      expect(tree(), "a latch-swallowed next writes nothing").toEqual(beforeLatch);
-      rmSync(join(proj, "aidlc", ".aidlc-readonly-latch"));
       expect(existsSync(questionFile(id))).toBe(true);
       runEmittedCommand(`${ORCH_SH} next`, proj, retention);
       expect(existsSync(questionFile(id)), "a run that engages the workflow removes it").toBe(false);

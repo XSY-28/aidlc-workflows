@@ -6,8 +6,8 @@
 //     model that is neither an experimental preview nor internal
 //   - a session plan saves only the model, never an effort; a model already
 //     saved, or Kiro auto with no model chosen, writes nothing
-//   - an effort write merges ONE chat.modelDefaults entry onto the personal map
-//     as it is at write time and leaves the person's other models alone
+//   - a write sets only chat.defaultModel and leaves the person's other
+//     settings (their per-model efforts included) alone
 //   - Kiro auto is never written as a choice
 //   - under the test runner the host's kiro-cli is never used
 //   - a write Kiro rejects says exactly what was and was not saved
@@ -25,7 +25,6 @@ import {
   kiroModelTag,
   kiroRateLabel,
   listKiroModels,
-  mergedKiroModelDefaults,
   parseKiroModelList,
   readKiroPersonalSession,
   recommendedKiroModel,
@@ -172,21 +171,6 @@ describe("Kiro session model rules", () => {
     expect(recommendedKiroModel(list.models.filter((model) => model.tag), null)).toBeNull();
   });
 
-  test("the effort merge changes one model's entry and keeps everything else", () => {
-    const merged = mergedKiroModelDefaults(
-      {
-        "claude-haiku-4.5": { output_config: { effort: "low" } },
-        "claude-opus-5": { output_config: { effort: "high", other: 1 }, extra: true },
-      },
-      "claude-opus-5",
-      "medium",
-    );
-    expect(merged).toEqual({
-      "claude-haiku-4.5": { output_config: { effort: "low" } },
-      "claude-opus-5": { output_config: { effort: "medium", other: 1 }, extra: true },
-    });
-  });
-
   test("under the test runner the host's kiro-cli is never used", () => {
     expect(kiroCliPath({ PATH: process.env.PATH, AIDLC_TEST_NAME: "t" })).toBeNull();
     expect(kiroCliPath({ PATH: process.env.PATH, AIDLC_TEST_CONFIG_DETECTION_JSON: "{}" })).toBeNull();
@@ -271,36 +255,6 @@ describe("applying a session plan", () => {
     expect(writeKiroPersonalSession("kiro-cli", { model: "claude-opus-5" }, env)).toEqual({ ok: true });
     expect(readFileSync(other, "utf-8")).toBe("kept\n");
   });
-
-  test("when the personal map cannot be read again, nothing is written", () => {
-    const log = join(temp("kiro-session-"), "writes.jsonl");
-    const env = seamEnv({ models: MODELS, current: null, writes: log });
-    expect(writeKiroPersonalSession("kiro-cli", {
-      model: "claude-opus-5",
-      effort: { model: "claude-opus-5", effort: "medium" },
-    }, env)).toEqual({
-      ok: false,
-      reason: "Kiro could not read your settings again before saving",
-      savedModel: false,
-    });
-    expect(writes(log)).toEqual([]);
-  });
-
-  test("the effort merges onto the personal map as it is at write time", () => {
-    const log = join(temp("kiro-session-"), "writes.jsonl");
-    // Read when the run began, the map was empty; Kiro now holds another model's effort.
-    const env = seamEnv({
-      models: MODELS,
-      current: { "chat.modelDefaults": { "claude-haiku-4.5": { output_config: { effort: "low" } } } },
-      writes: log,
-    });
-    expect(writeKiroPersonalSession("kiro-cli", { effort: { model: "claude-opus-5", effort: "medium" } }, env))
-      .toEqual({ ok: true });
-    expect(JSON.parse(writes(log)[0][2])).toEqual({
-      "claude-haiku-4.5": { output_config: { effort: "low" } },
-      "claude-opus-5": { output_config: { effort: "medium" } },
-    });
-  });
 });
 
 // The real spawn paths, driven against a fake kiro-cli. POSIX only: the fake is
@@ -342,7 +296,7 @@ if (args[0] === "chat" && args[1] === "--list-models") {
     return readFileSync(log, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
   }
 
-  test("lists models, reads personal settings outside the project, and merges the write", () => {
+  test("lists models, reads personal settings outside the project, and saves only the model", () => {
     const fake = fakeKiro();
     const env = { ...process.env };
     const list = listKiroModels(fake.cli, env);
@@ -350,18 +304,13 @@ if (args[0] === "chat" && args[1] === "--list-models") {
     const session = readKiroPersonalSession(fake.cli, env);
     expect(session).toEqual({ ok: true, model: "claude-opus-5", modelDefaults: {} });
     if (!session.ok) return;
-    expect(writeKiroPersonalSession(fake.cli, {
-      model: "claude-sonnet-4.6",
-      effort: { model: "claude-sonnet-4.6", effort: "high" },
-    }, env)).toEqual({ ok: true });
+    expect(writeKiroPersonalSession(fake.cli, { model: "claude-sonnet-4.6" }, env)).toEqual({ ok: true });
     expect(JSON.parse(readFileSync(join(fake.home, "settings", "cli.json"), "utf-8"))).toEqual({
       "chat.defaultModel": "claude-sonnet-4.6",
       "chat.enableThinking": true,
-      "chat.modelDefaults": { "claude-sonnet-4.6": { output_config: { effort: "high" } } },
     });
     // Settings are read and written from an empty folder, never the project.
     const settingsCalls = calls(fake.log).filter((call) => (call.args as string[])[0] === "settings");
     for (const call of settingsCalls) expect(String(call.cwd)).toContain("aidlc-kiro-");
   });
-
 });

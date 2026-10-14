@@ -972,7 +972,6 @@ describe("t299 (5) authored consumers use the same contract", () => {
     expect(swarm).toContain('read and follow §12b "Autonomous Code Generation Plan Contract" above');
     for (const harness of [
       "claude",
-      "kiro",
       "kiro-ide",
       "codex",
       "cursor",

@@ -325,10 +325,9 @@ describe("t-rules-travel-with-steps: the notes and their checks", () => {
   }
 });
 
-describe("t-rules-travel-with-steps: the Kiro agent prompts", () => {
+describe("t-rules-travel-with-steps: the Kiro agent prompt", () => {
   const ide = readFileSync(join(REPO, "dist", "kiro-ide", ".kiro", "agents", "aidlc-aidlc.md"), "utf-8");
-  const cli = (JSON.parse(readFileSync(join(REPO, "dist", "kiro", ".kiro", "agents", "aidlc.json"), "utf-8")) as { prompt: string }).prompt;
-  for (const [tool, prompt] of [["Kiro IDE", ide], ["Kiro CLI", cli]] as const) {
+  for (const [tool, prompt] of [["Kiro", ide]] as const) {
     test(`${tool}: the must-follow list holds without the skill`, () => {
       // The skill rides in the conductor's own resources from chat start, so the
       // first item says where it is instead of asking for a read in parts.

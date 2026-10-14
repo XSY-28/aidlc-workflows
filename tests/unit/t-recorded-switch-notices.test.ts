@@ -467,7 +467,7 @@ describe("the line reaches the person on every harness", () => {
   const HARNESSES = [
     { name: "claude", dir: ".claude", adapter: null },
     { name: "copilot", dir: ".aidlc", adapter: "aidlc-copilot-adapter.ts" },
-    { name: "kiro", dir: ".kiro", adapter: "aidlc-kiro-adapter.ts" },
+    { name: "kiro-ide", dir: ".kiro", adapter: "aidlc-kiro-adapter.ts" },
     { name: "codex", dir: ".codex", adapter: "aidlc-codex-adapter.ts" },
   ] as const;
 

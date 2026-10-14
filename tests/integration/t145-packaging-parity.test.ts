@@ -283,7 +283,7 @@ describe("t145 packager contract regressions", () => {
   }, CHECK_TIMEOUT_MS);
 
   test("an explicitly named harness without a manifest exits nonzero", () => {
-    const root = makeFixture("kiro");
+    const root = makeFixture("kiro-ide");
     try {
       const run = runPackage(root, "does-not-exist");
       expect(run.status).not.toBe(0);
@@ -383,9 +383,9 @@ describe("t145 packager contract regressions", () => {
   }, CHECK_TIMEOUT_MS);
 
   test("write mode replaces only the named generated root", () => {
-    const root = makeFixture("kiro");
+    const root = makeFixture("kiro-ide");
     try {
-      const stale = join(root, "dist", "kiro", "removed-root-output.txt");
+      const stale = join(root, "dist", "kiro-ide", "removed-root-output.txt");
       const pluginAsset = join(root, "dist", "plugins", "fixture", "keep.txt");
       const unrelatedAsset = join(root, "dist", "unrelated-root-asset.txt");
       mkdirSync(dirname(stale), { recursive: true });
@@ -394,7 +394,7 @@ describe("t145 packager contract regressions", () => {
       writeFileSync(pluginAsset, "keep plugin\n");
       writeFileSync(unrelatedAsset, "keep root\n");
 
-      const run = runPackage(root, "kiro");
+      const run = runPackage(root, "kiro-ide");
       expect(run.status).toBe(0);
       expect(existsSync(stale)).toBe(false);
       expect(readFileSync(pluginAsset, "utf-8")).toBe("keep plugin\n");

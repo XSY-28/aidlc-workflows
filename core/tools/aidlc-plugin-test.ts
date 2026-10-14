@@ -2,7 +2,7 @@
 // Offline compose-tier test for an authored AIDLC plugin.
 
 import { LONG_SUBPROCESS_TIMEOUT_MS } from "./aidlc-runtime-budget.ts";
-import { harnessIdFromTyped, typedHarnessName } from "./aidlc-runtime-paths.ts";
+import { harnessIdFromTyped, retiredTypedHarnessName, typedHarnessName } from "./aidlc-runtime-paths.ts";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
@@ -347,6 +347,8 @@ function detectHarness(
 ): { name: string; target: PluginTarget } {
   if (requested) {
     // The name a person types (`kiro` for the Kiro row), as config reads it.
+    const instead = retiredTypedHarnessName(requested);
+    if (instead) throw new PluginTestUsageError(`\`${requested}\` is now called \`${instead}\`; pass --harness ${instead}`);
     const id = harnessIdFromTyped(requested);
     const target = targets[id];
     if (!target) {
@@ -371,7 +373,7 @@ function detectHarness(
   }
   if (candidates.length > 1) {
     throw new PluginTestUsageError(
-      `install is ambiguous (${candidates.map(([name, target]) => `${name}:${target.harnessLeaf}`).join(", ")}); pass --harness <name>`,
+      `install is ambiguous (${candidates.map(([name, target]) => `${typedHarnessName(name)}:${target.harnessLeaf}`).join(", ")}); pass --harness <name>`,
     );
   }
   return { name: candidates[0][0], target: candidates[0][1] };

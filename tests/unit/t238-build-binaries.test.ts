@@ -259,7 +259,6 @@ describe("t238 build-binaries release builder", () => {
       "claude",
       "codex",
       "cursor",
-      "kiro",
       "kiro-ide",
       "copilot",
       "opencode",
@@ -305,11 +304,10 @@ describe("t238 build-binaries release builder", () => {
       "scope-table-check",
       "runtime-codex",
       "runtime-cursor",
-      "runtime-kiro",
       "runtime-kiro-ide",
       "runtime-copilot",
       "runtime-opencode",
-      "harness-probe-kiro",
+      "harness-probe-kiro-ide",
       "harness-probe-copilot",
       "harness-probe-opencode",
       "compiled-kiro-new-work-routing",
@@ -345,6 +343,9 @@ describe("t238 build-binaries release builder", () => {
       expect(gate(native, name).ok, name).toBe(true);
     }
 
+    expect(gate(native, "harness-probe-kiro-ide").stdout).toContain(
+      "agents/aidlc-aidlc.md present (conductor wiring)",
+    );
     expect(gate(native, "harness-probe-copilot").stdout).toContain(
       ".github/hooks/aidlc.json present (hook wiring)",
     );
@@ -707,7 +708,7 @@ describe("t238 build-binaries release builder", () => {
         });
         expect(started.status, `${harnessDir}: ${started.stdout}${started.stderr}`).toBe(0);
       };
-      cpSync(join(copyRoot, "runtime", "kiro"), kiroThenClaude, { recursive: true });
+      cpSync(join(copyRoot, "runtime", "kiro-ide"), kiroThenClaude, { recursive: true });
       sessionStart(".kiro");
       const kiroIgnore = readFileSync(join(kiroThenClaude, ".gitignore"), "utf-8");
       expect(kiroIgnore).toContain("aidlc/.aidlc-turn-counter");

@@ -141,7 +141,6 @@ const HARNESS_DATA: Record<string, string> = {
   codex: "dist/codex/.codex/tools/data/harness.json",
   copilot: "dist/copilot/.aidlc/tools/data/harness.json",
   cursor: "dist/cursor/.cursor/tools/data/harness.json",
-  kiro: "dist/kiro/.kiro/tools/data/harness.json",
   "kiro-ide": "dist/kiro-ide/.kiro/tools/data/harness.json",
   opencode: "dist/opencode/.aidlc/tools/data/harness.json",
 };
@@ -200,7 +199,7 @@ const BASE_KEYS = [
 // until the folder is trusted and the window reloads, on the wrong Kiro CLI
 // engine, or with VS Code's Chat: Use Hooks off).
 // `directiveMaxBytes` is Copilot's (VS Code keeps 20,000 characters of a
-// terminal result). `kiroLayout` names the layout of the two Kiro trees, which
+// terminal result). `kiroLayout` names the layout of the Kiro tree, which
 // every other harness omits. `statusLine` is AI-DLC's status line value on the
 // two hosts that have one (Claude Code and Codex), shipped here so it reaches a
 // settings file the host reads only when someone chooses it (#1407).

@@ -6,7 +6,7 @@
 //   - a stock Kiro install whose first stage is Code Generation: that step
 //     carries the conductor's persona, so even the stock rules travel as one
 //     separate part (part 1 of 1), and the person's "1" is read by Kiro's own
-//     userPromptSubmit hook;
+//     UserPromptSubmit hook;
 //   - one Unit under classic scope, unit-major Construction, Guard Policy off;
 //   - under a relaxed Guard Policy, a plan edited after approval keeps
 //     building through its rule parts, as it does when the rules fit.
@@ -134,8 +134,8 @@ describe("one approval starts the build however the rules travel", () => {
   test("a stock Kiro install whose rules come as one separate part", () => {
     const proj = createTestProject();
     created.push(proj);
-    cpSync(join(REPO_ROOT, "dist", "kiro", "aidlc"), join(proj, "aidlc"), { recursive: true });
-    cpSync(join(REPO_ROOT, "dist", "kiro", ".kiro"), join(proj, ".kiro"), { recursive: true });
+    cpSync(join(REPO_ROOT, "dist", "kiro-ide", "aidlc"), join(proj, "aidlc"), { recursive: true });
+    cpSync(join(REPO_ROOT, "dist", "kiro-ide", ".kiro"), join(proj, ".kiro"), { recursive: true });
     // A quick task that goes straight to Code Generation.
     writeFileSync(seededStateFile(proj), `# AI-DLC State Tracking
 
@@ -177,9 +177,9 @@ describe("one approval starts the build however the rules travel", () => {
     const ask = engine(proj, kiro, ["next"]);
     expect(ask.kind, JSON.stringify(ask)).toBe("ask");
     expect(ask.ask_type).toBe("plan-approval");
-    // The person types "1" in Kiro CLI chat; its userPromptSubmit hook reads it.
-    tool(proj, kiro, ["aidlc.ts", "engine", "adapter", "kiro", "verb-intercept"], JSON.stringify({
-      hook_event_name: "userPromptSubmit", cwd: proj, session_id: SESSION, prompt: "1",
+    // The person types "1" in Kiro chat; its UserPromptSubmit hook reads it.
+    tool(proj, kiro, ["aidlc.ts", "engine", "adapter", "kiro-ide", "person-message"], JSON.stringify({
+      hook_event_name: "UserPromptSubmit", cwd: proj, session_id: SESSION, prompt: "1",
     }));
     expect(answer(proj, null)).toBe("[Answer]: A. Approve Plan");
 

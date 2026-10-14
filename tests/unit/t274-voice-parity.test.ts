@@ -12,9 +12,9 @@
 //       loads on every stage). If it is deleted or renamed, no other test
 //       notices — the framework keeps working and just starts talking like a
 //       framework again. §1 pins the section and its substance.
-//   (b) The seven authored SKILLs are near-copies maintained by hand. The
+//   (b) The six authored SKILLs are near-copies maintained by hand. The
 //       identity paragraph that points at the contract must be present and
-//       WORD-IDENTICAL in all seven: a partial edit (the t181 failure mode) would
+//       WORD-IDENTICAL in all six: a partial edit (the t181 failure mode) would
 //       leave some harnesses on the old framework-voice identity. §2 extracts the
 //       shared core and compares it across the matrix.
 //   (c) The retired framework-voice phrases must not creep back into the

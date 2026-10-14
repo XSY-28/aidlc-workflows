@@ -215,12 +215,12 @@ describe("t10 session-start SessionStart hook (mechanism cli — spawned hook + 
     expect(parsed.additionalContext).toContain("otherwise `continue` with the rules receipt you hold, or run `next`");
   });
 
-  // Kiro CLI, opencode and Kiro IDE hide the note from the person, so after a
+  // Kiro (CLI and IDE) and opencode hide the note from the person, so after a
   // compaction their context still has the agent say the line itself, on its
   // own line, only when it carries on with the work.
   test("after a compaction, on the tools that hide the note, the context has the agent say the line once", () => {
     seedStateFile(proj, MID_IDEATION);
-    for (const tool of ["kiro", "kiro-ide", "opencode"]) {
+    for (const tool of ["kiro-ide", "opencode"]) {
       const parsed = JSON.parse(fire(proj, '{"source":"compact"}', { AIDLC_HARNESS_NAME: tool }).stdout.trim());
       // The question case comes first: the agent said the line right after its
       // own question when the exception followed the instruction.

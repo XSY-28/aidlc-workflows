@@ -166,6 +166,7 @@ import {
   hasControlCharacters,
   quoteCommandArgument,
   harnessArgsAsIds,
+  harnessIdFromTyped,
   harnessArgsAsTyped,
   HARNESS_IDS_ENV,
   retiredRowLine,
@@ -7024,7 +7025,12 @@ function selectSource(
       requiredVersion,
     );
   }
-  const configuredDefault = configuredDefaultHarness();
+  // The saved default reads as a name a person types; a retired row is never
+  // set up from it.
+  const savedDefault = configuredDefaultHarness();
+  const configuredDefault = savedDefault && !retiredRow(harnessIdFromTyped(savedDefault))
+    ? harnessIdFromTyped(savedDefault)
+    : undefined;
   if (configuredDefault) {
     const selected = versionFiltered.filter((candidate) =>
       candidate.stamp.distribution === configuredDefault
@@ -7033,20 +7039,21 @@ function selectSource(
     if (versionFiltered.length > 0) {
       throw new Error(
         requiredVersion
-          ? `configured default harness ${configuredDefault} is not installed in ${requiredVersion}; run aidlc config --pin ${requiredVersion}`
-          : `configured default harness ${configuredDefault} is unavailable; pass --harness <name>`,
+          ? `configured default harness ${savedDefault} is not installed in ${requiredVersion}; run aidlc config --pin ${requiredVersion}`
+          : `configured default harness ${savedDefault} is unavailable; pass --harness <name>`,
       );
     }
   }
-  // Unnamed, a project is offered only the rows AI-DLC still ships.
-  const offered = newProjectChoices(versionFiltered);
-  if (offered.length === 0) {
+  if (versionFiltered.length === 0) {
     throw new Error(
       requiredVersion
         ? `project requires ${requiredVersion}, which is not installed; run aidlc config --pin ${requiredVersion}`
         : "no installed harness runtime is available",
     );
   }
+  // Unnamed, a project is offered only the rows AI-DLC still ships.
+  const offered = newProjectChoices(versionFiltered);
+  if (offered.length === 0) throw new Error("no installed harness runtime AI-DLC still ships is available");
   if (offered.length === 1) return offered[0];
   if (configInputIsTty()) {
     process.stdout.write("Select a harness for this project:\n\n");
@@ -10008,9 +10015,9 @@ async function emitKiroSessionResult(
   emitResult(
     result.ok
       ? success(
-        result.wouldSave?.model || result.wouldSave?.effort
+        result.wouldSave?.model
           ? `would save the ${sessionModel}`
-          : result.saved.model || result.saved.effort
+          : result.saved.model
           ? `saved the ${sessionModel}`
           : "session model unchanged",
         kiroSessionData(result),
@@ -11318,19 +11325,16 @@ export async function main(
   if (!internal.setupWalkChild) configTargetHarnessDir = null;
   let argv = stripVerb(input);
   const options = globalOptions(argv);
-  // What the person typed after --harness reads as a row id once, at the
-  // outermost entry: the dispatcher when it ran (it says so in the
-  // environment), else here. From here on `input` and `argv` hold ids, and a
-  // command printed back writes them as typed names (harnessArgsAsTyped).
+  // What the person typed after --harness reads as a row id once, here (the
+  // dispatcher hands config the line as typed). From here on `input` and `argv`
+  // hold ids, and a command printed back writes them as typed names
+  // (harnessArgsAsTyped).
   if (internal.setupWalkChild) {
     // The walk's own sections run on the walk's line, already ids.
-  } else if (
-    (process.env[HARNESS_IDS_ENV] === "1" || process.env.AIDLC_CONFIG_HANDOFF !== undefined) &&
-    !setByDotenvFile(HARNESS_IDS_ENV) && !setByDotenvFile("AIDLC_CONFIG_HANDOFF")
-  ) {
+  } else if (process.env[HARNESS_IDS_ENV] === "1" || process.env.AIDLC_CONFIG_HANDOFF !== undefined) {
     // Read once: what this run starts is handed ids the same way (a release's
-    // hand-off always carried ids, before the marker existed too). A project's
-    // .env never says so.
+    // hand-off always carried ids, before the marker existed too). A value a
+    // project's .env sets never gets here (aidlc-runtime-paths drops it).
     delete process.env[HARNESS_IDS_ENV];
   } else {
     const read = harnessArgsAsIds(input);

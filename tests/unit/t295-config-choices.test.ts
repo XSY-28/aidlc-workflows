@@ -1044,7 +1044,7 @@ describe("t295 flags section", () => {
   });
 
   test("with several harnesses a bypass records without naming one, and other flags still ask which", () => {
-    const project = install("kiro");
+    const project = install("kiro-ide");
     const addClaude = run([
       "config",
       "--project-dir",
@@ -1213,94 +1213,37 @@ describe("t295 project section", () => {
   });
 
   test("MCP checks use the selected harness surface", () => {
-    const kiro = install("kiro", "defaults");
     const env = runtimeEnv();
-    expect(run([
-      "config",
-      "project",
-      "--project-dir",
-      kiro,
-      "--mcp",
-      "defaults",
-      "--yes",
-    ], kiro, env).status).toBe(0);
-    expect(run([
-      "config",
-      "project",
-      "--project-dir",
-      kiro,
-      "--check",
-    ], kiro, env).status).toBe(0);
-    const kiroShow = JSON.parse(run([
-      "config",
-      "project",
-      "--project-dir",
-      kiro,
-      "--show",
-      "--json",
-    ], kiro, env).stdout) as {
-      data: {
-        files: Array<{ file: string }>;
-        mcpNote: string | null;
-      };
-    };
-    expect(kiroShow.data.files.map((entry) => entry.file)).toContain(
-      join(kiro, ".kiro", "settings", "mcp.json"),
-    );
-    expect(kiroShow.data.mcpNote).toBeNull();
-
-    expect(run([
-      "config",
-      "project",
-      "--project-dir",
-      kiro,
-      "--mcp",
-      "none",
-      "--yes",
-    ], kiro, env).status).toBe(0);
-    expect(run([
-      "config",
-      "project",
-      "--project-dir",
-      kiro,
-      "--check",
-    ], kiro, env).status).toBe(0);
-    const kiroNone = JSON.parse(run([
-      "config",
-      "project",
-      "--project-dir",
-      kiro,
-      "--show",
-      "--json",
-    ], kiro, env).stdout) as { data: { mcpNote: string } };
-    expect(kiroNone.data.mcpNote).toContain("instruct-only preference");
-
-    const codex = install("codex", "none");
-    expect(run([
-      "config",
-      "project",
-      "--project-dir",
-      codex,
-      "--mcp",
-      "defaults",
-      "--yes",
-    ], codex, env).status).toBe(0);
-    expect(run([
-      "config",
-      "project",
-      "--project-dir",
-      codex,
-      "--check",
-    ], codex, env).status).toBe(0);
-    const codexShow = JSON.parse(run([
-      "config",
-      "project",
-      "--project-dir",
-      codex,
-      "--show",
-      "--json",
-    ], codex, env).stdout) as { data: { mcpNote: string } };
-    expect(codexShow.data.mcpNote).toContain("no shipped MCP surface");
+    // Neither the Kiro row nor Codex ships an MCP file of its own.
+    for (const harness of ["kiro-ide", "codex"]) {
+      const project = install(harness, "none");
+      expect(run([
+        "config",
+        "project",
+        "--project-dir",
+        project,
+        "--mcp",
+        "defaults",
+        "--yes",
+      ], project, env).status, harness).toBe(0);
+      const checked = run([
+        "config",
+        "project",
+        "--project-dir",
+        project,
+        "--check",
+      ], project, env);
+      expect(checked.status, `${harness}: ${checked.stdout}${checked.stderr}`).toBe(0);
+      const shown = JSON.parse(run([
+        "config",
+        "project",
+        "--project-dir",
+        project,
+        "--show",
+        "--json",
+      ], project, env).stdout) as { data: { mcpNote: string } };
+      expect(shown.data.mcpNote, harness).toContain("no shipped MCP surface");
+    }
   });
 
   test("a plugin change while a workflow runs is done, with its undo", () => {

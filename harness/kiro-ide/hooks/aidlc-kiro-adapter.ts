@@ -2542,10 +2542,9 @@ if (target === "terminal-command-guard") {
   // that hands its output over once more; a lowering setter on a build that
   // hides the message keeps its own refusal, which names the way out. Only the
   // chat the payload names is
-  // judged; with no session in it, this stays out. (The engine's own guard for
-  // this, Branch 0, reads only the agent-v1 project-wide latch; the engine
-  // could tell this chat's latch from another's only by process ancestry,
-  // which one IDE window shares.)
+  // judged; with no session in it, this stays out. (The engine keeps no guard
+  // of its own for this: it could tell this chat's latch from another's only
+  // by process ancestry, which one IDE window shares.)
   const refused = invocation !== null ? nextLoweringGuardFlags(splitKiroCommandArgs(invocation.raw)) : lowering;
   const held = readTerminalLatch(sessionId);
   if (holdsThisTurn(held, recordedTurn) && refused !== null && promptWasEmpty(sessionId, recordedTurn)) {

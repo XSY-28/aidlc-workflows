@@ -20,7 +20,6 @@ describe("the composer's final message is the proposal", () => {
     const copies = [
       join("dist", "claude", ".claude", "agents", "aidlc-composer-agent.md"),
       join("dist", "codex", ".codex", "agents", "aidlc-composer-agent.toml"),
-      join("dist", "kiro", ".kiro", "agents", "aidlc-composer-agent.md"),
       join("dist", "kiro-ide", ".kiro", "agents", "aidlc-composer-agent.md"),
       join("dist", "cursor", ".cursor", "agents", "aidlc-composer-agent.md"),
       join("dist", "opencode", ".opencode", "agents", "aidlc-composer-agent.md"),

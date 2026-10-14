@@ -8,7 +8,7 @@
 // told to follow a skeleton-first Unit route and not to present a gate on a
 // per-unit `gate: false`, while the agent on another tool was not. This pin
 // holds every copy to one text, in the authored module and in every shipped
-// tree (a tree may carry all seven subsections or only its own).
+// tree (a tree may carry all six subsections or only its own).
 //
 // It also holds the module's Unit lifecycle receipts paragraph to what receipt
 // mode actually does, in the same trees.
@@ -25,7 +25,6 @@ const BLOCK_HEADING = "## Harness construction bindings";
 // The subsection heading each shipped tree names its own tool by.
 const TOOL_HEADING: Record<string, string> = {
   claude: "Claude Code",
-  kiro: "Kiro CLI",
   "kiro-ide": "Kiro IDE",
   codex: "Codex CLI",
   cursor: "Cursor",

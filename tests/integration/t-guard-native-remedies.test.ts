@@ -67,7 +67,6 @@ const HARNESS_RUNTIMES = [
   { name: "codex", dir: ".codex" },
   { name: "copilot", dir: ".aidlc" },
   { name: "cursor", dir: ".cursor" },
-  { name: "kiro", dir: ".kiro" },
   { name: "kiro-ide", dir: ".kiro" },
   { name: "opencode", dir: ".aidlc" },
 ] as const;
@@ -825,9 +824,9 @@ describe("source and native guard remedies execute their owning operations", () 
     }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
   }
 
-  // t331 keeps its seven-source-harness proof. Here source Claude
-  // covers all lifecycle remedies; the same cases cross all seven native
-  // runtimes, including the shared-directory Kiro/Kiro IDE and Copilot/OpenCode.
+  // t331 keeps its every-source-harness proof. Here source Claude
+  // covers all lifecycle remedies; the same cases cross all six native
+  // runtimes, including the shared-directory Copilot/OpenCode.
   for (const projection of ["source", "native"] as const) {
     const harnesses = projection === "native" ? HARNESS_RUNTIMES : [HARNESS_RUNTIMES[0]];
     for (const harness of harnesses) {

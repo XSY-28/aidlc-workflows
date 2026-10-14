@@ -192,7 +192,6 @@ describe("t263 reviewer terminal-receipt ordering (receipt-invalidation loop fix
   test("every authored harness SKILL.md loads the ordering module", () => {
     for (const harness of [
       "claude",
-      "kiro",
       "kiro-ide",
       "codex",
       "opencode",

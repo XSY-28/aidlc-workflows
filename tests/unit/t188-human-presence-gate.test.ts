@@ -79,7 +79,6 @@ setDefaultTimeout(NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
 const BUN = process.execPath;
 const STATE = join(AIDLC_SRC, "tools", "aidlc-state.ts");
 const KIRO_IDE_STATE = join(REPO_ROOT, "dist", "kiro-ide", ".kiro", "tools", "aidlc-state.ts");
-const KIRO_CLI_STATE = join(REPO_ROOT, "dist", "kiro", ".kiro", "tools", "aidlc-state.ts");
 const ORCHESTRATE = join(AIDLC_SRC, "tools", "aidlc-orchestrate.ts");
 const LOG = join(AIDLC_SRC, "tools", "aidlc-log.ts");
 const MINT_HOOK = join(AIDLC_SRC, "tools", "aidlc.ts");
@@ -373,37 +372,11 @@ describe("t188: human-presence approval gate (ledger-event design)", () => {
     expect(field(proj, "Current Stage")).toBe(slug);
   });
 
-  // The kiro tree's hooks run only with its aidlc agent on Kiro CLI's v2
-  // engine. The agent tells the two causes apart by Kiro's own line under its
-  // replies, and shows the one step for the person.
-  test("A3: on Kiro CLI the refusal gives the agent and engine lines, and asks for nothing again", () => {
-    const slug = field(proj, "Current Stage"); // feasibility
-    guarded(proj, ["checkbox", `${slug}=in-progress`]);
-    guarded(proj, ["gate-start", slug]);
-    const r = guarded(proj, ["approve", slug, "--user-input", "Approve"], false, KIRO_CLI_STATE);
-    expect(r.rc).not.toBe(0);
-    const refusal = JSON.parse(r.out).error as string;
-    expect(refusal).toContain("no new human reply");
-    expect(refusal).toContain("do not ask them to answer again");
-    expect(refusal).toContain('agent "aidlc" needs upgrading for this agent engine, using "default"');
-    expect(refusal).toContain('"Type /agent and pick aidlc, then carry on."');
-    expect(refusal).toContain(
-      '"Quit Kiro and start it again in this folder with: kiro-cli chat --agent-engine v2 --agent aidlc, ' +
-        'then type /aidlc to carry on."',
-    );
-    expect(refusal).not.toContain("reply again");
-    expect(refusal).not.toContain("ACP");
-    expect(refusal).not.toContain("Reload Window");
-    expect(eventCount(proj, "GATE_APPROVED")).toBe(0);
-    expect(field(proj, "Current Stage")).toBe(slug);
-  });
-
   // With fresh hook activity the hooks run, so the refusal never sends the
   // person after a setting that is already right: an earlier turn was spent,
   // the prompt hook stamped its marker, and another hook left a heartbeat
   // seconds ago. It says what happened to a reply they sent and where to look,
-  // and still never asks them to answer again. (Kiro CLI's line names its agent
-  // picker for a reply typed to another agent: that is not the hooks-off step.)
+  // and still never asks them to answer again.
   test("A4: with fresh hook activity the refusal gives no hooks-off step", () => {
     const first = field(proj, "Current Stage"); // feasibility
     guarded(proj, ["checkbox", `${first}=in-progress`]);
@@ -416,7 +389,6 @@ describe("t188: human-presence approval gate (ledger-event design)", () => {
     stampPrompt(proj, Date.now());
     writeHeartbeat(proj, Date.now());
     for (const [state, steps] of [
-      [KIRO_CLI_STATE, "If the person already replied, that reply was not recorded for this question."],
       [KIRO_IDE_STATE, "If the person already replied, that reply was not recorded. Do not ask them to answer again."],
     ] as const) {
       const r = guarded(proj, ["approve", slug, "--user-input", "Approve"], false, state);
@@ -433,10 +405,7 @@ describe("t188: human-presence approval gate (ledger-event design)", () => {
   // A live Kiro CLI run turned "doctor shows whether AI-DLC's hooks run here"
   // into talk of hooks, then offered to switch human presence off machine-wide.
   // The refusal gives the person's step in fixed words, and the agent never
-  // offers to turn a check off for them. In Kiro CLI, with its hooks running, a
-  // reply goes unrecorded when it was typed to another agent (a live run), so
-  // the step is to pick aidlc and give it once more, or, when Kiro says the
-  // agent needs upgrading for its 3.0 engine, to start again on v2.
+  // offers to turn a check off for them.
   test("A5: a reply that was not recorded gets only the person's step, never hooks or a check to turn off", () => {
     const first = field(proj, "Current Stage"); // feasibility
     guarded(proj, ["checkbox", `${first}=in-progress`]);
@@ -450,7 +419,6 @@ describe("t188: human-presence approval gate (ledger-event design)", () => {
     writeHeartbeat(proj, Date.now());
     for (const [state, line] of [
       [STATE, `"Your answer didn't reach AI-DLC. Please give it once more. If it happens again, type /aidlc --doctor."`],
-      [KIRO_CLI_STATE, `"Your answer didn't reach AI-DLC. Type /agent and pick aidlc, then give it once more."`],
       [KIRO_IDE_STATE, `"Your answer was not recorded, so you don't need to answer again.`],
     ] as const) {
       const r = guarded(proj, ["approve", slug, "--user-input", "Approve"], false, state);
@@ -460,17 +428,6 @@ describe("t188: human-presence approval gate (ledger-event design)", () => {
       expect(refusal).toContain("Never offer to turn a check off for them.");
       expect(refusal).not.toMatch(/hook/i);
       expect(refusal).not.toContain("AIDLC_SKIP");
-      // On Kiro CLI's 3.0 engine with the agent not upgraded, picking aidlc
-      // again never brings the shipped hooks back, even after an earlier v2
-      // session left a heartbeat (AIDA #2042 F1): Kiro's own upgrade line
-      // tells the agent to give the v2 restart instead.
-      if (state === KIRO_CLI_STATE) {
-        expect(refusal).toContain('If Kiro\'s own line under your replies says `agent "aidlc" needs upgrading');
-        expect(refusal).toContain(
-          '"Your answer didn\'t reach AI-DLC. Quit Kiro and start it again in this folder with: ' +
-            'kiro-cli chat --agent-engine v2 --agent aidlc, then give it once more."',
-        );
-      }
     }
     expect(eventCount(proj, "GATE_APPROVED")).toBe(1);
   });
@@ -584,14 +541,14 @@ describe("t188: human-presence approval gate (ledger-event design)", () => {
     expect(claude.rc).not.toBe(0);
     expect(claude.out).toContain("no reply from the person is on record");
     expect(claude.out).not.toContain("unattended autonomous run");
-    expect(guarded(proj, ["park", "--person-asked"], true, KIRO_CLI_STATE).rc).not.toBe(0);
+    expect(guarded(proj, ["park", "--person-asked"], true, KIRO_IDE_STATE).rc).not.toBe(0);
     expect(readFileSync(sf, "utf-8")).not.toContain("- **Parked**:");
     // The agent's own park there is not theirs either: the run goes on.
-    const own = guarded(proj, ["park"], false, KIRO_CLI_STATE);
+    const own = guarded(proj, ["park"], false, KIRO_IDE_STATE);
     expect(own.rc).not.toBe(0);
     expect(own.out).toContain("Construction Autonomy Mode is autonomous, as the person chose");
     expect(readFileSync(sf, "utf-8")).not.toContain("- **Parked**:");
-    const kiro = guarded(proj, ["park", "--person-asked"], false, KIRO_CLI_STATE);
+    const kiro = guarded(proj, ["park", "--person-asked"], false, KIRO_IDE_STATE);
     expect(kiro.rc, kiro.out).toBe(0);
     expect(kiro.out).toContain("this host can miss one");
     expect(readFileSync(sf, "utf-8")).toContain("- **Parked By**: person");
@@ -613,7 +570,7 @@ describe("t188: human-presence approval gate (ledger-event design)", () => {
     expect(empty.out).toContain("set-autonomy --mode gated");
     // A reply on record, but the driver declared the run unattended.
     recordHumanTurn(proj);
-    for (const tool of [STATE, KIRO_CLI_STATE]) {
+    for (const tool of [STATE, KIRO_IDE_STATE]) {
       expect(guarded(proj, ["park", "--person-asked"], true, tool).rc).not.toBe(0);
     }
     expect(readFileSync(sf, "utf-8")).not.toContain("- **Parked**:");

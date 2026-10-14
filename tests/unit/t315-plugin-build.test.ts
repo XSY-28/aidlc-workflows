@@ -52,7 +52,6 @@ const EXPECTED_HARNESSES = [
   "codex",
   "copilot",
   "cursor",
-  "kiro",
   "kiro-ide",
   "opencode",
 ];
@@ -231,10 +230,10 @@ describe("t315 standalone plugin builder", () => {
     expect(readFileSync(manifestPath, "utf-8")).toBe(originalManifest);
   });
 
-  test("shared Kiro output shapes remain bound to the exact harness", () => {
-    const pluginRoot = copyPlugin("kiro-owner");
-    const outDir = join(scratch, "kiro-owned-output");
-    expect(run([pluginRoot, "kiro", outDir, "--json"]).status).toBe(0);
+  test("an output folder stays bound to the harness it was built for", () => {
+    const pluginRoot = copyPlugin("harness-owner");
+    const outDir = join(scratch, "harness-owned-output");
+    expect(run([pluginRoot, "claude", outDir, "--json"]).status).toBe(0);
     writeFileSync(join(outDir, "sentinel.txt"), "preserve\n", "utf-8");
 
     const refused = run([pluginRoot, "kiro-ide", outDir, "--json"]);
@@ -245,7 +244,7 @@ describe("t315 standalone plugin builder", () => {
     expect(parsed.errors).toContainEqual(
       expect.objectContaining({
         message: expect.stringContaining(
-          'belongs to plugin "test-pro" for harness "kiro"',
+          'belongs to plugin "test-pro" for harness "claude"',
         ),
       }),
     );

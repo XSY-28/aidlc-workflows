@@ -270,7 +270,7 @@ as it ships, gives the agent's shell what that tool gives it (Codex's
 `CODEX_THREAD_ID`, Kiro's `KIRO_SESSION_ID`), and at every moment (a chat
 starts, the person types or picks, a shell or file tool runs, a helper is sent,
 the turn ends) runs each command the tree's wiring registers, fed that tool's
-payload: `.codex/hooks.json`, `.github/hooks/aidlc.json`, and Kiro's
+payload: `.codex/hooks.json`, `.github/hooks/aidlc.json`, Kiro's
 hook cards (`.kiro/hooks/*.json`, regex matchers in file-name order; no card runs
 after a write or a command, so the next card does that work, as in Kiro),
 Cursor's `.cursor/hooks.json` (no matchers; every answer is JSON at exit 0, and

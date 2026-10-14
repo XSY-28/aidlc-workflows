@@ -3601,14 +3601,12 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
   function composeSynthetic(
     name: string,
     files: Record<string, string>,
-    // ".kiro" and "kiro-ide": the Kiro tree under its row id; "kas-as-kiro":
-    // the same tree run under the typed name `kiro`; compose must read the
-    // tree, not the name.
-    harness: ".claude" | ".kiro" | ".codex" | ".aidlc" | "kiro-ide" | "kas-as-kiro" = ".claude",
+    // ".kiro" and "kiro-ide": the Kiro tree under its row id.
+    harness: ".claude" | ".kiro" | ".codex" | ".aidlc" | "kiro-ide" = ".claude",
     mutateInstall?: (proj: string, harnessDir: string) => void,
   ): { drops: string; proj: string } {
     const proj = mkdtempSync(join(tmp, `syn-${name}-`));
-    const kas = harness === ".kiro" || harness === "kiro-ide" || harness === "kas-as-kiro";
+    const kas = harness === ".kiro" || harness === "kiro-ide";
     const harnessLeaf = kas ? ".kiro" : harness;
     if (harnessLeaf === ".aidlc") {
       // OpenCode's dist is a whole-project shape (.aidlc + .opencode +
@@ -3633,7 +3631,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
         CLAUDE_PLUGIN_ROOT: root,
         CLAUDE_PROJECT_DIR: proj,
         AIDLC_HARNESS_DIR: harnessLeaf,
-        ...(kas ? { AIDLC_HARNESS_NAME: harness === "kas-as-kiro" ? "kiro" : "kiro-ide" } : {}),
+        ...(kas ? { AIDLC_HARNESS_NAME: "kiro-ide" } : {}),
       },
     });
     expect(r.status).toBe(0); // compose is fail-open — never breaks the session
@@ -3982,7 +3980,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
       },
     ] as const;
 
-    for (const surface of ["kiro-ide", "kas-as-kiro"] as const) for (const variant of variants) {
+    for (const surface of ["kiro-ide"] as const) for (const variant of variants) {
       const plugin = `syn-${surface}-${variant.label}`;
       const agent = `${plugin}-agent`;
       const stage = [
@@ -4060,7 +4058,6 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
       codex: ".codex",
       opencode: ".aidlc",
       "kiro-ide": "kiro-ide",
-      "kas-as-kiro": "kas-as-kiro",
     } as const;
     for (const [label, surface] of Object.entries(surfaces)) {
       const plugin = `syn-core-rev-${label}`;
@@ -4095,7 +4092,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
         ].join("\n");
       }
       const { drops, proj } = composeSynthetic(plugin, files, surface);
-      const leaf = surface === "kiro-ide" || surface === "kas-as-kiro" ? ".kiro" : surface;
+      const leaf = surface === "kiro-ide" ? ".kiro" : surface;
       for (const [short, reviewer] of Object.entries(reviewers)) {
         expect(existsSync(join(
           proj,

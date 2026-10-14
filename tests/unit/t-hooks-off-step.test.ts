@@ -68,15 +68,6 @@ const HARNESSES: Harness[] = [
     ],
   },
   {
-    name: "kiro",
-    dir: ".kiro",
-    lines: () => [
-      "Type /agent and pick aidlc, then carry on.",
-      "Quit Kiro and start it again in this folder with: kiro-cli chat --agent-engine v2 --agent aidlc, " +
-        "then type /aidlc to carry on.",
-    ],
-  },
-  {
     name: "opencode",
     dir: ".aidlc",
     lines: (proj) => [
@@ -98,9 +89,10 @@ const HARNESSES: Harness[] = [
     ],
   },
 ];
-const COPILOT = HARNESSES[2];
-const OPENCODE = HARNESSES[4];
-const KIRO_IDE = HARNESSES[5];
+const harnessNamed = (name: string): Harness => HARNESSES.find((h) => h.name === name)!;
+const COPILOT = harnessNamed("copilot");
+const OPENCODE = harnessNamed("opencode");
+const KIRO_IDE = harnessNamed("kiro-ide");
 const KIRO_IDE_LINE =
   "In Kiro IDE, trust this folder: choose Trust Folder & Continue when Kiro asks whether you trust it, or " +
   "select Manage on the Restricted Mode banner, then Trust. Then run Developer: Reload Window from the " +

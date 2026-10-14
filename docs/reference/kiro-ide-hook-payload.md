@@ -397,10 +397,9 @@ cards doing the work, and the guard notes nothing for them.
   Only when the count cannot be written and the latch cannot be removed does
   the latch keep matching, until one of them can be changed again or the
   person opens a new chat. The terminal-command refusal still follows the
-  host's or the retained session when a payload names none. The engine's own
-  guard for this (Branch 0) reads only a project-wide latch, not
-  these per-chat ones: the engine could tell one chat's latch from another's
-  only through process ancestry, and the chats of one Kiro IDE window share a
+  host's or the retained session when a payload names none. The engine itself
+  keeps no such guard: it could tell one chat's latch from another's only
+  through process ancestry, and the chats of one Kiro IDE window share a
   process.
 - **cmd.exe metacharacters**: native Windows `aidlc` is `aidlc.cmd`, so cmd.exe
   reads the command line Windows PowerShell 5.1 builds for it: a value holding

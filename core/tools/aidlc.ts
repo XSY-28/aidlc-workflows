@@ -28,7 +28,6 @@ import {
   aidlcInvocation,
   discoverProjectHarnesses,
   isCompiledExecutable,
-  kiroTreeLayout,
   packagedDistributionRoot,
   discoverableRuntimeHarnessDir,
   runtimeHarnessDir,
@@ -1265,13 +1264,12 @@ function toolsDir(): string {
   return dispatcherDir();
 }
 
-type AdapterHarness = "codex" | "copilot" | "cursor" | "kiro" | "kiro-ide";
+type AdapterHarness = "codex" | "copilot" | "cursor" | "kiro-ide";
 
 const ADAPTER_HARNESS_LEAF: Record<AdapterHarness, string> = {
   codex: ".codex",
   copilot: ".aidlc",
   cursor: ".cursor",
-  kiro: ".kiro",
   "kiro-ide": ".kiro",
 };
 
@@ -1286,13 +1284,11 @@ function adapterFile(harness: AdapterHarness): string {
   return "aidlc-kiro-adapter.ts";
 }
 
-// The KAS adapter reads its own payload, and only for the targets that need one,
-// because Kiro IDE 0.12 left stdin open; every other adapter is handed stdin.
-// `kiro-ide` names the KAS adapter. `kiro` names whichever Kiro tree carries the
-// adapter file, so its layout decides.
+// The KAS adapter (`kiro-ide`) reads its own payload, and only for the targets
+// that need one, because Kiro IDE 0.12 left stdin open; every other adapter is
+// handed stdin.
 function kasAdapter(action: Extract<Action, { type: "adapter" }>): boolean {
-  if (action.harness === "kiro-ide") return true;
-  return action.harness === "kiro" && kiroTreeLayout(dirname(dirname(action.path))) === "kas";
+  return action.harness === "kiro-ide";
 }
 
 // The distribution name can come from project metadata and the harness
@@ -3035,15 +3031,7 @@ async function execute(action: Action): Promise<number> {
 // Whether `engine adapter <harness> …` will run the KAS adapter, decided before
 // startup buffers stdin for it: the KAS adapter must not have stdin read for it.
 function kasAdapterInvocation(argv: string[]): boolean {
-  const harness = withoutProjectDirFlag(argv)[2];
-  if (harness === "kiro-ide") return true;
-  if (harness !== "kiro") return false;
-  try {
-    const action = resolveAction(argv);
-    return action.type === "adapter" && kasAdapter(action);
-  } catch {
-    return false;
-  }
+  return withoutProjectDirFlag(argv)[2] === "kiro-ide";
 }
 
 // The argv the route table reads: global output flags and --project-dir are
