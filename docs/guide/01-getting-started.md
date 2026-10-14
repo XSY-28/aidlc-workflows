@@ -193,9 +193,8 @@ every default except the provider, where it chose Amazon Bedrock:
     2. Codex CLI
     3. GitHub Copilot
     4. Cursor
-    5. Kiro CLI
-    6. Kiro IDE
-    7. opencode
+    5. Kiro IDE
+    6. opencode
   Harness [1]:
   Using Claude Code.
 
@@ -320,13 +319,12 @@ up, with no default:
     2. Codex CLI
     3. GitHub Copilot
     4. Cursor
-    5. Kiro CLI
-    6. Kiro IDE
-    7. opencode
-  Harness [1-7]:
+    5. Kiro IDE
+    6. opencode
+  Harness [1-6]:
 
-  That's not one of the choices - enter 1, 2, ... or 7.
-  Harness [1-7]: 1
+  That's not one of the choices - enter 1, 2, ... or 6.
+  Harness [1-6]: 1
   Using Claude Code.
 ```
 

@@ -14,8 +14,9 @@
 > 2.24.1 or later as well as Kiro IDE. A project that already has this row keeps
 > working on it, and `aidlc config`, `aidlc doctor` and the first chat in each
 > clone say how to move it: `aidlc config --harness kiro-ide` switches `.kiro/`
-> to that row in place and keeps `aidlc/`. `aidlc config --harness kiro` still
-> sets a new project up on this row when you name it.
+> to that row in place and keeps `aidlc/`. With a Kiro CLI older than 2.24.1,
+> setup says to update it; `aidlc config --harness kiro` still sets a new project
+> up on this row when you name it.
 >
 > If Kiro CLI 3.0 already upgraded this project's agents (it keeps each
 > original beside it as a `.json.bak`), the switch stops on those agent files,

@@ -446,7 +446,7 @@ export function runtimeHarnessName(
 // projects get instead and what that row runs on. A project that has one keeps
 // it: it refreshes, switches either way, and is told once how to move.
 const NEW_PROJECTS_GET: Readonly<Record<string, { row: string; runsOn: string }>> = Object.freeze({
-  kiro: { row: "kiro-ide", runsOn: "Kiro CLI 3.0 and Kiro IDE" },
+  kiro: { row: "kiro-ide", runsOn: "Kiro IDE and in Kiro CLI on its v3 engine" },
 });
 
 /** The row a new project gets in place of `distribution`, or null when that row is still offered. */
@@ -466,8 +466,8 @@ export function retiredRow(
   if (!Object.hasOwn(NEW_PROJECTS_GET, distribution)) return null;
   const { row, runsOn } = NEW_PROJECTS_GET[distribution];
   return {
-    stands: `New projects no longer get AI-DLC's \`${distribution}\` row, and this project keeps working on it.`,
-    move: `To move it to the \`${row}\` row, which runs on ${runsOn}, run \`${configCommand(`--harness ${row}`)}\`.`,
+    stands: `AI-DLC now sets new projects up on the \`${row}\` row; this project is on the legacy \`${distribution}\` row, which keeps working.`,
+    move: `To move it to \`${row}\`, which runs in ${runsOn}, run \`${configCommand(`--harness ${row}`)}\`.`,
   };
 }
 

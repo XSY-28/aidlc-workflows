@@ -359,8 +359,9 @@ numbered harness picker first; no detected harness gets the complete picker
 without a default. The picker leaves out a row new projects no longer get:
 the legacy Kiro CLI row (`kiro`), so a Kiro CLI at 2.24.1 or later is detected
 as Kiro IDE (`kiro-ide`), whose `.kiro/settings/cli.json` pins Kiro's v3 engine
-and which runs in Kiro CLI too. `aidlc config --harness kiro` still sets a
-project up on the legacy row when you name it. Other detected harnesses keep
+and which runs in Kiro CLI too. An older Kiro CLI is detected by no row, and
+setup says to update it or to name the legacy row: `aidlc config --harness kiro`
+still sets a project up on it. Other detected harnesses keep
 their order, and a harness editor's own terminal still comes first.
 
 Before any setup choices, the wizard probes the project filesystem using

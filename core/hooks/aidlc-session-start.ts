@@ -30,8 +30,8 @@
 // With no aidlc-state.md the hook emits no workflow event or context, but still
 // bootstraps cursors/includes and records host session identity and transcript
 // metadata so the first intent created later in the turn can bind to it.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { runAnchor } from "../tools/aidlc-attest.ts";
 import { appendAuditEntry } from "../tools/aidlc-audit.ts";
 import { stageGraphDrift } from "../tools/aidlc-graph.ts";
@@ -75,6 +75,8 @@ import {
   recordSessionPresenceBypass,
   recoveryFilePath,
   sessionsDir,
+  assertNoSymlinkInChainOrThrow,
+  writeFileAtomic,
   resolveWorkflowSelection,
   resolveProjectDirFromHook,
   stateFilePathForSelection,
@@ -352,21 +354,6 @@ if (sessionId && !rebindCheckOnly) {
   } catch {
     // Asked at a later start.
   }
-  // A project on a row new projects no longer get is told once in this clone
-  // how to move; config and doctor say it whenever they run. The mark lives
-  // beside the sessions (git-ignored); without it the line is said once more.
-  try {
-    const harness = runtimeHarnessName(projectDir);
-    const line = retiredRowLine(harness, (args) => `${aidlcInvocation()} config ${args}`);
-    const mark = join(sessionsDir(projectDir), "retired-row-said");
-    if (line && (!existsSync(mark) || readFileSync(mark, "utf-8").trim() !== harness)) {
-      asks.push(`TELL ONCE: in your first reply, tell the person this, in their language: "${line}"`);
-      mkdirSync(sessionsDir(projectDir), { recursive: true });
-      writeFileSync(mark, `${harness}\n`);
-    }
-  } catch {
-    // Told at a later start.
-  }
   // AI-DLC's status line asks nothing here: a project that already had it
   // keeps it for this clone, and the person whose own status line it covers is
   // told once. Nothing is added anywhere else (#1407).
@@ -380,6 +367,29 @@ if (sessionId && !rebindCheckOnly) {
     // Kept at a later start.
   }
   trackedSteeringAsk = asks.filter(Boolean).join("\n");
+}
+
+// A project on a row new projects no longer get is told once in this clone how
+// to move; config and doctor say it whenever they run. Kiro CLI's legacy row
+// starts a chat with no session id, so this line does not wait for one. The
+// mark lives beside the sessions (git-ignored); without it the line is said
+// once more.
+if (!rebindCheckOnly) {
+  try {
+    const harness = runtimeHarnessName(projectDir);
+    const line = retiredRowLine(harness, (args) => `${aidlcInvocation()} config ${args}`);
+    const dir = sessionsDir(projectDir);
+    const mark = join(dir, "retired-row-said");
+    if (line && (!existsSync(mark) || readFileSync(mark, "utf-8").trim() !== harness)) {
+      assertNoSymlinkInChainOrThrow(projectDir, relative(projectDir, dir));
+      mkdirSync(dir, { recursive: true });
+      writeFileAtomic(mark, `${harness}\n`);
+      const ask = `TELL ONCE: in your first reply, tell the person this, in their language: "${line}"`;
+      trackedSteeringAsk = trackedSteeringAsk ? `${trackedSteeringAsk}\n${ask}` : ask;
+    }
+  } catch {
+    // Told at a later start.
+  }
 }
 
 const stateFile = stateFilePathForSelection(projectDir, selection);
@@ -428,6 +438,8 @@ if (!existsSync(stateFile)) {
         (trackedSteeringAsk ? `\n${trackedSteeringAsk}` : "") +
         memoryHandoff,
     ));
+  } else if (trackedSteeringAsk) {
+    process.stdout.write(hookContextLine("SessionStart", trackedSteeringAsk));
   }
   return 0;
 }

@@ -916,11 +916,12 @@ const HARNESS_CLI: Record<
     minimumVersion: "2.6.0",
     install: "Install or upgrade Kiro CLI to 2.6.0 or later.",
   },
-  // Probed so a machine with only a supported Kiro CLI detects this row next to
-  // the kiro row: first-run setup then asks instead of silently choosing the
-  // legacy one. 2.24.1 is the oldest Kiro CLI this row has been checked on (its
-  // v3 engine runs the hooks, and `/aidlc --doctor` reports no problem); an
-  // older one counts only for the kiro row, and doctor warns about it here.
+  // Probed so a machine with a supported Kiro CLI detects this row, the one new
+  // projects get for Kiro CLI (rowNewProjectsGet). 2.24.1 is the oldest Kiro
+  // CLI this row has been checked on (its v3 engine runs the hooks, and
+  // `/aidlc --doctor` reports no problem); an older one counts only for the
+  // legacy kiro row, so first-run setup says to update it (or to name that
+  // row), and doctor warns about it here.
   "kiro-ide": {
     command: "kiro-cli",
     required: false,
@@ -2881,6 +2882,11 @@ export function codexHookTrustStep(issueId: string): string | null {
 // The runtimes this shell finds that the system-wide PATH does not. A harness
 // started from this terminal hands them to its hooks, so setup lists no step
 // for them and says where to start the harness instead.
+/** The oldest version of a harness's CLI that counts for its row, if it has one. */
+export function harnessCliMinimumVersion(harness: string): string | undefined {
+  return Object.hasOwn(HARNESS_CLI, harness) ? HARNESS_CLI[harness as ModelHarness].minimumVersion : undefined;
+}
+
 export function shellOnlyRuntimes(
   projectDir: string,
   harnessDir: string,

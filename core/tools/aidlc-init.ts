@@ -303,6 +303,7 @@ import {
   projectMcpNote,
   readPluginSelection,
   readConfigDiagnosticRecords,
+  harnessCliMinimumVersion,
   reconcileProviderActions,
   runtimeFixesNeeded,
   runtimeIssues,
@@ -2613,6 +2614,12 @@ function sameFile(left: string, right: string): boolean {
 // name this harness's tool there, not the first install the project shows.
 let configTargetHarnessDir: string | null = null;
 
+// What config tells a project on a row new projects no longer get, in this
+// run's command form, or null.
+function retiredRowNote(projectDir: string, distribution: string): string | null {
+  return retiredRowLine(distribution, (args) => `${configInvocationFor(projectDir)} config ${args}${projectTarget(projectDir)}`);
+}
+
 // How a printed command starts so it runs from where the user is: `aidlc`, or
 // the Bun tool that ran this command. The project's own tool is named from the
 // project when run there and by its path in the project when not. Any other
@@ -2621,12 +2628,6 @@ let configTargetHarnessDir: string | null = null;
 // working directory. In the source tree the project's own tool of the harness
 // being set up stands in. A newer release's config that an older copied tool
 // handed its refresh to names the tool the person ran.
-// What config tells a project on a row new projects no longer get, in this
-// run's command form, or null.
-function retiredRowNote(projectDir: string, distribution: string): string | null {
-  return retiredRowLine(distribution, (args) => `${configInvocationFor(projectDir)} config ${args}${projectTarget(projectDir)}`);
-}
-
 function configInvocationFor(projectDir = process.cwd()): string {
   const invocation = aidlcInvocation();
   if (invocation === "aidlc") return invocation;
@@ -7926,6 +7927,29 @@ function newProjectChoices(candidates: readonly InstalledSourceCandidate[]): Ins
   return offered.length > 0 ? offered : [...candidates];
 }
 
+// When a tool on this machine was detected only by a row new projects no
+// longer get (a Kiro CLI older than the kiro-ide row's floor), the one line
+// that says what to do: update it, or name the old row. Null otherwise.
+function olderToolLine(
+  projectDir: string,
+  candidates: readonly InstalledSourceCandidate[],
+  detection: FirstRunDetection,
+): string | null {
+  for (const candidate of candidates) {
+    const row = candidate.stamp.distribution;
+    const instead = rowNewProjectsGet(row);
+    if (!instead || detection.harnesses[row]?.found !== true || detection.harnesses[instead]?.found === true) continue;
+    const product = candidate.descriptor.productName;
+    const found = detection.harnesses[row]?.version;
+    const version = found ? /\d+\.\d+\.\d+/.exec(found)?.[0] : undefined;
+    const floor = harnessCliMinimumVersion(instead);
+    return `${version ? `${product} ${version} was found; ` : ""}new projects get AI-DLC's \`${instead}\` row, which needs ${product}${
+      floor ? ` ${floor} or later` : ""
+    }. Update ${product}, or run \`${configCommand(`--harness ${row}`)}${projectTarget(projectDir)}\` to set this project up on the legacy \`${row}\` row.`;
+  }
+  return null;
+}
+
 function detectedCandidateChoices(
   candidates: readonly InstalledSourceCandidate[],
   detection: FirstRunDetection,
@@ -9036,8 +9060,8 @@ async function runFirstRunWizard(projectDir: string): Promise<boolean> {
   const pinPath = join(projectDir, ".aidlc-version");
   const pinned = regularFile(pinPath) ? readFileSync(pinPath, "utf-8").trim() : undefined;
   if (pathPresent(pinPath) && (pinned === undefined || !VERSION_ID.test(pinned))) return false;
-  const candidates = newProjectChoices(installedSourceCandidates(pinned));
-  if (candidates.length === 0) return false;
+  const installed = installedSourceCandidates(pinned);
+  if (installed.length === 0) return false;
   // Storage that cannot hold the transaction lock would fail at apply, after
   // every question; find out before asking any. Whatever the check hits (a
   // rejected link, a full disk, no write permission) stops setup here.
@@ -9059,8 +9083,14 @@ async function runFirstRunWizard(projectDir: string): Promise<boolean> {
     process.exitCode = EXIT.failure;
     return true;
   }
-  const detection = detectFirstRun(projectDir, candidates);
+  const detection = detectFirstRun(projectDir, installed);
+  const candidates = newProjectChoices(installed);
   const detected = detectedCandidateChoices(candidates, detection);
+  const older = olderToolLine(projectDir, installed, detection);
+  if (older) {
+    process.stdout.write("\n");
+    writeMenuRow("  ", older);
+  }
   let candidate: InstalledSourceCandidate;
   if (detected.length === 1) {
     candidate = detected[0];

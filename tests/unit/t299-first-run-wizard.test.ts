@@ -1156,7 +1156,8 @@ describe("t299 first-run setup wizard", () => {
   // A new project is not offered the legacy kiro row (rowNewProjectsGet), so
   // Kiro CLI leads to the kiro-ide row. That row counts `kiro-cli` only from
   // 2.24.1, the oldest Kiro CLI it has been checked on; below that no Kiro row
-  // is detected, and setup asks. The real probe runs the stub `kiro-cli`, a
+  // is detected, setup says to update Kiro CLI or name the legacy row, and
+  // asks. The real probe runs the stub `kiro-cli`, a
   // POSIX shell script Windows does not resolve as an executable; t294 covers
   // the floor itself on every platform.
   test.skipIf(process.platform === "win32")("a Kiro CLI from the kiro-ide floor is detected as that row, and an older one is not", () => {
@@ -1174,6 +1175,13 @@ describe("t299 first-run setup wizard", () => {
       harnesses: { claude: { found: false }, kiro: { found: true, version: "kiro-cli 2.24.0" } },
       probed: ["kiro", "kiro-ide"],
     });
+    // It says why, and the two ways on: update Kiro CLI, or name the legacy row.
+    expect(old.stdout).toContain(
+      "Kiro CLI 2.24.0 was found; new projects get AI-DLC's `kiro-ide` row, which needs Kiro CLI 2.24.1 or later. Update",
+    );
+    expect(old.stdout.replace(/\s+/g, " ")).toMatch(
+      /Update Kiro CLI, or run `[^`]* config --harness kiro` to set this project up on the legacy `kiro` row\./,
+    );
     expect(old.stdout).toContain("No supported harness CLI was detected. Choose one to configure:");
     expect(old.stdout).not.toMatch(/\d\. Kiro CLI /);
     expect(old.status, old.stdout + old.stderr).toBe(0);
@@ -1200,7 +1208,7 @@ describe("t299 first-run setup wizard", () => {
     expect(existsSync(join(kiroDir, "agents", "aidlc.json"))).toBe(false);
     const cli = JSON.parse(readFileSync(join(kiroDir, "settings", "cli.json"), "utf-8"));
     expect(cli["chat.agentEngine"]).toBe("v3");
-    expect(result.stdout).not.toContain("New projects no longer get");
+    expect(result.stdout).not.toContain("now sets new projects up");
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("Enter with both Kiro rows detected keeps Kiro auto, and writes no effort for a saved model", () => {
@@ -1253,7 +1261,7 @@ describe("t299 first-run setup wizard", () => {
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(existsSync(join(result.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
     expect(result.stdout).toMatch(
-      /Note: New projects no longer get AI-DLC's `kiro` row, and this project keeps working on it\. To move it to the `kiro-ide` row, which runs on Kiro CLI 3\.0 and Kiro IDE, run `bun \.kiro\/tools\/aidlc\.ts config --harness kiro-ide`\./,
+      /Note: AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working\. To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI on its v3 engine, run `bun \.kiro\/tools\/aidlc\.ts config --harness kiro-ide`\./,
     );
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
@@ -1625,7 +1633,7 @@ describe("t299 first-run setup wizard", () => {
       expect(lines[at]).toBe(
         `configured ${walks[screen].project} for ${productName} ${AIDLC_VERSION}; next: ${configNextStep}`,
       );
-      if (harness === "kiro") expect(lines.slice(0, at).join(" ")).toContain("New projects no longer get AI-DLC's `kiro` row");
+      if (harness === "kiro") expect(lines.slice(0, at).join(" ")).toContain("AI-DLC now sets new projects up on the `kiro-ide` row");
     }
     const ideWalk = walks["harness-kiro-ide"].stdout;
     expect(ideWalk).toContain("\n  Full diagnostics: bun .kiro/tools/aidlc.ts config runtime --show\n");
