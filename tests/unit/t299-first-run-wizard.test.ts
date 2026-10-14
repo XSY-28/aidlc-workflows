@@ -1026,7 +1026,7 @@ describe("t299 first-run setup wizard", () => {
     );
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain("Customize setup - 6 steps");
-    expect(result.stdout).toContain("Kiro            (not probed)");
+    expect(result.stdout).toContain("Kiro IDE        (not probed)");
     for (let step = 1; step <= 6; step++) {
       expect(result.stdout).toContain(`Step ${step} of 6`);
     }
@@ -1159,9 +1159,9 @@ describe("t299 first-run setup wizard", () => {
   // Kiro CLI leads to the kiro-ide row. That row counts `kiro-cli` only from
   // 2.24.1, the oldest Kiro CLI it has been checked on; an older one does not
   // count for it, so setup says to update Kiro CLI (and, from the legacy row's
-  // 2.6, how to name that row), and asks. The real probe runs the stub `kiro-cli`, a
-  // POSIX shell script Windows does not resolve as an executable; t294 covers
-  // the floor itself on every platform.
+  // 2.6, how to name that row), and asks. The real probe runs the stub
+  // `kiro-cli`, a POSIX shell script Windows does not resolve as an executable;
+  // t294 covers the floor itself on every platform.
   test.skipIf(process.platform === "win32")("a Kiro CLI from the kiro-ide floor is detected as that row, and an older one is not", () => {
     const supported = runWizard("\n\n", {
       harnesses: { claude: { found: false }, kiro: { found: true, version: "kiro-cli 2.24.1" } },
@@ -1169,7 +1169,7 @@ describe("t299 first-run setup wizard", () => {
     });
     expect(supported.status, supported.stdout + supported.stderr).toBe(0);
     expect(supported.stdout).not.toContain("Choose the harness for this project first.");
-    expect(supported.stdout).toContain("Kiro detected");
+    expect(supported.stdout).toContain("Kiro IDE detected");
     expect(existsSync(join(supported.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
     expect(existsSync(join(supported.project, ".kiro", "agents", "aidlc.json"))).toBe(false);
 
@@ -1206,10 +1206,10 @@ describe("t299 first-run setup wizard", () => {
       env: { TERM_PROGRAM: "kiro" },
     });
     expect(inIde.status, inIde.stdout + inIde.stderr).toBe(0);
-    expect(inIde.stdout).toContain("Kiro detected");
+    expect(inIde.stdout).toContain("Kiro IDE detected");
     expect(inIde.stdout).not.toContain("which AI-DLC's `kiro-ide` row needs");
     expect(existsSync(join(inIde.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
-    // The older Kiro CLI's run above chose 5, the kiro-ide row ("Kiro").
+    // The older Kiro CLI's run above chose 5, the kiro-ide row ("Kiro IDE").
     expect(old.status, old.stdout + old.stderr).toBe(0);
     expect(existsSync(join(old.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
@@ -1228,7 +1228,7 @@ describe("t299 first-run setup wizard", () => {
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).not.toContain("Choose the harness for this project first.");
     expect(result.stdout).not.toMatch(/\d\. Kiro CLI /);
-    expect(result.stdout).toContain("Kiro detected");
+    expect(result.stdout).toContain("Kiro IDE detected");
     const kiroDir = join(result.project, ".kiro");
     expect(existsSync(join(kiroDir, "agents", "aidlc-aidlc.md"))).toBe(true);
     expect(existsSync(join(kiroDir, "agents", "aidlc.json"))).toBe(false);
@@ -1247,7 +1247,7 @@ describe("t299 first-run setup wizard", () => {
     const auto = kiroSeam({});
     const onAuto = runWizard("\n\n", { harnesses: bothKiro, env: auto.env });
     expect(onAuto.status, onAuto.stdout + onAuto.stderr).toBe(0);
-    expect(onAuto.stdout).toContain("Kiro detected");
+    expect(onAuto.stdout).toContain("Kiro IDE detected");
     expect(onAuto.stdout).toContain("Choose the Kiro CLI session model (Enter keeps Kiro auto):");
     expect(onAuto.stdout).toContain("Model [4]:");
     expect(kiroWrites(auto.writes)).toEqual([]);
@@ -1256,7 +1256,7 @@ describe("t299 first-run setup wizard", () => {
     const saved = kiroSeam({ "chat.defaultModel": "claude-opus-5" });
     const kept = runWizard("\n", { harnesses: bothKiro, env: saved.env });
     expect(kept.status, kept.stdout + kept.stderr).toBe(0);
-    expect(kept.stdout).toContain("Kiro detected");
+    expect(kept.stdout).toContain("Kiro IDE detected");
     // Neither the keep-or-choose question nor the model list.
     expect(kept.stdout).not.toContain("Kiro CLI runs each AI-DLC session on one model.");
     expect(kept.stdout).not.toMatch(/model \[/i);
@@ -1273,7 +1273,7 @@ describe("t299 first-run setup wizard", () => {
     });
     expect(withClaude.status, withClaude.stdout + withClaude.stderr).toBe(0);
     expect(withClaude.stdout).toContain(`    1. Claude Code     (detected, default)\n`);
-    expect(withClaude.stdout).toContain(`    5. Kiro${" ".repeat(12)}(detected)\n`);
+    expect(withClaude.stdout).toContain(`    5. Kiro IDE${" ".repeat(8)}(detected)\n`);
     expect(withClaude.stdout).not.toMatch(/\d\. Kiro CLI /);
     expect(withClaude.stdout).toContain("Using Claude Code.");
     expect(existsSync(join(withClaude.project, ".kiro"))).toBe(false);
@@ -1298,7 +1298,7 @@ describe("t299 first-run setup wizard", () => {
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).not.toContain("Choose the harness for this project first.");
-    expect(result.stdout).toContain("Kiro detected  (running in Kiro's terminal)");
+    expect(result.stdout).toContain("Kiro IDE detected  (running in Kiro IDE's terminal)");
     expect(result.stdout).toContain([
       "  Setup complete. Start your first workflow:",
       "",
@@ -1323,7 +1323,7 @@ describe("t299 first-run setup wizard", () => {
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain("Choose the harness for this project first.");
-    expect(result.stdout).toContain("Using Kiro.");
+    expect(result.stdout).toContain("Using Kiro IDE.");
     expect(existsSync(join(result.project, ".kiro"))).toBe(true);
     expect(existsSync(join(result.project, ".claude"))).toBe(false);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
@@ -1344,9 +1344,9 @@ describe("t299 first-run setup wizard", () => {
       "    AWS        credentials found  (instance role, detected region us-east-2)",
       "    Runtime    ready",
       "",
-      "  Set up AI-DLC for Kiro with recommended defaults?",
+      "  Set up AI-DLC for Kiro IDE with recommended defaults?",
       "",
-      "    1. Yes, use recommended defaults   all plugins, no provider settings; model access comes with Kiro",
+      "    1. Yes, use recommended defaults   all plugins, no provider settings; model access comes with Kiro IDE",
       underRecommended("Records no model preset: every agent uses your Kiro IDE session's model and effort."),
       "    2. No, customize step by step      harness, provider, preset, plugins, MCP, record layer",
       "    3. Exit, nothing written",
@@ -1362,11 +1362,11 @@ describe("t299 first-run setup wizard", () => {
       "               us-east-2)",
       "    Runtime    ready",
       "",
-      "  Set up AI-DLC for Kiro with recommended defaults?",
+      "  Set up AI-DLC for Kiro IDE with recommended defaults?",
       "",
       "    1. Yes, use recommended defaults   all plugins, no provider",
       underRecommended("settings; model access comes"),
-      underRecommended("with Kiro"),
+      underRecommended("with Kiro IDE"),
       underRecommended("Records no model preset: every"),
       underRecommended("agent uses your Kiro IDE"),
       underRecommended("session's model and effort."),
@@ -1637,7 +1637,7 @@ describe("t299 first-run setup wizard", () => {
     expect(check.stdout).toContain([
       "    [ok]     Flags       defaults",
       "    [ok]     Project     plugins: all installed, MCP: none, completions: none",
-      "    [ok]     Providers   model access comes with Kiro; nothing for AI-DLC to configure",
+      "    [ok]     Providers   model access comes with Kiro IDE; nothing for AI-DLC to configure",
       "    [ok]     Trust       no unmet host trust",
       "    [ok]     Workspace   workspace shell present",
       "",
@@ -1816,7 +1816,7 @@ describe("t299 first-run setup wizard", () => {
       });
       expect(result.status, result.stdout + result.stderr).toBe(0);
       expect(result.stdout).toContain("Using Claude Code.");
-      expect(result.stdout).not.toContain("Kiro detected");
+      expect(result.stdout).not.toContain("Kiro IDE detected");
       expect(existsSync(join(result.project, ".claude"))).toBe(true);
       expect(existsSync(join(result.project, ".kiro"))).toBe(false);
     }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);

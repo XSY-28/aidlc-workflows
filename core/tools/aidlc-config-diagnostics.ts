@@ -923,8 +923,9 @@ const HARNESS_CLI: Record<
   // projects get for Kiro CLI (rowNewProjectsGet). 2.24.1 is the oldest Kiro
   // CLI this row has been checked on (its v3 engine runs the hooks, and
   // `/aidlc --doctor` reports no problem); an older one counts only for the
-  // legacy kiro row, so first-run setup says to update it (or to name that
-  // row), and doctor warns about it here.
+  // legacy kiro row, so first-run setup says to update it (and, when the legacy
+  // row takes that version, how to name that row), and doctor warns about it
+  // here.
   "kiro-ide": {
     command: "kiro-cli",
     required: false,
@@ -3434,8 +3435,8 @@ export function retiredRowDoctorCheck(
   // Any tree on such a row, not only the one doctor reports on: a project can
   // hold another harness beside it.
   const selected = discoverProjectHarnesses(projectDir).find((tree) => rowNewProjectsGet(tree.distribution));
-  const instead = selected ? rowNewProjectsGet(selected.distribution) : null;
-  if (!selected || instead === null) return null;
+  const instead = selected && rowNewProjectsGet(selected.distribution);
+  if (!selected || !instead) return null;
   // Run from another folder, the step names this project, and a copied
   // project's tool by its path.
   const invoke = aidlcInvocation() === "aidlc" || here

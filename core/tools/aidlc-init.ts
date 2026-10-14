@@ -7946,8 +7946,9 @@ function newProjectChoices(candidates: readonly InstalledSourceCandidate[]): Ins
 
 // When the tool the row new projects get needs was found too old for it (a
 // Kiro CLI below the kiro-ide row's floor), the one line that says so, and
-// what to do: update it, or name the old row. Not in that row's own editor
-// terminal (Kiro IDE), where the row is taken and its CLI is optional.
+// what to do: update it, and, when the old row takes that version, name the
+// old row. Not in that row's own editor terminal (Kiro IDE), where the row is
+// taken and its CLI is optional.
 function olderToolLine(
   projectDir: string,
   candidates: readonly InstalledSourceCandidate[],
@@ -12606,9 +12607,10 @@ export async function main(
     }
     const { stamp, descriptor } = selected;
     configTargetHarnessDir = descriptor.harnessDir;
-    // Said in the command form of the tree this run writes.
+    // Said in the command form of the tree this run writes; a preview of a
+    // new install has no project on that row yet.
     const retired = retiredRowNote(projectDir, stamp.distribution);
-    if (retired) sourceNotes.push(retired);
+    if (retired && (existing.distribution || !dryRun)) sourceNotes.push(retired);
     if (existing.distribution && existing.distribution !== stamp.distribution) {
       throw new Error(`project uses ${existing.distribution}; refusing ${stamp.distribution}`);
     }

@@ -112,6 +112,18 @@ describe("the legacy kiro row new projects no longer get", () => {
     expect(existsSync(join(legacy.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
 
     expect(install("kiro-ide").out).not.toContain("now sets new projects up");
+
+    // A preview of a new install has no project on the row yet.
+    const fresh = realpathSync(mkdtempSync(join(tmpdir(), "aidlc-t-legacy-kiro-")));
+    temporary.push(fresh);
+    mkdirSync(join(fresh, ".git"));
+    const preview = spawnSync(
+      process.execPath,
+      [INIT, "config", "--from", join(RELEASE, "kiro"), "--harness", "kiro", "--mcp", "none", "--dry-run"],
+      { cwd: fresh, env: childEnv(), encoding: "utf-8" },
+    );
+    expect(preview.status, `${preview.stdout ?? ""}${preview.stderr ?? ""}`).toBe(0);
+    expect(`${preview.stdout ?? ""}${preview.stderr ?? ""}`).not.toContain("this project is on the legacy");
   });
 
   test("doctor shows the line on a legacy project as passing, not a warning, and says nothing of it elsewhere", () => {
