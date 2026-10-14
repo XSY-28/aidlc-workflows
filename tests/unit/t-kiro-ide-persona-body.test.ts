@@ -55,7 +55,7 @@ describe("the Kiro IDE lead reads the persona without its tool permissions", () 
   });
 
   test("no other harness ships a persona copy", () => {
-    for (const harness of ["claude", "codex", "copilot", "cursor", "kiro", "opencode"]) {
+    for (const harness of ["claude", "codex", "copilot", "cursor", "opencode"]) {
       for (const leaf of [".claude", ".codex", ".aidlc", ".cursor", ".kiro"]) {
         expect(existsSync(join(DIST, harness, leaf, "aidlc-common", "personas")), `${harness}/${leaf}`).toBe(false);
       }
@@ -68,8 +68,6 @@ describe("the Kiro IDE lead reads the persona without its tool permissions", () 
     const ide = shippedInlineContextEntries(node, KIRO_IDE, ".kiro").map((entry) => entry.rel);
     expect(ide).toContain(`.kiro/aidlc-common/personas/${lead}.md`);
     expect(ide).not.toContain(`.kiro/agents/${lead}.md`);
-    const cli = shippedInlineContextEntries(node, join(DIST, "kiro", ".kiro"), ".kiro").map((entry) => entry.rel);
-    expect(cli).toContain(`.kiro/agents/${lead}.md`);
     const claude = shippedInlineContextEntries(node, join(DIST, "claude", ".claude"), ".claude").map((entry) => entry.rel);
     expect(claude).toContain(`.claude/agents/${lead}.md`);
   });
@@ -78,7 +76,8 @@ describe("the Kiro IDE lead reads the persona without its tool permissions", () 
     expect(personaTwinRels("kiro-ide", ".kiro", "aidlc-quality-agent")).toEqual([
       ".kiro/aidlc-common/personas/aidlc-quality-agent.md",
     ]);
-    expect(personaTwinRels("kiro", ".kiro", "aidlc-quality-agent")).toEqual([]);
+    expect(personaTwinRels("claude", ".claude", "aidlc-quality-agent")).toEqual([]);
+    expect(personaTwinRels("cursor", ".cursor", "aidlc-quality-agent")).toEqual([]);
   });
 
   // A lead told the inline persona loads from the agent file reads the 32 KB

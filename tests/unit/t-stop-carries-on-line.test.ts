@@ -60,7 +60,7 @@ const REPORT_STEP =
 describe("t-stop-carries-on-line: the agent's steps for the one-line Stop note", () => {
   test("(a) every conductor SKILL carries each step, in one paragraph", () => {
     const paths = skillPaths();
-    expect(paths.length).toBeGreaterThanOrEqual(7);
+    expect(paths.length).toBeGreaterThanOrEqual(6);
     for (const rel of paths) {
       const paragraph = carryOnParagraph(rel);
       for (const step of STEPS) expect(paragraph, `${rel}: ${step}`).toContain(step);
@@ -70,7 +70,6 @@ describe("t-stop-carries-on-line: the agent's steps for the one-line Stop note",
 
   test("(b) the person on every tool gets the line once: shown by the tool, or said by the agent where the tool hides it", () => {
     const hides: Record<string, string> = {
-      "harness/kiro/skills/aidlc/SKILL.md": "Kiro CLI",
       "harness/kiro-ide/skills/aidlc/SKILL.md": "Kiro IDE",
       "harness/opencode/skills/aidlc/SKILL.md": "opencode",
     };

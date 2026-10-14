@@ -46,7 +46,7 @@ import {
 } from "../harness/test-budget.ts";
 import { afterEach, describe, expect, test, setDefaultTimeout } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO_ROOT } from "../harness/fixtures.ts";
@@ -340,11 +340,6 @@ describe("t266 conversation-language rule layer", () => {
   // stops projecting the memory glob. Check the delivered artifact itself in
   // both cases rather than its mere presence.
   test("c2: every harness ships a surface that delivers active memory to delegated agents", () => {
-    // The glob Kiro agent configs must preload: the engine's copy of the active
-    // space's memory (aidlc-includes.ts ACTIVE_MEMORY_DIR). Exact string, not a
-    // substring: `r.includes("memory")` would accept `file://docs/memory-notes.md`
-    // and any other path that merely has the word in it.
-    const MEMORY_GLOB = "file://aidlc/active-memory/**/*.md";
     const authoredHook = readFileSync(
       join(REPO_ROOT, "core", "hooks", "aidlc-deliver-stage-rules.ts"),
       "utf-8",
@@ -359,37 +354,6 @@ describe("t266 conversation-language rule layer", () => {
         readFileSync(hook, "utf-8"),
         `${harness.name}'s hook matches core/hooks/aidlc-deliver-stage-rules.ts, so (c) covers it`,
       ).toBe(authoredHook);
-
-      if (!harness.capabilities.kiroAgentJson) continue;
-      // Kiro's preload path: EVERY agent config must name the active-space
-      // memory glob, or that agent starts a stage without the rule layer.
-      const agentsDir = join(harness.engineRoot, "agents");
-      const configs = readdirSync(agentsDir).filter((f) => f.endsWith(".json"));
-      expect(configs.length, `${harness.name} ships agent configs`).toBeGreaterThan(0);
-      for (const file of configs) {
-        const raw: unknown = JSON.parse(readFileSync(join(agentsDir, file), "utf-8"));
-        const resources = (raw as { resources?: unknown }).resources;
-        const list = Array.isArray(resources) ? resources.filter((r): r is string => typeof r === "string") : [];
-        expect(
-          list,
-          `${harness.name}/${file} preloads the active-space memory tree`,
-        ).toContain(MEMORY_GLOB);
-      }
-      // A glob is only a promise; the copy it reads is written from the shipped
-      // workspace shell's default space, so confirm that org.md carries the rules.
-      const globbed = "aidlc/spaces/default/memory/org.md";
-      const preloaded = join(harness.distRoot, globbed);
-      expect(
-        existsSync(preloaded),
-        `${harness.name}'s memory glob is written from a real org.md (${globbed})`,
-      ).toBe(true);
-      const preloadedBody = readFileSync(preloaded, "utf-8");
-      for (const label of RULE_LABELS) {
-        expect(
-          preloadedBody.includes(label),
-          `${harness.name}'s preloaded org.md carries ${label}`,
-        ).toBe(true);
-      }
     }
   });
 
@@ -451,12 +415,6 @@ describe("t266 conversation-language rule layer", () => {
           // #[[file:...]] references in steering).
           surface = join(harness.engineRoot, "steering", "aidlc-active-memory.md");
           required = `<memory-file path="${MEMORY_DIR}/org.md">`;
-          break;
-        case "kiro-resources":
-          // Kiro CLI: the conductor is itself an agent config, so its own
-          // resources list is the include. Named explicitly, not any config.
-          surface = join(harness.engineRoot, "agents", "aidlc.json");
-          required = `file://${COPY_DIR}/**/*.md`;
           break;
         case "opencode-instructions":
           surface = join(harness.distRoot, "opencode.json");

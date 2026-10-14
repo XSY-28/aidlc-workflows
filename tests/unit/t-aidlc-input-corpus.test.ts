@@ -10,7 +10,7 @@
 // settings they typed; and `next` either acts exactly as EXPECTED names (a known flag, verb, record
 // name or pick) or returns the one agent-facing note, never a wrong name, a dropped word, a setting
 // silently lost, or a question to the person when the item is not `ambiguous`. The other hosts' hooks
-// (Codex, Kiro CLI, Kiro IDE) take the same turn for a fixed sample of items per category (the first
+// (Codex, Kiro) take the same turn for a fixed sample of items per category (the first
 // HOST_HOOK_SAMPLE in corpus order), each in a fresh project at the item's state: the record contract
 // is the same hook under every host, so a sample holds the plumbing while the file stays fast enough
 // for every PR (one project and about two processes per item).
@@ -48,7 +48,7 @@ setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
 const PARALLEL = Math.max(1, Number.parseInt(process.env.AIDLC_INPUT_PARALLEL ?? "6", 10) || 6);
 const ONLY = process.env.AIDLC_INPUT_ONLY?.split(",").map((s) => s.trim()).filter(Boolean);
-// How many items per category also take their turn through the Codex, Kiro CLI and Kiro IDE hooks. Fixed, not seeded:
+// How many items per category also take their turn through the Codex and Kiro hooks. Fixed, not seeded:
 // the same items every run, on every platform.
 const HOST_HOOK_SAMPLE = 2;
 const HOST_HOOKS = HARNESSES.filter((h) => h !== "claude");

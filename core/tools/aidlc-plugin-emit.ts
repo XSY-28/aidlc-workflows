@@ -42,7 +42,7 @@ import { sharedKnowledgeWithoutFormatDocs } from "./aidlc-inline-context.ts";
 import { runWithOwnerStampedLock } from "./aidlc-lib.ts";
 import { EXTENDED_SUBPROCESS_TIMEOUT_MS, LONG_SUBPROCESS_TIMEOUT_MS } from "./aidlc-runtime-budget.ts";
 
-export type PluginTargetKind = "store" | "kiro" | "kiro-ide" | "cursor";
+export type PluginTargetKind = "store" | "kiro-ide" | "cursor";
 
 export interface PluginTarget {
   harnessName: string;
@@ -162,7 +162,6 @@ export function readPluginTargets(path: string): PluginTargetTable {
       !Array.isArray(value.installRoots) ||
       value.installRoots.some((item) => typeof item !== "string") ||
       (value.kind !== "store" &&
-        value.kind !== "kiro" &&
         value.kind !== "kiro-ide" &&
         value.kind !== "cursor")
     ) {
@@ -370,7 +369,6 @@ function writeHookWiring(
   target: PluginTarget,
 ): void {
   const command = composeCommand(target);
-  if (target.kind === "kiro") return;
   if (target.kind === "kiro-ide") {
     const hooksDir = join(outDir, target.harnessLeaf, "hooks");
     mkdirSync(hooksDir, { recursive: true });

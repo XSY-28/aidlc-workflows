@@ -40,7 +40,7 @@ import {
 setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
 const CLAUDE_TOOLS = join(AIDLC_SRC, "tools");
-const KIRO_TOOLS = join(REPO_ROOT, "dist", "kiro", ".kiro", "tools");
+const KIRO_TOOLS = join(REPO_ROOT, "dist", "kiro-ide", ".kiro", "tools");
 const ORCH = join(CLAUDE_TOOLS, "aidlc-orchestrate.ts");
 const MID_IDEATION = join(FIXTURES_DIR, "state-mid-ideation.md");
 const COMPLETED = join(FIXTURES_DIR, "state-completed.md");
@@ -373,14 +373,14 @@ describe("t-plan-proposed-by-the-agent: finished work and new work beside active
 });
 
 describe("t-plan-proposed-by-the-agent: work here but none selected", () => {
-  for (const [harness, tools] of [["claude", CLAUDE_TOOLS], ["kiro", KIRO_TOOLS]] as const) {
+  for (const [harness, tools] of [["claude", CLAUDE_TOOLS], ["kiro-ide", KIRO_TOOLS]] as const) {
     test(`${harness}: the none-selected reading, the agent's plan, then one question, within three calls`, () => {
       proj = cloneWithWork(tools);
       const chain = follow(tools, proj, ["fix the login"], "bugfix");
       const note = JSON.stringify(chain.last).slice(0, 400);
       expect(chain.last.kind, note).toBe("ask");
       expect(chain.calls).toBeLessThanOrEqual(3);
-      if (harness === "kiro") {
+      if (harness === "kiro-ide") {
         // Kiro's routing harness asks which work it belongs to first, naming the plan.
         expect(chain.last.ask_type, note).toBe("new-work-routing");
         expect(chain.last.proposed_scope).toBe("bugfix");
@@ -392,7 +392,7 @@ describe("t-plan-proposed-by-the-agent: work here but none selected", () => {
     });
   }
 
-  test("kiro: without a proposed plan the pick question says the plan comes next", () => {
+  test("kiro-ide: without a proposed plan the pick question says the plan comes next", () => {
     proj = cloneWithWork(KIRO_TOOLS);
     const read = next(KIRO_TOOLS, proj, ["fix the login"]);
     const id = REQUEST.exec(String(read.message))![1];

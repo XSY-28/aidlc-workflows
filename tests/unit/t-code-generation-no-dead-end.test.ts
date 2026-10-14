@@ -13,7 +13,7 @@
 //   (e) before the approval the developer dispatch and a source write are
 //       refused with that way past; after it both are admitted.
 //
-// The states and the seven shapes live in tests/harness/code-generation-states.ts.
+// The states and the six shapes live in tests/harness/code-generation-states.ts.
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { join } from "node:path";
 import { cleanupTestProject } from "../harness/fixtures.ts";

@@ -67,7 +67,7 @@ const KIRO_PROTOCOL = readFileSync(
   join(
     REPO_ROOT,
     "dist",
-    "kiro",
+    "kiro-ide",
     ".kiro",
     "aidlc-common",
     "protocols",
@@ -76,7 +76,7 @@ const KIRO_PROTOCOL = readFileSync(
   "utf8",
 );
 const KIRO_SKILL = readFileSync(
-  join(REPO_ROOT, "dist", "kiro", ".kiro", "skills", "aidlc", "SKILL.md"),
+  join(REPO_ROOT, "dist", "kiro-ide", ".kiro", "skills", "aidlc", "SKILL.md"),
   "utf8",
 );
 
@@ -1071,7 +1071,7 @@ describe("Kiro checkpoint reply protocol", () => {
 
 describe("tui fixture runtime graph", () => {
   test("repairs seeded Claude and Kiro workflows and remains idempotent", () => {
-    for (const harness of ["claude", "kiro"] as const) {
+    for (const harness of ["claude", "kiro-ide"] as const) {
       const projectDir = setupTuiProject({
         harness,
         withState: "state-mid-ideation.md",

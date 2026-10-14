@@ -41,8 +41,8 @@ const BUN = process.execPath;
 const DISPATCHER = join(AIDLC_SRC, "tools", "aidlc.ts");
 const SESSION = "01995000-7a11-7000-8000-00000000c001";
 
-type Harness = "claude" | "codex" | "kiro" | "kiro-ide" | "copilot";
-const HARNESSES: Harness[] = ["claude", "codex", "kiro", "kiro-ide", "copilot"];
+type Harness = "claude" | "codex" | "kiro-ide" | "copilot";
+const HARNESSES: Harness[] = ["claude", "codex", "kiro-ide", "copilot"];
 
 interface StoredMessage {
   id: string;
@@ -128,8 +128,8 @@ function say(proj: string, prompt: string, harness: Harness = "claude", extraEnv
       { ...UNSET, CODEX_THREAD_ID: undefined, CODEX_SESSION_ID: undefined, ...extraEnv });
     return;
   }
-  run(proj, [join(proj, tree, "hooks", "aidlc-kiro-adapter.ts"), harness === "kiro" ? "verb-intercept" : "record-human-turn"],
-    JSON.stringify({ hook_event_name: harness === "kiro" ? "userPromptSubmit" : "UserPromptSubmit", session_id: SESSION, cwd: proj, prompt }),
+  run(proj, [join(proj, tree, "hooks", "aidlc-kiro-adapter.ts"), "record-human-turn"],
+    JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: SESSION, cwd: proj, prompt }),
     { ...UNSET, ...extraEnv });
 }
 

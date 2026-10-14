@@ -12,7 +12,7 @@
 // final-message turn), and the opencode emit renames it to the native
 // per-agent `steps: 60` (at the cap the runner forces one final TEXT-ONLY
 // turn: a summary can return, but no tool call can write the review file).
-// Codex TOML personas, Cursor, Copilot, and Kiro CLI/IDE expose no per-agent
+// Codex TOML personas, Cursor, Copilot, and Kiro expose no per-agent
 // cap key, so there the budget is persona prose only (the inert `maxTurns:`
 // key still ships in the .md frontmatter surfaces that tolerate unknown
 // keys; the codex TOML rewrites the persona's frontmatter citation instead,
@@ -202,14 +202,6 @@ describe("t279 reviewer turn budget is stated on every surface", () => {
     }
   });
 
-  test("kiro agent JSONs never receive the cap key (kiro-cli fail-closes on unknown agent-JSON fields)", () => {
-    const rosterDir = join(REPO_ROOT, "dist", "kiro", ".kiro", "agents");
-    for (const f of readdirSync(rosterDir).filter((n) => n.endsWith(".json"))) {
-      const body = readFileSync(join(rosterDir, f), "utf-8");
-      expect(body, `dist/kiro ${f}`).not.toContain("maxTurns");
-    }
-  });
-
   test("reviewer module §12a step 1 records the request, hydrates prior findings, and names the review file the reviewer writes (core + dist/claude)", () => {
     // The stale-READY hole: a stage passes review READY; the human rejects at
     // the gate; the builder revises a produces[] artifact; the re-review is
@@ -341,7 +333,7 @@ describe("t279 reviewer turn budget is stated on every surface", () => {
     }
   });
 
-  test("the reviewer-scope enforcement roster names all six enforcing harnesses, Copilot included", () => {
+  test("the reviewer-scope enforcement roster names the five enforcing harnesses, Copilot included", () => {
     // Copilot's adapter forwards PreToolUse calls to core's
     // aidlc-reviewer-scope.ts (harness/copilot/hooks/aidlc-copilot-adapter.ts),
     // so the protocol's dispatch-record roster must include it - it was
@@ -352,12 +344,12 @@ describe("t279 reviewer turn budget is stated on every surface", () => {
     ]) {
       const body = readFileSync(path, "utf-8");
       expect(body).toContain(
-        "(Claude Code, Kiro CLI, Codex CLI, opencode, Cursor, and GitHub Copilot today)",
+        "(Claude Code, Codex CLI, opencode, Cursor, and GitHub Copilot today)",
       );
     }
   });
 
-  test("all seven harness SKILL.md files load the reviewer module, and every shipped module copy carries the delete rule, the canonical-verdict validation, and the retry contract", () => {
+  test("every harness SKILL.md file loads the reviewer module, and every shipped module copy carries the delete rule, the canonical-verdict validation, and the retry contract", () => {
     for (const harness of HARNESS_MATRIX) {
       // The SKILL reviewer bullet is now a module pointer: it must name the
       // module and keep the reviewer-field fallback trigger.

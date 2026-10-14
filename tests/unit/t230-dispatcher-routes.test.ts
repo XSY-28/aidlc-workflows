@@ -195,7 +195,7 @@ function registerPinFixture(
 
 function makeUnselectedKiroProject(): string {
   const project = setupTuiProject({
-    harness: "kiro",
+    harness: "kiro-ide",
     withState: "state-mid-ideation.md",
   });
   tempProjects.add(project);
@@ -2111,8 +2111,7 @@ describe("t230 dispatcher dev and compiled in-process modes", () => {
   });
 
   test("a Kiro tree's layout comes from its declaration, then its row name, then its conductor", () => {
-    // Each shipped row declares its layout in harness.json.
-    expect(kiroTreeLayout(join(REPO_ROOT, "dist", "kiro", ".kiro"))).toBe("agent-v1");
+    // The shipped Kiro row declares its layout in harness.json.
     expect(kiroTreeLayout(join(REPO_ROOT, "dist", "kiro-ide", ".kiro"))).toBe("kas");
     // The declaration wins over the row name, so a `kiro` row can be either layout.
     expect(kiroLayoutOf({ name: "kiro", kiroLayout: "kas" })).toBe("kas");
@@ -2148,13 +2147,20 @@ describe("t230 dispatcher dev and compiled in-process modes", () => {
     };
     try {
       process.env.AIDLC_HARNESS_DIR = ".kiro";
+      // The shipped Kiro row, and a tree the retired agent-v1 row left behind
+      // (its JSON conductor only), which config and doctor still recognise.
       for (const [row, expected] of [
         ["kiro-ide", { "kiro-ide": "kas", kiro: "kas", unset: "kas", claude: null }],
-        ["kiro", { "kiro-ide": "kas", kiro: "agent-v1", unset: "agent-v1", claude: null }],
+        ["agent-v1", { "kiro-ide": "kas", kiro: "agent-v1", unset: "agent-v1", claude: null }],
       ] as const) {
         const projectDir = mkdtempSync(join(tmpdir(), `aidlc-t230-installed-${row}-`));
         tempProjects.add(projectDir);
-        cpSync(join(REPO_ROOT, "dist", row, ".kiro"), join(projectDir, ".kiro"), { recursive: true });
+        if (row === "kiro-ide") {
+          cpSync(join(REPO_ROOT, "dist", row, ".kiro"), join(projectDir, ".kiro"), { recursive: true });
+        } else {
+          mkdirSync(join(projectDir, ".kiro", "agents"), { recursive: true });
+          writeFileSync(join(projectDir, ".kiro", "agents", "aidlc.json"), "{}\n");
+        }
         for (const [name, layout] of Object.entries(expected)) {
           restore("AIDLC_HARNESS_NAME", name === "unset" ? undefined : name);
           expect(installedKiroLayout(projectDir), `${row} tree, AIDLC_HARNESS_NAME=${name}`).toBe(layout);
@@ -3539,7 +3545,7 @@ describe("t230 dispatcher hook routing", () => {
     });
 
     // Another tool's adapter reads stderr only: nothing changes there.
-    const kiro = viaDispatcher(["engine", "hook", "state-transition-guard"], projectDir, { AIDLC_HARNESS_NAME: "kiro" }, input);
+    const kiro = viaDispatcher(["engine", "hook", "state-transition-guard"], projectDir, { AIDLC_HARNESS_NAME: "kiro-ide" }, input);
     expect(kiro.exitCode).toBe(2);
     expect(kiro.stdout.toString("utf-8")).toBe("");
     expect(kiro.stderr.toString("utf-8")).toContain("Stage status cannot be changed");

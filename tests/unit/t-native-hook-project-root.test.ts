@@ -61,7 +61,7 @@ beforeAll(() => {
   // Copy rather than link the payload, as an install does, so a write into it
   // shows up here and never in the checkout's generated runtime.
   payload = join(install, "runtime");
-  for (const distribution of ["claude", "kiro", "kiro-ide"]) {
+  for (const distribution of ["claude", "kiro-ide"]) {
     cpSync(join(runtimeRoot, distribution), join(payload, distribution), { recursive: true });
   }
 }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
@@ -70,7 +70,7 @@ afterAll(() => {
   if (scratch) rmSync(scratch, { recursive: true, force: true });
 });
 
-function fixture(distribution: "claude" | "kiro" | "kiro-ide" = "kiro-ide"): string {
+function fixture(distribution: "claude" | "kiro-ide" = "kiro-ide"): string {
   const project = mkdtempSync(join(scratch, "project-"));
   const harnessDir = distribution === "claude" ? ".claude" : ".kiro";
   cpSync(join(runtimeRoot, distribution, harnessDir), join(project, harnessDir), { recursive: true });
@@ -209,27 +209,13 @@ describe("compiled hook routes resolve the project from the host", () => {
     expect(snapshot(payload)).toEqual(before);
   });
 
+  // Issue #1532: the adapter found the project from the payload cwd, but the
+  // core hook it spawned took its project from its own payload path, so
+  // every gate answer was refused as having no human reply.
   test("the Kiro IDE adapter records the human turn in the project audit", () => {
     const project = fixture();
     const before = snapshot(payload);
     const result = run(project, ["engine", "adapter", "kiro-ide", "record-human-turn"], prompt);
-    expect(result.code, result.stderr).toBe(0);
-    expect(auditRows(project)).toContain("HUMAN_TURN");
-    expect(snapshot(payload)).toEqual(before);
-  });
-
-  test("the Kiro CLI adapter records the human turn in the project audit", () => {
-    // Issue #1532: the adapter found the project from the payload cwd, but the
-    // core hook it spawned took its project from its own payload path, so
-    // every gate answer was refused as having no human reply.
-    const project = fixture("kiro");
-    const before = snapshot(payload);
-    const result = run(project, ["engine", "adapter", "kiro", "verb-intercept"], {
-      hook_event_name: "userPromptSubmit",
-      cwd: project,
-      session_id: "native-hook-root-test",
-      prompt: "Continue with the requirements",
-    });
     expect(result.code, result.stderr).toBe(0);
     expect(auditRows(project)).toContain("HUMAN_TURN");
     expect(snapshot(payload)).toEqual(before);

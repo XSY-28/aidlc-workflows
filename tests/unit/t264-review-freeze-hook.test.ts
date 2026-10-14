@@ -19,8 +19,7 @@
 //       REVIEW_FREEZE_BLOCKED audit row on a genuine block;
 //   (c) registration pins per harness: Claude settings.json (third entry in
 //       the shared PreToolUse group), Codex emit wiring + adapter target,
-//       Kiro CLI conductor fs_write registration, opencode plugin call, and
-//       the Kiro IDE PreToolUse registration;
+//       opencode plugin call, and the Kiro IDE PreToolUse registration;
 //   (d) the Kiro IDE adapter route over the same ledger: each Kiro write and
 //       shell tool reaches the shared hook and a block comes back as exit 2.
 //
@@ -1147,44 +1146,6 @@ describe("t264 (c) harness registration", () => {
     expect(adapter).toContain("mutationTargetsOf");
   });
 
-  test("Kiro CLI registers freeze and invalidation on every writable agent", () => {
-    for (const root of [
-      join(REPO_ROOT, "harness", "kiro", "agents"),
-      join(REPO_ROOT, "dist", "kiro", ".kiro", "agents"),
-    ]) {
-      const configs = readdirSync(root).filter((name) => name.endsWith(".json"));
-      for (const name of configs) {
-        const agent = JSON.parse(readFileSync(join(root, name), "utf-8")) as {
-          tools?: string[];
-          hooks?: {
-            preToolUse?: Array<{ matcher?: string; command?: string }>;
-            postToolUse?: Array<{ matcher?: string; command?: string }>;
-          };
-        };
-        if (!(agent.tools ?? []).includes("fs_write")) continue;
-        const pre = agent.hooks?.preToolUse ?? [];
-        const post = agent.hooks?.postToolUse ?? [];
-        expect(
-          pre.some((h) => h.matcher === "fs_write" && h.command?.includes("review-freeze")),
-          `${root}/${name}: fs_write freeze`,
-        ).toBe(true);
-        expect(
-          pre.some((h) => h.matcher === "execute_bash" && h.command?.includes("review-freeze")),
-          `${root}/${name}: execute_bash freeze`,
-        ).toBe(true);
-        expect(
-          post.some((h) => h.matcher === "fs_write" && h.command?.includes("audit-and-sensors")),
-          `${root}/${name}: fs_write invalidation feed`,
-        ).toBe(true);
-      }
-    }
-    const adapter = readFileSync(
-      join(REPO_ROOT, "harness", "kiro", "hooks", "aidlc-kiro-adapter.ts"),
-      "utf-8",
-    );
-    expect(adapter).toContain('target === "review-freeze"');
-  });
-
   test("opencode plugin calls the core hook for write/edit/apply_patch", () => {
     const plugin = readFileSync(
       join(REPO_ROOT, "harness", "opencode", "plugin", "aidlc-opencode-adapter.ts"),
@@ -1521,7 +1482,7 @@ describe("t264 (d) the refusal names next; next asks the recovery question", () 
 
   test("every conductor runs the step a hook refusal names", () => {
     const missing: string[] = [];
-    for (const harness of ["claude", "kiro", "kiro-ide", "codex", "cursor", "opencode", "copilot"]) {
+    for (const harness of ["claude", "kiro-ide", "codex", "cursor", "opencode", "copilot"]) {
       const rel = join("harness", harness, "skills", "aidlc", "SKILL.md");
       const body = readFileSync(join(REPO_ROOT, rel), "utf-8");
       if (!body.includes(HOOK_REFUSAL_NEXT_RULE)) missing.push(rel);

@@ -18,7 +18,7 @@
 //      hook-to-human PostToolUse channel; genuine engine output round-trips.
 //   3. The adapters (subprocess / in-process plugin): Codex forwards the line
 //      once (a duplicate delivery does not repeat it), opencode turns it into a
-//      TUI toast, and Kiro CLI, Kiro IDE, Copilot, and Cursor stay silent.
+//      TUI toast, and Kiro, Copilot, and Cursor stay silent.
 
 import {
   NATIVE_FIXTURE_SETUP_TIMEOUT_MS,
@@ -407,33 +407,6 @@ describe("t349 harness adapters", () => {
       tool_response: `${JSON.stringify({ kind: "done", message: "complete" })}\n`,
     });
     expect(success.stdout).toBe("");
-  });
-
-  test("Kiro CLI adds nothing to the agent context for an engine error", () => {
-    const proj = installed("kiro", ".kiro");
-    const stdout = errorOutput(WINDOWS);
-    const payload = (toolResponse: unknown) => ({
-      hook_event_name: "postToolUse",
-      cwd: proj,
-      session_id: "cb3a220a-609f-4265-8ff9-2cafd3658000",
-      tool_name: "shell",
-      tool_input: { command: "bun .kiro/tools/aidlc.ts engine orchestrate next --scope frobnicate" },
-      tool_response: toolResponse,
-    });
-    for (const toolResponse of [{ items: [{ Text: stdout }] }, stdout]) {
-      const r = runAdapter(proj, ".kiro/hooks/aidlc-kiro-adapter.ts", "rebuild-stage-graph", payload(toolResponse), {
-        AIDLC_PROJECT_DIR: proj,
-      });
-      expect(r.code).toBe(0);
-      expect(r.stdout).toBe("");
-    }
-    // Control: the adapter does reach the core hook and passes its stdout on,
-    // so the silence above comes from the harness gate, not a dead path.
-    const control = runAdapter(proj, ".kiro/hooks/aidlc-kiro-adapter.ts", "rebuild-stage-graph", payload(stdout), {
-      AIDLC_PROJECT_DIR: proj,
-      AIDLC_HARNESS_NAME: "claude",
-    });
-    expect(control.stdout).toBe(relayLine(WINDOWS));
   });
 
   test("Kiro IDE, Copilot, and Cursor stay silent for an engine error", () => {

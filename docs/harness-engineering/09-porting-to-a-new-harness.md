@@ -1,6 +1,6 @@
 # Porting AI-DLC to a New Harness
 
-AI-DLC ships from **one core, many harnesses** — today Claude Code, Kiro CLI, Kiro IDE,
+AI-DLC ships from **one core, many harnesses** — today Claude Code, Kiro (Kiro IDE and Kiro CLI),
 Codex CLI, Cursor, opencode, and GitHub Copilot, and the set is open. The hand-authored source is a
 harness-neutral `core/` plus a thin `harness/<name>/` surface per CLI; the
 packager (`scripts/package.ts`) materializes each ignored local Bun copy tree
@@ -23,7 +23,7 @@ contract.
 core/                      # harness-neutral source — not edited to add a harness (save the optional --doctor arm)
 harness/
   claude/  manifest.ts · skills/aidlc/ · onboarding.fills.ts · settings.json
-  kiro/    manifest.ts · skills/aidlc/ · agents/*.json · hooks/aidlc-kiro-adapter.ts · settings/cli.json · onboarding.fills.ts
+  kiro-ide/ manifest.ts · skills/aidlc/ · agents/*.md · hooks/aidlc-kiro-adapter.ts · hooks/*.json · steering/ · settings/cli.json · onboarding.fills.ts
   codex/   manifest.ts · emit.ts · skills/aidlc/ · hooks/aidlc-codex-adapter.ts
   opencode/ manifest.ts · emit.ts · skills/aidlc/ · command/ · plugin/
   copilot/ manifest.ts · emit.ts · skills/aidlc/ · hooks/aidlc-copilot-adapter.ts
@@ -105,10 +105,9 @@ Create `harness/<name>/manifest.ts` exporting a `HarnessManifest`
   when the person's message left none, before any work. Set `notRunInWorkflow` only
   with `agentStep`: when the person has switched the presence check off, so
   `next` does not stop, the engine adds that sentence to every directive's
-  `change_notices` instead. Claude Code, Codex CLI, Kiro CLI and opencode
-  declare `recovery`, `agentStep` and `notRunYet` (Kiro CLI also `missedReply`,
-  which names its agent picker); Copilot also
-  `notRunInWorkflow`; Kiro IDE `recovery`, `missedReply`, `missedReplyInHost`,
+  `change_notices` instead. Claude Code, Codex CLI and opencode
+  declare `recovery`, `agentStep` and `notRunYet`; Copilot also
+  `notRunInWorkflow`; Kiro `recovery`, `missedReply`, `missedReplyInHost`,
   `notRunYet`, `agentStep` and `agentStepInHost`. In a folder Kiro has not
   been allowed to run commands in, no AI-DLC command can run, so Kiro IDE
   also keeps that step in its orchestrator skill.
@@ -169,15 +168,14 @@ Create `harness/<name>/manifest.ts` exporting a `HarnessManifest`
 - `tierFlavor` — selects the existing Claude/Codex/Kiro/OpenCode agent
   model/effort projection shape. It is manifest data, never inferred from
   `name`.
-- `kiroLayout` (Kiro rows only) — `agent-v1` (JSON agents carrying their hooks)
-  or `kas` (Markdown agents and standalone `.kiro/hooks/*.json`, which Kiro IDE
-  1.x and Kiro CLI v3 run). It is written to `harness.json`, and runtime code
+- `kiroLayout` (the Kiro row only) — `kas` (Markdown agents and standalone
+  `.kiro/hooks/*.json`, which Kiro IDE 1.x and Kiro CLI v3 run). It is written to `harness.json`, and runtime code
   that depends on the layout reads it from the installed tree rather than from
   `name`.
 - `coreDirs: DirMap[]` — which `core/<src>` dirs project into `<harnessDir>/<dst>`.
   Rename or drop dirs here (Kiro `rules → steering`; Codex `rules → aidlc-rules`
   and drops `skills/` — see emit). The 3 session skills are core dirs for
-  in-tree harnesses (claude, kiro, kiro-ide); codex emits them instead.
+  in-tree harnesses (claude, kiro-ide); codex emits them instead.
 - `harnessFiles: FileMap[]` — authored surfaces copied verbatim from
   `harness/<name>/<src>` into each channel (supported text formats get token
   substitution).
@@ -226,11 +224,12 @@ Create `harness/<name>/manifest.ts` exporting a `HarnessManifest`
   the standard runner-gen step.
 - `emit` — the optional plugin (Step 3), `null` for harnesses that need none.
 - `plugin` (optional) — the host plugin manifest directory and delivery kind.
-  Omitting it derives `<harnessDir>-plugin` plus store delivery; set `kind:
-  "kiro"` only for a folder-drop host.
+  Omitting it derives `<harnessDir>-plugin` plus store delivery; the Kiro row
+  sets `kind: "kiro-ide"` (a folder-drop host with a SessionStart registration),
+  and Cursor sets `kind: "cursor"`.
 
 Claude's manifest is the minimal reference (no rename, no emit); Kiro's adds a
-rename + `harnessFiles` (agent JSONs and adapter) plus split root/native onboarding;
+rename + `harnessFiles` (Markdown agents, hook files and adapter) plus split root/native onboarding;
 Codex demonstrates native-only root integration and imperative emission.
 
 The packager writes `tools/data/harness.json`, `aidlc-stamp.json`, and
@@ -251,8 +250,8 @@ Never split a core hook into logic+adapter — the core bodies stay byte-shared
 across all harnesses apart from the explicit invocation-token projection.
 `--check` proves both generated forms came from the same source.
 
-Wire the adapter to the harness's events the harness's own way: Kiro registers
-targets in `agents/aidlc.json`; Codex emits `hooks.json`. Register only events
+Wire the adapter to the harness's events the harness's own way: Kiro ships
+`.kiro/hooks/*.json` files; Codex emits `hooks.json`. Register only events
 with a real core-hook consumer.
 
 Six hooks are flow-altering and need their control channels forwarded, not
@@ -267,8 +266,7 @@ prose bounds still govern there (the read scope in stage-protocol-reviewer-unit.
 the review freeze in stage-protocol-reviewer.md §12a). When the harness's
 payloads carry no subagent identity, scope reviewer-scope registration to the
 reviewer agents themselves where the harness supports per-agent hooks (the
-Kiro CLI pattern: the adapter then asserts `scoped_registration` instead of
-matching `agent_type`).
+adapter then asserts `scoped_registration` instead of matching `agent_type`).
 
 > **The one sanctioned `core/` edit: the doctor arm.** `/aidlc --doctor`
 > (`core/tools/aidlc-utility.ts`) health-checks an installed tree, and a new

@@ -1,9 +1,9 @@
-// covers: subcommand:aidlc-orchestrate:next, file:harness/kiro/hooks/aidlc-kiro-adapter.ts
+// covers: subcommand:aidlc-orchestrate:next
 //
 // SUBJECT: Branch 0 of aidlc-orchestrate.ts handleNext - the turn-scoped
-// no-op-next guard (the Kiro roll-forward defense). On Kiro the
-// userPromptSubmit seam (harness/kiro/hooks/aidlc-kiro-adapter.ts) runs a
-// read-only/navigation command off-band, bumps aidlc/.aidlc-turn-counter, and
+// no-op-next guard (the Kiro roll-forward defense). On the retired Kiro CLI
+// agent-v1 row the userPromptSubmit seam ran a read-only/navigation command
+// off-band, bumps aidlc/.aidlc-turn-counter, and
 // stamps aidlc/.aidlc-readonly-latch ({turn,flag,source,ts}) with the CURRENT
 // turn. The seam cannot block the turn, so the conductor relays the output and
 // may STILL fire a bare advancing `next`, rolling the active workflow forward.
@@ -61,9 +61,9 @@ function runNext(proj: string, args: string[]): RunResult {
   return { rc: res.status, out: res.out };
 }
 
-// Stamp the per-turn counter + the read-only latch the Kiro seam writes, at the
+// Stamp the per-turn counter + the read-only latch the Kiro seam wrote, at the
 // SAME paths the engine reads (resolveProjectDir(--project-dir)/aidlc/...). The
-// latch JSON shape matches aidlc-kiro-adapter.ts ({turn,flag,source,ts}).
+// latch JSON shape is the one that seam wrote ({turn,flag,source,ts}).
 function seedLatch(
   proj: string,
   counter: number,

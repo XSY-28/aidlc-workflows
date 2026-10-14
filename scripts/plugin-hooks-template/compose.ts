@@ -8,7 +8,7 @@
 // failure is caught and logged to the hooks-health file instead of swallowed by
 // `2>/dev/null || true`.
 //
-// Runs on SessionStart (Claude/Codex/Cursor/Kiro IDE) or explicitly on Kiro CLI. Harness-agnostic:
+// Runs on SessionStart (Claude/Codex/Cursor/Kiro), or by hand. Harness-agnostic:
 //   PLUGIN_ROOT   ← CLAUDE_PLUGIN_ROOT | PLUGIN_ROOT | AIDLC_PLUGIN_ROOT |
 //                   this file's parent plugin directory
 //   PROJECT_DIR   ← CLAUDE_PROJECT_DIR | AIDLC_PROJECT_DIR | PWD  (Codex unsets the first)
@@ -65,28 +65,6 @@ const HARNESS_NAME = (() => {
       : "opencode";
   }
   return HARNESS_LEAF.replace(/^\./, "");
-})();
-// Whether the .kiro tree is the KAS layout (Markdown agents, standalone hook
-// JSON) rather than the agent-v1 JSON layout. Same reading as the runtime's
-// kiroTreeLayout (core/tools/aidlc-runtime-paths.ts), which this template ships
-// without: harness.json's kiroLayout, else the row name trees carried before it,
-// else the conductor file. `kiro-ide` names only the KAS adapter.
-const KIRO_KAS_LAYOUT = (() => {
-  if (HARNESS_LEAF !== ".kiro") return false;
-  if (process.env.AIDLC_HARNESS_NAME?.trim() === "kiro-ide") return true;
-  try {
-    const parsed = JSON.parse(
-      readFileSync(join(HARNESS_DIR, "tools", "data", "harness.json"), "utf-8"),
-    ) as { kiroLayout?: unknown; name?: unknown; distribution?: unknown };
-    if (parsed.kiroLayout === "kas" || parsed.kiroLayout === "agent-v1") {
-      return parsed.kiroLayout === "kas";
-    }
-    const row = typeof parsed.name === "string" ? parsed.name : parsed.distribution;
-    if (row === "kiro-ide" || row === "kiro") return row === "kiro-ide";
-  } catch {
-    // A tree without readable metadata still has its conductor file.
-  }
-  return existsSync(join(HARNESS_DIR, "agents", "aidlc-aidlc.md")) || existsSync(join(HARNESS_DIR, "agents", "aidlc.md"));
 })();
 const IS_COPILOT = HARNESS_NAME === "copilot";
 const IS_OPENCODE = HARNESS_NAME === "opencode";
@@ -586,8 +564,8 @@ function rollbackComposeWrites(): void {
 // sha256 per file). It is what lets a re-compose tell the plugin's own older
 // copy (replace it) from a copy the person changed (report it). Without it
 // every differing file was a collision, so a plugin's fix to a sensor or tool
-// never reached a project composed without sync in front (the Kiro CLI
-// fallback, a hand run, the plugin test tool).
+// never reached a project composed without sync in front (a hand run, the
+// plugin test tool).
 const ownedRecordPath = join(HARNESS_DIR, "tools", "data", `plugin-owned-${PLUGIN_KEY}.json`);
 // A file's identity is its committed text (the installed engine's rule: CRLF
 // reads as LF, so a checkout that turns line endings is no change). An engine
@@ -1354,10 +1332,9 @@ function installedIdeAgentIsDispatchable(agentsDir: string, agent: string): bool
   );
 }
 
-// Kiro CLI, Kiro IDE, Codex, OpenCode, and Copilot each require a native
-// dispatch surface. The two Kiro variants share .kiro but are distinguished by
-// the tree's layout (KIRO_KAS_LAYOUT): agent-v1 uses JSON + trustedAgents, while
-// KAS uses capability-bearing Markdown and never reads the CLI conductor JSON.
+// Kiro, Codex, OpenCode, and Copilot each require a native dispatch surface.
+// Kiro's .kiro tree (Kiro IDE and Kiro CLI v3) dispatches capability-bearing
+// Markdown agents.
 async function kiroPluginAgentPrechecks(): Promise<KiroPluginAgentPrechecks | null> {
   if (
     HARNESS_LEAF !== ".kiro" &&
@@ -1366,65 +1343,23 @@ async function kiroPluginAgentPrechecks(): Promise<KiroPluginAgentPrechecks | nu
   ) {
     return null;
   }
-  const isKiroIde = KIRO_KAS_LAYOUT;
-  const isKiroCli = HARNESS_LEAF === ".kiro" && !isKiroIde;
-  const surfaceExt = isKiroIde
-    ? ".md"
-    : HARNESS_LEAF === ".kiro"
-      ? ".json"
-      : HARNESS_LEAF === ".codex"
-        ? ".toml"
-        : ".md";
+  const isKiroIde = HARNESS_LEAF === ".kiro";
+  const surfaceExt = HARNESS_LEAF === ".codex" ? ".toml" : ".md";
   const surfaceDir = HARNESS_LEAF === ".aidlc"
     ? nativeAgentsDir()
     : join(HARNESS_DIR, "agents");
-  const trustedAgents = new Set<string>();
-  if (isKiroCli) {
-    try {
-      const conductor = JSON.parse(
-        readFileSync(join(HARNESS_DIR, "agents", "aidlc.json"), "utf-8"),
-      ) as {
-        toolsSettings?: { subagent?: { trustedAgents?: unknown } };
-      };
-      const configured = conductor.toolsSettings?.subagent?.trustedAgents;
-      if (Array.isArray(configured)) {
-        for (const agent of configured) {
-          if (typeof agent === "string") trustedAgents.add(agent);
-        }
-      }
-    } catch {
-      // Empty set is fail-closed: a broken conductor cannot dispatch any agent.
-    }
-  }
-  interface DispatchGap {
-    agent: string;
-    missingSurface: boolean;
-    missingTrust: boolean;
-  }
-  const remediationFor = (gap: DispatchGap, isReviewer: boolean): string => {
-    const requirements: string[] = [];
-    if (gap.missingSurface) {
-      requirements.push(
-        isKiroIde
-          ? `author ${HARNESS_LEAF}/agents/${gap.agent}.md with a non-empty tools: grant and well-formed permissions.rules capability/effect/match entries`
-          : HARNESS_LEAF === ".kiro"
-            ? `author ${HARNESS_LEAF}/agents/${gap.agent}.json (agent-v1 JSON)`
-            : HARNESS_LEAF === ".codex"
-              ? `author ${HARNESS_LEAF}/agents/${gap.agent}.toml (the shipped aidlc-*-agent.toml shape)`
-              : IS_COPILOT
-                ? `author .github/agents/${gap.agent}.md (a Copilot custom agent with closed frontmatter)`
-                : `author .opencode/agents/${gap.agent}.md (an OpenCode subagent with closed frontmatter)`,
-      );
-    }
-    if (gap.missingTrust) {
-      requirements.push(
-        `add "${gap.agent}" to toolsSettings.subagent.trustedAgents in ${HARNESS_LEAF}/agents/aidlc.json`,
-      );
-    }
+  const remediationFor = (agent: string, isReviewer: boolean): string => {
+    const surface = isKiroIde
+      ? `author ${HARNESS_LEAF}/agents/${agent}.md with a non-empty tools: grant and well-formed permissions.rules capability/effect/match entries`
+      : HARNESS_LEAF === ".codex"
+        ? `author ${HARNESS_LEAF}/agents/${agent}.toml (the shipped aidlc-*-agent.toml shape)`
+        : IS_COPILOT
+          ? `author .github/agents/${agent}.md (a Copilot custom agent with closed frontmatter)`
+          : `author .opencode/agents/${agent}.md (an OpenCode subagent with closed frontmatter)`;
     const alternative = isReviewer
       ? "remove the stage's reviewer: field"
       : "change the stage's mode to inline";
-    return `${requirements.join(" and ")}, or ${alternative}`;
+    return `${surface}, or ${alternative}`;
   };
 
   const stagesRoot = join(PLUGIN_ROOT, "stages");
@@ -1512,18 +1447,14 @@ async function kiroPluginAgentPrechecks(): Promise<KiroPluginAgentPrechecks | nu
       ...(dispatches ? [leadAgent, ...supportAgents] : []),
       reviewer,
     ];
-    const gaps = new Map<string, DispatchGap>();
+    const gaps = new Set<string>();
     for (const agent of dispatchedAgents) {
       if (!agent || gaps.has(agent)) continue;
-      const gap = {
-        agent,
-        missingSurface: isKiroIde
-          ? !installedIdeAgentIsDispatchable(surfaceDir, agent)
-          : !existsSync(join(surfaceDir, `${agent}${surfaceExt}`)) &&
-            !(HARNESS_LEAF === ".aidlc" && pluginShipsViableNativeAgent(agent)),
-        missingTrust: isKiroCli && !trustedAgents.has(agent),
-      };
-      if (gap.missingSurface || gap.missingTrust) gaps.set(agent, gap);
+      const missingSurface = isKiroIde
+        ? !installedIdeAgentIsDispatchable(surfaceDir, agent)
+        : !existsSync(join(surfaceDir, `${agent}${surfaceExt}`)) &&
+          !(HARNESS_LEAF === ".aidlc" && pluginShipsViableNativeAgent(agent));
+      if (missingSurface) gaps.add(agent);
     }
     if (gaps.size === 0) continue;
 
@@ -1532,13 +1463,12 @@ async function kiroPluginAgentPrechecks(): Promise<KiroPluginAgentPrechecks | nu
       rejectedStageFiles.add(rel);
       recordDroppedStage(rel, slug);
     }
-    for (const gap of gaps.values()) {
-      const agent = gap.agent;
+    for (const agent of gaps) {
       const isReviewerOnly =
         agent === reviewer && !(dispatches && (agent === leadAgent || supportAgents.includes(agent)));
       const role = isReviewerOnly ? "as reviewer" : `with mode "${mode}"`;
       recordDrop(
-        `plugin "${PLUGIN_NAME}" stage "${slug}" references agent "${agent}" ${role} and ${existing ? "is already composed but remains undispatchable" : "was not composed"}: ${remediationFor(gap, isReviewerOnly)}`,
+        `plugin "${PLUGIN_NAME}" stage "${slug}" references agent "${agent}" ${role} and ${existing ? "is already composed but remains undispatchable" : "was not composed"}: ${remediationFor(agent, isReviewerOnly)}`,
       );
     }
   }
@@ -1742,8 +1672,8 @@ function findAgentFile(slug: string): string | null {
 // time (the Codex agent TOML, the opencode and Copilot native agents), and the
 // Kiro IDE persona without its tool permissions, which the inline lead reads.
 // They take the same fragments, so a plugin's instruction reaches the agent on
-// every harness. Kiro CLI's agent JSON loads its prompt from the Markdown
-// persona, and the other harnesses dispatch from it directly.
+// every harness. The other harnesses dispatch from the Markdown persona
+// directly.
 function personaTwinFiles(slug: string): Array<{ path: string; toml: boolean }> {
   const twin = HARNESS_LEAF === ".codex"
     ? { path: join(HARNESS_DIR, "agents", `${slug}.toml`), toml: true }

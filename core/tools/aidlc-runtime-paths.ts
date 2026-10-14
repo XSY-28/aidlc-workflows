@@ -452,12 +452,11 @@ export function runtimeHarnessName(
 }
 
 // The name a person types after --harness for a row, where it differs from
-// the row's id. Installed projects keep the ids (`kiro` = the legacy agent-v1
-// row, `kiro-ide` = the Kiro row for Kiro IDE and Kiro CLI), so only what is
-// typed and printed changes. The retired typed name `kiro-ide` is answered
-// with the name to type instead (retiredTypedHarnessName).
+// the row's id. Installed projects keep the id (`kiro-ide` = the Kiro row for
+// Kiro IDE and Kiro CLI), so only what is typed and printed changes. The
+// earlier typed name `kiro-ide` is answered with the name to type instead
+// (retiredTypedHarnessName).
 const TYPED_HARNESS_NAMES: Readonly<Record<string, string>> = Object.freeze({
-  kiro: "kiro-cli-legacy",
   "kiro-ide": "kiro",
 });
 
@@ -480,9 +479,8 @@ export function retiredTypedHarnessName(name: string): string | null {
 // Set once the --harness values of a config command line are row ids: by the
 // dispatcher before it hands `config` to the config tool or a pinned release
 // (an older release reads ids as its own names), and by config for the config
-// runs it starts. The first typed name rides along for config's own wording.
+// runs it starts. Config reads it once and clears it.
 export const HARNESS_IDS_ENV = "AIDLC_CONFIG_HARNESS_IDS";
-export const TYPED_HARNESS_ENV = "AIDLC_CONFIG_TYPED_HARNESS";
 
 /**
  * A config command line's --harness values, typed names read as row ids. A
@@ -490,11 +488,9 @@ export const TYPED_HARNESS_ENV = "AIDLC_CONFIG_TYPED_HARNESS";
  */
 export function harnessArgsAsIds(args: readonly string[]): {
   args: string[];
-  typed?: string;
   retired?: { typed: string; instead: string; args: string[] };
 } {
   const out = [...args];
-  let typed: string | undefined;
   for (let i = 0; i < out.length - 1; i++) {
     if (out[i] !== "--harness" || out[i + 1].startsWith("--")) continue;
     const name = out[i + 1];
@@ -503,10 +499,9 @@ export function harnessArgsAsIds(args: readonly string[]): {
       const fixed = args.map((arg, index) => (index === i + 1 ? instead : arg));
       return { args: out, retired: { typed: name, instead, args: fixed } };
     }
-    typed ??= name;
     out[i + 1] = harnessIdFromTyped(name);
   }
-  return { args: out, ...(typed ? { typed } : {}) };
+  return { args: out };
 }
 
 /** The same line with its --harness row ids written as the names a person types, to print. */
@@ -514,43 +509,36 @@ export function harnessArgsAsTyped(args: readonly string[]): string[] {
   return args.map((arg, index) => (index > 0 && args[index - 1] === "--harness" ? typedHarnessName(arg) : arg));
 }
 
-// The rows AI-DLC no longer offers a new project, each with the row new
-// projects get instead and what that row runs on. A project that has one keeps
-// it: it refreshes and switches either way, and config and doctor say how to
-// move it.
-const NEW_PROJECTS_GET: Readonly<Record<string, { row: string; runsOn: (floor: string | undefined) => string }>> = Object.freeze({
-  kiro: {
-    row: "kiro-ide",
-    runsOn: (floor: string | undefined) => `Kiro IDE and in Kiro CLI${floor ? ` ${floor} or later` : ""} on its v3 engine`,
-  },
+// The rows AI-DLC no longer ships. A project that still has one is told what
+// to do, by config (which stops before it writes anything) and by doctor;
+// nothing moves it. Each names the row to set up instead and the files a
+// person may have added to the tree.
+const RETIRED_ROWS: Readonly<Record<string, { title: string; row: string; ownFiles: string }>> = Object.freeze({
+  kiro: { title: "the legacy Kiro CLI row", row: "kiro-ide", ownFiles: "steering, MCP settings" },
 });
 
-/** The row a new project gets in place of `distribution`, or null when that row is still offered. */
-export function rowNewProjectsGet(distribution: string): string | null {
-  return Object.hasOwn(NEW_PROJECTS_GET, distribution) ? NEW_PROJECTS_GET[distribution].row : null;
+/** Whether AI-DLC no longer ships the row `distribution`. */
+export function retiredRow(distribution: string): boolean {
+  return Object.hasOwn(RETIRED_ROWS, distribution);
+}
+
+/** The project's first tree on a row AI-DLC no longer ships, or null. */
+export function retiredProjectTree(projectDir: string): ProjectHarness | null {
+  return discoverProjectHarnesses(projectDir).find((tree) => retiredRow(tree.distribution)) ?? null;
 }
 
 /**
- * The one line a project on a row new projects no longer get is told, or null:
- * where it stands, and the step that moves it. `invoke` is the caller's command
- * form (`aidlc`, or a copied project's `bun <dir>/tools/aidlc.ts`); `target`
- * follows the arguments (a --project-dir); `floor` is that row's oldest CLI. A
- * copied project without the release files is told by that config run how to
- * get them, as any refresh is.
+ * The one line a project on a retired row is told: where it stands and what
+ * to do. `invoke` is the caller's command form (`aidlc`, or a copied project's
+ * `bun <dir>/tools/aidlc.ts`); `target` follows the arguments (a
+ * --project-dir).
  */
-export function retiredRowLine(
-  distribution: string,
-  invoke: string,
-  target: string,
-  // The oldest CLI that counts for the row they get (rowCliFloor), when it has one.
-  floor: string | undefined,
-): string | null {
-  if (!Object.hasOwn(NEW_PROJECTS_GET, distribution)) return null;
-  const { row, runsOn } = NEW_PROJECTS_GET[distribution];
-  const command = `${invoke} config --harness ${typedHarnessName(row)}${target}`;
-  return `AI-DLC now sets new projects up on the \`${typedHarnessName(row)}\` row; this project is on the legacy ` +
-    `\`${typedHarnessName(distribution)}\` row, which keeps working. ` +
-    `To move it to \`${typedHarnessName(row)}\`, which runs in ${runsOn(floor)}, run \`${command}\`.`;
+export function retiredRowLine(tree: ProjectHarness, invoke: string, target: string): string {
+  const { title, row, ownFiles } = RETIRED_ROWS[tree.distribution];
+  const dir = tree.harnessDir;
+  return `${dir} is set up for ${title}, which AI-DLC no longer ships. Move ${dir} aside ` +
+    `(for example to ${dir}.old), run \`${invoke} config --harness ${typedHarnessName(row)}${target}\`, then copy ` +
+    `your own files (${ownFiles}) back from it. aidlc/ is kept.`;
 }
 
 // The tools that hide a Stop-hook block's reason from the person: Kiro CLI

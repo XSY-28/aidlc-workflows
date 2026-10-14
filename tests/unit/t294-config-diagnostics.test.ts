@@ -10,7 +10,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -34,14 +33,12 @@ import {
   copilotTrustIssues,
   deriveNonInteractivePath,
   detectAwsCredentials,
-  frameworkFilesDoctorCheck,
   harnessOwnsModelAccess,
   insideGitRepository,
   instructionFileDoctorCheck,
   normalizeProvidersRecord,
   postApplyOutstandingActions,
   shellOnlyRuntimes,
-  preserveKiroMcpRegion,
   probeHarnessCli,
   probeRuntime,
   providerDoctorCheck,
@@ -189,15 +186,6 @@ function withLegacyCodexProviderBlock(config: string, block: string): string {
   const table = /^[\t ]*\[/m.exec(config.slice(afterInstructions));
   const insertion = table ? afterInstructions + table.index : config.length;
   return config.slice(0, insertion) + block + config.slice(insertion);
-}
-
-// Rewrites both aws-mcp region arguments of a Kiro CLI mcp.json text. Built from
-// regex literals and templates rather than quoted endpoint strings, which the
-// repository's secret scanner otherwise reads as an API key assignment.
-function withMcpRegion(text: string, region: string): string {
-  return text
-    .replaceAll(/aws-mcp\.[a-z0-9-]+\.api\.aws/g, `aws-mcp.${region}.api.aws`)
-    .replaceAll(/AWS_REGION=[a-z0-9-]+/g, `AWS_REGION=${region}`);
 }
 
 function writeExecutable(path: string): void {
@@ -769,7 +757,7 @@ describe("t294 runtime diagnostics", () => {
     }));
 
     // Kiro CLI is optional for this row, but it is probed: with only kiro-cli on
-    // PATH, first-run setup must see this row too, not just the kiro row.
+    // PATH, first-run setup must see this row too.
     expect(probeHarnessCli("kiro-ide", { which: () => null })).toEqual(expect.objectContaining({
       command: "kiro-cli",
       required: false,
@@ -782,29 +770,14 @@ describe("t294 runtime diagnostics", () => {
       command: "kiro-cli",
       status: "found",
     }));
-    // 2.24.1 is the oldest Kiro CLI this row has been checked on; an older one
-    // down to 2.6 still serves the kiro row.
-    const oldKiro = {
+    // 2.24.1 is the oldest Kiro CLI this row runs on.
+    expect(probeHarnessCli("kiro-ide", {
       which: () => "/opt/kiro/bin/kiro-cli",
       run: () => ({ status: 0, stdout: "kiro-cli 2.24.0\n" }),
-    };
-    expect(probeHarnessCli("kiro-ide", oldKiro)).toEqual(expect.objectContaining({
-      command: "kiro-cli",
-      status: "too-old",
-      minimumVersion: "2.24.1",
-    }));
-    expect(probeHarnessCli("kiro", oldKiro)).toEqual(expect.objectContaining({
-      command: "kiro-cli",
-      status: "found",
-    }));
-    // The kiro row's own floor is the 2.6 its guide asks for.
-    expect(probeHarnessCli("kiro", {
-      which: () => "/opt/kiro/bin/kiro-cli",
-      run: () => ({ status: 0, stdout: "kiro-cli 2.5.9\n" }),
     })).toEqual(expect.objectContaining({
       command: "kiro-cli",
       status: "too-old",
-      minimumVersion: "2.6.0",
+      minimumVersion: "2.24.1",
     }));
   });
 
@@ -1114,8 +1087,8 @@ describe("t294 runtime diagnostics", () => {
       label: `Harness CLI: copilot 1.0.80 at ${NO_VERSION.which()}`,
     }));
 
-    // Kiro CLI is optional on the kiro-ide row too: absent passes, older than
-    // the floor warns.
+    // Kiro CLI is optional on the Kiro row: absent passes, older than the floor
+    // warns.
     const kiroIde = temp("aidlc-t294-doctor-kiro-ide-cli-");
     cpSync(join(DIST, "kiro-ide"), kiroIde, { recursive: true });
     expect(cliRow(kiroIde, ".kiro", { which: () => null })).toEqual(expect.objectContaining({
@@ -1260,11 +1233,8 @@ describe("t294 provider diagnostics", () => {
       expect(readFileSync(join(decline, "opencode.json"), "utf-8")).toBe(before);
     });
 
-    // Owned harnesses: no record writes anything, Kiro CLI included. The aws-mcp
-    // region there is carried from the project's own file during staging, and a
-    // record's region never reaches it, even when the file says something else.
+    // Owned harnesses: no record writes anything.
     test.each([
-      ["kiro", ".kiro", "settings/mcp.json"],
       ["kiro-ide", ".kiro", "tools/data/harness.json"],
       ["copilot", ".aidlc", "tools/data/harness.json"],
       ["cursor", ".cursor", "cli.json"],
@@ -1280,34 +1250,6 @@ describe("t294 provider diagnostics", () => {
         emptyRecords(record()),
       );
       expect(readFileSync(path), harness).toEqual(original);
-    });
-
-    // Staging preservation: the project's aws-mcp endpoint and metadata replace
-    // the release values in the staged copy, argument by argument, and a project
-    // without that entry leaves the staged bytes alone.
-    test("Kiro staging preserves the project's MCP region and metadata", () => {
-      const kiroProject = temp("aidlc-t294-kiro-mcp-project-");
-      cpSync(join(DIST, "kiro"), kiroProject, { recursive: true });
-      const projectMcpPath = join(kiroProject, ".kiro", "settings", "mcp.json");
-      writeFileSync(projectMcpPath, withMcpRegion(readFileSync(projectMcpPath, "utf-8"), "ap-southeast-2"));
-      const kiroStaged = temp("aidlc-t294-kiro-mcp-staged-");
-      cpSync(join(DIST, "kiro"), kiroStaged, { recursive: true });
-      preserveKiroMcpRegion(kiroProject, kiroStaged, ".kiro");
-      const stagedMcp = readFileSync(join(kiroStaged, ".kiro", "settings", "mcp.json"), "utf-8");
-      expect(stagedMcp).toContain("https://aws-mcp.ap-southeast-2.api.aws/mcp");
-      expect(stagedMcp).toContain("AWS_REGION=ap-southeast-2");
-      expect(stagedMcp).not.toContain("us-east-1");
-      expect(stagedMcp).toBe(readFileSync(projectMcpPath, "utf-8"));
-    });
-    test("Kiro staging leaves an absent project MCP entry alone", () => {
-      const emptyProject = temp("aidlc-t294-kiro-mcp-empty-");
-      mkdirSync(join(emptyProject, ".kiro", "settings"), { recursive: true });
-      writeFileSync(join(emptyProject, ".kiro", "settings", "mcp.json"), "{}\n");
-      const untouched = temp("aidlc-t294-kiro-mcp-untouched-");
-      cpSync(join(DIST, "kiro"), untouched, { recursive: true });
-      const before2 = readFileSync(join(untouched, ".kiro", "settings", "mcp.json"), "utf-8");
-      preserveKiroMcpRegion(emptyProject, untouched, ".kiro");
-      expect(readFileSync(join(untouched, ".kiro", "settings", "mcp.json"), "utf-8")).toBe(before2);
     });
   });
 
@@ -1991,16 +1933,6 @@ describe("t294 trust diagnostics", () => {
     expect(status.files).toContain(join(project, ".kiro", "agents", "aidlc-aidlc.md"));
     expect(status.files).toContain(join(project, ".kiro", "settings", "cli.json"));
     expect(status.files.some((file) => file.includes(".vscode"))).toBe(false);
-    // Under the shared name `kiro` the installed tree, not the name, picks the
-    // files: the KAS tree's Markdown agents and engine pin, the agent-v1 tree's
-    // JSON agents and legacy hooks.
-    expect(trustStatus(project, ".kiro", "kiro").files).toEqual(status.files);
-    const agentV1 = temp("aidlc-t294-trust-kiro-");
-    cpSync(join(DIST, "kiro"), agentV1, { recursive: true });
-    const legacy = trustStatus(agentV1, ".kiro", "kiro").files;
-    expect(legacy).toContain(join(agentV1, ".kiro", "agents", "aidlc.json"));
-    expect(legacy.some((file) => file.endsWith(".kiro.hook"))).toBe(true);
-    expect(legacy).not.toContain(join(agentV1, ".kiro", "settings", "cli.json"));
 
     const codex = temp("aidlc-t294-siblings-codex-");
     cpSync(join(DIST, "codex"), codex, { recursive: true });
@@ -2376,14 +2308,11 @@ describe("t294 trust diagnostics", () => {
       expect.stringContaining("aidlc-record-human-turn is switched off"),
     ]);
 
-    // No Kiro engine runs the Kiro CLI tree's .kiro.hook files (#1487), so their
-    // flag protects nothing; a hook file that parses to a non-object is skipped.
-    const cli = temp("aidlc-t294-kiro-cli-hooks-off-");
-    cpSync(join(DIST, "kiro"), cli, { recursive: true });
-    const cliHook = join(cli, ".kiro", "hooks", "aidlc-plan-approval-guard.kiro.hook");
-    writeFileSync(cliHook, readFileSync(cliHook, "utf-8").replace('"enabled":true', '"enabled":false'));
-    writeFileSync(join(cli, ".kiro", "hooks", "aidlc-null.json"), "null");
-    expect(kiroDisabledHookChecks(cli, ".kiro")).toEqual([]);
+    // A hook file that parses to a non-object is skipped.
+    const fresh = temp("aidlc-t294-kiro-null-hook-");
+    cpSync(join(DIST, "kiro-ide"), fresh, { recursive: true });
+    writeFileSync(join(fresh, ".kiro", "hooks", "aidlc-null.json"), "null");
+    expect(kiroDisabledHookChecks(fresh, ".kiro")).toEqual([]);
   });
 
   test("doctor fails a Kiro IDE guard hook switched off in Agent Hooks", () => {
@@ -2724,7 +2653,7 @@ describe("t294 instruction-file doctor row", () => {
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("marker-managed instruction block reports intact, missing, and modified", async () => {
-    const project = install("kiro");
+    const project = install("kiro-ide");
     const path = join(project, "AGENTS.md");
     const original = readFileSync(path, "utf-8");
     const intact = instructionFileDoctorCheck(project, ".kiro");
@@ -2779,7 +2708,7 @@ describe("t294 instruction-file doctor row", () => {
 
   test("instruction row selects the invoking harness in a dual-harness project", () => {
     const project = install("claude");
-    const kiro = install("kiro");
+    const kiro = install("kiro-ide");
     cpSync(join(kiro, ".kiro"), join(project, ".kiro"), { recursive: true });
     cpSync(join(kiro, "AGENTS.md"), join(project, "AGENTS.md"));
     const onboardingPath = join(project, ".kiro", "steering", "aidlc-onboarding.md");
@@ -6303,9 +6232,9 @@ process.exit(0);
         "--provider builtin is legacy-only; choose current, amazon-bedrock, or other",
       ],
       [
-        "kiro",
+        "kiro-ide",
         ["--provider", "amazon-bedrock", "--region", "us-west-2"],
-        "kiro provides its own model access; there is no provider answer to record. Use --reset to clear a legacy record.",
+        "kiro-ide provides its own model access; there is no provider answer to record. Use --reset to clear a legacy record.",
       ],
     ] as const) {
       const project = install(harness);
@@ -6385,98 +6314,6 @@ process.exit(0);
     expect(reset.status, reset.stdout + reset.stderr).toBe(0);
     expect(readConfigDiagnosticRecords(join(project, ".kiro")).providers).toBeNull();
 
-    // Kiro CLI, with every AWS credential source detectAwsCredentials reads
-    // cleared (run() spreads process.env first, so each source is emptied
-    // explicitly rather than deleted) and HOME pointed at an empty directory:
-    // the legacy record raises no provider issue because ownership decides, not
-    // a credential check; an unrelated refresh keeps the aws-mcp region the
-    // project file carries even when the record says something else; and
-    // --reset clears the record without touching the MCP bytes.
-    const kiro = install("kiro");
-    const kiroPath = join(kiro, ".kiro", "tools", "data", "harness.json");
-    const kiroData = JSON.parse(readFileSync(kiroPath, "utf-8"));
-    kiroData.providers = {
-      schemaVersion: 1,
-      provider: "amazon-bedrock",
-      region: "eu-west-1",
-      pendingActions: [{ id: "bedrock-model-access", status: "pending" }],
-    };
-    writeFileSync(kiroPath, `${JSON.stringify(kiroData, null, 2)}\n`);
-    const mcpPath = join(kiro, ".kiro", "settings", "mcp.json");
-    const projectMcp = withMcpRegion(readFileSync(mcpPath, "utf-8"), "ap-southeast-2");
-    writeFileSync(mcpPath, projectMcp);
-    const noCredentials = runtimeEnv({
-      HOME: temp("aidlc-t294-no-aws-home-"),
-      AWS_ACCESS_KEY_ID: "",
-      AWS_SECRET_ACCESS_KEY: "",
-      AWS_BEARER_TOKEN_BEDROCK: "",
-      AWS_PROFILE: "",
-      AWS_DEFAULT_PROFILE: "",
-      AWS_WEB_IDENTITY_TOKEN_FILE: "",
-      AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: "",
-      AWS_CONTAINER_CREDENTIALS_FULL_URI: "",
-      AWS_ROLE_ARN: "",
-      AWS_ROLE_SESSION_NAME: "",
-    });
-    const kiroShow = run(
-      ["config", "providers", "--project-dir", kiro, "--show", "--json"],
-      kiro,
-      noCredentials,
-    );
-    expect(kiroShow.status, kiroShow.stdout + kiroShow.stderr).toBe(0);
-    expect(JSON.parse(kiroShow.stdout).data.credentials.hasCredentials).toBe(false);
-    const kiroCheck = run(
-      ["config", "providers", "--project-dir", kiro, "--check"],
-      kiro,
-      noCredentials,
-    );
-    expect(kiroCheck.status, kiroCheck.stdout + kiroCheck.stderr).toBe(0);
-    expect(kiroCheck.stdout).not.toContain("provider-credentials-missing");
-    const refresh = run([
-      "config",
-      "--project-dir",
-      kiro,
-      "--from",
-      join(DIST_RELEASE, "kiro"),
-      "--harness",
-      "kiro-cli-legacy",
-      "--yes",
-    ], kiro, noCredentials);
-    expect(refresh.status, refresh.stdout + refresh.stderr).toBe(0);
-    expect(readFileSync(mcpPath, "utf-8")).toBe(projectMcp);
-    const kiroReset = run(
-      ["config", "providers", "--project-dir", kiro, "--reset", "--yes"],
-      kiro,
-      noCredentials,
-    );
-    expect(kiroReset.status, kiroReset.stdout + kiroReset.stderr).toBe(0);
-    expect(readConfigDiagnosticRecords(join(kiro, ".kiro")).providers).toBeNull();
-    expect(readFileSync(mcpPath, "utf-8")).toBe(projectMcp);
-
-    // With the nondefault region still in place, enabling aws-mcp by hand and
-    // adding a server are the person's own entries: the refresh keeps both and
-    // leaves the file as it is.
-    const parsedMcp = JSON.parse(projectMcp) as {
-      mcpServers: Record<string, Record<string, unknown>>;
-    };
-    parsedMcp.mcpServers["aws-mcp"].disabled = false;
-    parsedMcp.mcpServers["team-docs"] = { type: "http", url: "https://docs.example.test/mcp" };
-    const editedMcp = `${JSON.stringify(parsedMcp, null, 2)}\n`;
-    writeFileSync(mcpPath, editedMcp);
-    const kept = run([
-      "config",
-      "--project-dir",
-      kiro,
-      "--from",
-      join(DIST_RELEASE, "kiro"),
-      "--harness",
-      "kiro-cli-legacy",
-      "--yes",
-    ], kiro, noCredentials);
-    expect(kept.status, kept.stdout + kept.stderr).toBe(0);
-    expect(kept.stdout + kept.stderr).not.toContain("locally modified");
-    expect(readFileSync(mcpPath, "utf-8")).toBe(editedMcp);
-
     const claude = install("claude");
     const claudePath = join(claude, ".claude", "tools", "data", "harness.json");
     const claudeData = JSON.parse(readFileSync(claudePath, "utf-8"));
@@ -6487,205 +6324,6 @@ process.exit(0);
     ], claude, env);
     expect(claudeCheck.status).toBe(1);
     expect(claudeCheck.stdout + claudeCheck.stderr).toContain("bedrock-model-access");
-  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
-
-  // Kiro CLI's .kiro/settings/mcp.json merges per server, as Claude Code's
-  // .mcp.json does: a server the person added and a server of AI-DLC's they
-  // turned on stay theirs, and AI-DLC's untouched servers follow the release.
-  test("Kiro CLI mcp.json keeps the person's servers across a refresh", () => {
-    type Mcp = { mcpServers: Record<string, Record<string, unknown>> };
-    const kiro = install("kiro");
-    const mcpPath = join(kiro, ".kiro", "settings", "mcp.json");
-    const mine = JSON.parse(readFileSync(mcpPath, "utf-8")) as Mcp;
-    mine.mcpServers["context7"].disabled = false;
-    mine.mcpServers["team-docs"] = { command: "team-docs-server", args: ["--stdio"] };
-    writeFileSync(mcpPath, `${JSON.stringify(mine, null, 2)}\n`);
-
-    // The next release changes one of AI-DLC's servers and stops shipping another.
-    const release = temp("aidlc-t294-kiro-mcp-release-");
-    cpSync(join(DIST_RELEASE, "kiro"), release, { recursive: true });
-    const releaseMcpPath = join(release, ".kiro", "settings", "mcp.json");
-    const next = JSON.parse(readFileSync(releaseMcpPath, "utf-8")) as Mcp;
-    next.mcpServers["aws-pricing"].args = ["awslabs.aws-pricing-mcp-server@9.9.9"];
-    delete next.mcpServers["aws-iac"];
-    writeFileSync(releaseMcpPath, `${JSON.stringify(next, null, 2)}\n`);
-    const args = ["config", "--project-dir", kiro, "--from", release, "--harness", "kiro-cli-legacy", "--yes"];
-
-    const refresh = run(args, kiro);
-    expect(refresh.status, refresh.stdout + refresh.stderr).toBe(0);
-    let merged = JSON.parse(readFileSync(mcpPath, "utf-8")) as Mcp;
-    expect(merged.mcpServers["team-docs"]).toEqual(mine.mcpServers["team-docs"]);
-    expect(merged.mcpServers["context7"]).toEqual(mine.mcpServers["context7"]);
-    expect(merged.mcpServers["aws-pricing"]).toEqual(next.mcpServers["aws-pricing"]);
-    expect(merged.mcpServers["aws-mcp"]).toEqual(next.mcpServers["aws-mcp"]);
-    expect(Object.hasOwn(merged.mcpServers, "aws-iac")).toBe(false);
-
-    // A server added after that refresh is the person's as well, and the
-    // doctor does not name the file as one config stops on.
-    merged.mcpServers["second"] = { command: "second-server" };
-    writeFileSync(mcpPath, `${JSON.stringify(merged, null, 2)}\n`);
-    expect(frameworkFilesDoctorCheck(kiro, ".kiro").label).not.toContain("mcp.json");
-    const again = run(args, kiro);
-    expect(again.status, again.stdout + again.stderr).toBe(0);
-    expect((JSON.parse(readFileSync(mcpPath, "utf-8")) as Mcp).mcpServers["second"]).toEqual({ command: "second-server" });
-
-    // --force takes back a server AI-DLC still owns, as shipped; the person's
-    // servers, context7 included since they turned it on, stay theirs.
-    merged = JSON.parse(readFileSync(mcpPath, "utf-8")) as Mcp;
-    merged.mcpServers["aws-mcp"].disabled = false;
-    writeFileSync(mcpPath, `${JSON.stringify(merged, null, 2)}\n`);
-    const forced = run([...args, "--force"], kiro);
-    expect(forced.status, forced.stdout + forced.stderr).toBe(0);
-    merged = JSON.parse(readFileSync(mcpPath, "utf-8")) as Mcp;
-    expect(merged.mcpServers["aws-mcp"]).toEqual(next.mcpServers["aws-mcp"]);
-    expect(merged.mcpServers["context7"]).toEqual(mine.mcpServers["context7"]);
-    expect(merged.mcpServers["team-docs"]).toEqual(mine.mcpServers["team-docs"]);
-    expect(merged.mcpServers["second"]).toEqual({ command: "second-server" });
-  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
-
-  test("Kiro CLI setup keeps an mcp.json the project already had", () => {
-    const project = temp("aidlc-t294-kiro-own-mcp-");
-    mkdirSync(join(project, ".git"));
-    mkdirSync(join(project, ".kiro", "settings"), { recursive: true });
-    const mcpPath = join(project, ".kiro", "settings", "mcp.json");
-    writeFileSync(mcpPath, `${JSON.stringify({ mcpServers: { "team-docs": { command: "team-docs-server" } } }, null, 2)}\n`);
-    const result = run(
-      ["config", "--project-dir", project, "--from", join(DIST_RELEASE, "kiro"), "--harness", "kiro-cli-legacy", "--yes"],
-      project,
-    );
-    expect(result.status, result.stdout + result.stderr).toBe(0);
-    const merged = JSON.parse(readFileSync(mcpPath, "utf-8")) as { mcpServers: Record<string, unknown> };
-    const shipped = JSON.parse(readFileSync(join(DIST_RELEASE, "kiro", ".kiro", "settings", "mcp.json"), "utf-8")) as {
-      mcpServers: Record<string, unknown>;
-    };
-    expect(merged.mcpServers).toEqual({ "team-docs": { command: "team-docs-server" }, ...shipped.mcpServers });
-  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
-
-  // Kiro CLI offers an agent only the servers its tools name: config names
-  // every server in the project's file and in the person's own Kiro settings
-  // for the AI-DLC agent and its 14 specialists, and reads the person's file
-  // without writing it.
-  test("Kiro CLI config grants the AI-DLC agent and its specialists every MCP server it finds", () => {
-    type Agent = { includeMcpJson?: unknown; tools: string[]; allowedTools: string[] };
-    const kiroHome = temp("aidlc-t294-kiro-home-");
-    mkdirSync(join(kiroHome, "settings"), { recursive: true });
-    const personalMcp = join(kiroHome, "settings", "mcp.json");
-    writeFileSync(personalMcp, `${JSON.stringify({ mcpServers: { "my-docs": { command: "my-docs-server" } } }, null, 2)}\n`);
-    const personalBefore = readFileSync(personalMcp);
-    const env = { KIRO_HOME: kiroHome };
-    const project = temp("aidlc-t294-kiro-grants-");
-    mkdirSync(join(project, ".git"));
-    const args = ["config", "--project-dir", project, "--from", join(DIST_RELEASE, "kiro"), "--harness", "kiro-cli-legacy", "--yes"];
-    const shippedAgent = JSON.parse(readFileSync(join(DIST_RELEASE, "kiro", ".kiro", "agents", "aidlc.json"), "utf-8")) as Agent;
-    const shippedServers = Object.keys((JSON.parse(
-      readFileSync(join(DIST_RELEASE, "kiro", ".kiro", "settings", "mcp.json"), "utf-8"),
-    ) as { mcpServers: Record<string, unknown> }).mcpServers);
-    const agentPath = join(project, ".kiro", "agents", "aidlc.json");
-    // Each specialist keeps its own tools and allowedTools, with the grants given.
-    const specialists = readdirSync(join(DIST_RELEASE, "kiro", ".kiro", "agents"))
-      .filter((file) => /^aidlc-.+-agent\.json$/.test(file));
-    expect(specialists).toHaveLength(14);
-    const specialistGrants = (root: string, grants: string[], file?: string) => {
-      for (const name of file ? [file] : specialists) {
-        const shipped = JSON.parse(readFileSync(join(DIST_RELEASE, "kiro", ".kiro", "agents", name), "utf-8")) as Agent;
-        const current = JSON.parse(readFileSync(join(root, ".kiro", "agents", name), "utf-8")) as Agent;
-        expect(current.includeMcpJson, name).toBe(true);
-        expect(current.tools, name).toEqual([...shipped.tools.filter((tool) => !tool.startsWith("@")), ...grants]);
-        expect(current.allowedTools, name).toEqual(shipped.allowedTools);
-      }
-    };
-    const grantsOf = (path: string) =>
-      (JSON.parse(readFileSync(path, "utf-8")) as Agent).tools.filter((tool) => tool.startsWith("@"));
-
-    const setup = run(args, project, env);
-    expect(setup.status, setup.stdout + setup.stderr).toBe(0);
-    let agent = JSON.parse(readFileSync(agentPath, "utf-8")) as Agent;
-    expect(agent.includeMcpJson).toBe(true);
-    expect(agent.tools).toEqual([...shippedAgent.tools, ...shippedServers.map((name) => `@${name}`), "@my-docs"]);
-    expect(agent.allowedTools).toEqual(shippedAgent.allowedTools);
-    specialistGrants(project, grantsOf(agentPath));
-
-    // A server the person adds to the project's file reaches the agent the
-    // next time config runs.
-    const mcpPath = join(project, ".kiro", "settings", "mcp.json");
-    const mcp = JSON.parse(readFileSync(mcpPath, "utf-8")) as { mcpServers: Record<string, unknown> };
-    mcp.mcpServers["team-docs"] = { command: "team-docs-server" };
-    writeFileSync(mcpPath, `${JSON.stringify(mcp, null, 2)}\n`);
-    const refresh = run(args, project, env);
-    expect(refresh.status, refresh.stdout + refresh.stderr).toBe(0);
-    agent = JSON.parse(readFileSync(agentPath, "utf-8")) as Agent;
-    expect(agent.tools).toEqual([
-      ...shippedAgent.tools,
-      ...[...shippedServers, "team-docs"].map((name) => `@${name}`),
-      "@my-docs",
-    ]);
-    expect(agent.allowedTools).toEqual(shippedAgent.allowedTools);
-    specialistGrants(project, grantsOf(agentPath));
-    expect(readFileSync(personalMcp)).toEqual(personalBefore);
-
-    // The agent file travels with the project, so a teammate's config run
-    // keeps the servers named for someone else and adds their own.
-    const teammateHome = temp("aidlc-t294-kiro-home-teammate-");
-    mkdirSync(join(teammateHome, "settings"), { recursive: true });
-    writeFileSync(
-      join(teammateHome, "settings", "mcp.json"),
-      `${JSON.stringify({ mcpServers: { "their-docs": { command: "their-docs-server" } } }, null, 2)}\n`,
-    );
-    const teammate = run(args, project, { KIRO_HOME: teammateHome });
-    expect(teammate.status, teammate.stdout + teammate.stderr).toBe(0);
-    agent = JSON.parse(readFileSync(agentPath, "utf-8")) as Agent;
-    expect(agent.tools).toEqual([
-      ...shippedAgent.tools,
-      ...[...shippedServers, "team-docs", "their-docs", "my-docs"].map((name) => `@${name}`),
-    ]);
-    specialistGrants(project, grantsOf(agentPath));
-
-    // A personal file kept as a link (a dotfiles folder) is read through it.
-    const linkedHome = temp("aidlc-t294-kiro-home-linked-");
-    const dotfiles = temp("aidlc-t294-kiro-dotfiles-");
-    mkdirSync(join(linkedHome, "settings"), { recursive: true });
-    writeFileSync(
-      join(dotfiles, "mcp.json"),
-      `${JSON.stringify({ mcpServers: { "linked-docs": { command: "linked-docs-server" } } }, null, 2)}\n`,
-    );
-    symlinkSync(join(dotfiles, "mcp.json"), join(linkedHome, "settings", "mcp.json"), "file");
-    const linked = run(args, project, { KIRO_HOME: linkedHome });
-    expect(linked.status, linked.stdout + linked.stderr).toBe(0);
-    expect((JSON.parse(readFileSync(agentPath, "utf-8")) as Agent).tools).toContain("@linked-docs");
-    specialistGrants(project, grantsOf(agentPath));
-
-    // A copy install puts the runtime's files in the project before config
-    // runs: the agent file as shipped is AI-DLC's, so setup names the servers
-    // in it rather than stopping on it. A hand edit to it still stops config.
-    const copied = temp("aidlc-t294-kiro-grants-copy-");
-    mkdirSync(join(copied, ".git"));
-    cpSync(join(DIST_RELEASE, "kiro"), copied, { recursive: true });
-    const copySetup = run([...args.slice(0, 2), copied, ...args.slice(3)], copied, env);
-    expect(copySetup.status, copySetup.stdout + copySetup.stderr).toBe(0);
-    const copiedAgentPath = join(copied, ".kiro", "agents", "aidlc.json");
-    expect((JSON.parse(readFileSync(copiedAgentPath, "utf-8")) as Agent).tools)
-      .toEqual([...shippedAgent.tools, ...shippedServers.map((name) => `@${name}`), "@my-docs"]);
-    specialistGrants(copied, grantsOf(copiedAgentPath));
-    // A grant added by hand to one specialist stays on that one, not the others.
-    const developerPath = join(copied, ".kiro", "agents", "aidlc-developer-agent.json");
-    const developer = JSON.parse(readFileSync(developerPath, "utf-8")) as Agent;
-    developer.tools.push("@hand-docs");
-    writeFileSync(developerPath, `${JSON.stringify(developer, null, 2)}\n`);
-    const handRun = run([...args.slice(0, 2), copied, ...args.slice(3)], copied, env);
-    expect(handRun.status, handRun.stdout + handRun.stderr).toBe(0);
-    specialistGrants(copied, [...grantsOf(copiedAgentPath), "@hand-docs"], "aidlc-developer-agent.json");
-    specialistGrants(copied, grantsOf(copiedAgentPath), "aidlc-architect-agent.json");
-    expect(grantsOf(copiedAgentPath)).not.toContain("@hand-docs");
-    // A grant added by hand stays named like any other; another hand edit, such
-    // as a built-in tool, stops config and keeps the person's bytes.
-    const edited = JSON.parse(readFileSync(copiedAgentPath, "utf-8")) as Agent;
-    edited.tools.push("web_fetch");
-    const editedText = `${JSON.stringify(edited, null, 2)}\n`;
-    writeFileSync(copiedAgentPath, editedText);
-    const editedRun = run([...args.slice(0, 2), copied, ...args.slice(3)], copied, env);
-    expect(editedRun.status).not.toBe(0);
-    expect(readFileSync(copiedAgentPath, "utf-8")).toBe(editedText);
-    expect(editedRun.stdout + editedRun.stderr).toContain(".kiro/agents/aidlc.json (locally modified");
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("check names an unrecorded providers section instead of calling it clean", () => {
@@ -6705,7 +6343,7 @@ process.exit(0);
     expect(claudeCheck.stdout).not.toContain("configuration is clean");
 
     // Where it does not, the same state needs no answer at all.
-    const kiro = install("kiro");
+    const kiro = install("kiro-ide");
     const kiroCheck = run([
       "config",
       "providers",
@@ -6714,7 +6352,7 @@ process.exit(0);
       "--check",
     ], kiro, env);
     expect(kiroCheck.status, kiroCheck.stdout + kiroCheck.stderr).toBe(0);
-    expect(kiroCheck.stdout).toContain("needs no answer for kiro");
+    expect(kiroCheck.stdout).toContain("needs no answer for kiro-ide");
     expect(kiroCheck.stdout).toContain("harness-managed");
     expect(providerDoctorCheck(kiro, ".kiro")).toEqual(expect.objectContaining({
       pass: true,
@@ -6765,9 +6403,7 @@ process.exit(0);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("only Kiro owns its own model access; every other harness is Bedrock-oriented", () => {
-    for (const harness of ["kiro", "kiro-ide"] as const) {
-      expect(harnessOwnsModelAccess(harness)).toBe(true);
-    }
+    expect(harnessOwnsModelAccess("kiro-ide")).toBe(true);
     // Copilot and Cursor reach Bedrock through their own BYOK/provider settings,
     // so they must still be asked rather than assumed to be self-served.
     for (const harness of ["claude", "codex", "opencode", "copilot", "cursor"] as const) {
@@ -7105,7 +6741,7 @@ process.exit(0);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("trust human show compacts its unbounded file list while JSON stays complete", () => {
-    const project = install("kiro");
+    const project = install("kiro-ide");
     const json = run([
       "config",
       "trust",

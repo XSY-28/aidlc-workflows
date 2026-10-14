@@ -13,7 +13,7 @@ import { SHIPPED_FORMAT_DOCS } from "../../core/tools/aidlc-inline-context.ts";
 const REPO = join(import.meta.dir, "..", "..");
 const DIST = join(REPO, "dist");
 const MARKER = "<!-- aidlc-delegated-knowledge-preflight -->";
-const HARNESSES = ["claude", "codex", "copilot", "cursor", "kiro", "kiro-ide", "opencode"] as const;
+const HARNESSES = ["claude", "codex", "copilot", "cursor", "kiro-ide", "opencode"] as const;
 
 // Every packaged agent file (personas and plugin agents) under an agents folder.
 function agentFiles(dir: string, out: string[] = []): string[] {
@@ -56,29 +56,6 @@ describe("a dispatched agent's knowledge preflight leaves out the format docs", 
         expect(line, `${file.slice(DIST.length + 1)} still reads ${doc}`).toContain(`all but its format references`);
         expect(line, `${file.slice(DIST.length + 1)} does not name ${doc} as left out`).toContain(`\`${doc}\``);
       }
-    }
-  });
-});
-
-describe("a dispatched Kiro CLI agent preloads only the shared methodology files", () => {
-  const agentsDir = join(DIST, "kiro", ".kiro", "agents");
-  const sharedDir = join(DIST, "kiro", ".kiro", "knowledge", "aidlc-shared");
-  const methodology = readdirSync(sharedDir)
-    .filter((file) => file.endsWith(".md") && !SHIPPED_FORMAT_DOCS.has(file))
-    .sort()
-    .map((file) => `file://.kiro/knowledge/aidlc-shared/${file}`);
-
-  test("the shared folder still has methodology files to preload", () => {
-    expect(methodology.length).toBeGreaterThan(0);
-  });
-
-  test("each agent JSON lists exactly the shared folder minus the format docs", () => {
-    const jsons = readdirSync(agentsDir).filter((file) => file.endsWith("-agent.json"));
-    expect(jsons.length).toBe(14);
-    for (const file of jsons) {
-      const resources = (JSON.parse(readFileSync(join(agentsDir, file), "utf-8")).resources ?? []) as string[];
-      const shared = resources.filter((entry) => entry.includes("/knowledge/aidlc-shared/"));
-      expect(shared, `${file} preloads ${shared.join(", ")}`).toEqual(methodology);
     }
   });
 });

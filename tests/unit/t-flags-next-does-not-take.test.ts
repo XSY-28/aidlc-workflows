@@ -603,7 +603,6 @@ const HARNESS_ENTRIES: Array<{ harness: string; dir: string; script: string; tar
   { harness: "codex", dir: ".codex", script: "hooks/aidlc-codex-adapter.ts", target: ["record-human-turn"], event: "UserPromptSubmit" },
   { harness: "copilot", dir: ".aidlc", script: "hooks/aidlc-copilot-adapter.ts", target: ["record-human-turn"], event: "UserPromptSubmit" },
   { harness: "cursor", dir: ".cursor", script: "tools/aidlc.ts", target: ["engine", "hook", "record-human-turn"], event: "UserPromptSubmit" },
-  { harness: "kiro", dir: ".kiro", script: "hooks/aidlc-kiro-adapter.ts", target: ["verb-intercept"], event: "userPromptSubmit" },
   { harness: "kiro-ide", dir: ".kiro", script: "hooks/aidlc-kiro-adapter.ts", target: ["record-human-turn"], event: "UserPromptSubmit" },
   { harness: "opencode", dir: ".aidlc", script: "tools/aidlc.ts", target: ["engine", "hook", "record-human-turn"], event: "UserPromptSubmit" },
 ];
@@ -656,43 +655,6 @@ describe("the person's own words reach the record from every harness they drive"
       cleanupTestProject(created.pop());
     },
   );
-});
-
-// The Kiro CLI latch binds the FIRST `next` of a turn to the argv the person
-// typed, so a dropped or rewritten argument is refused. A misspelt flag has the
-// agent run `next` twice: the verbatim first call, then the corrected one. The
-// latch must hold the first and leave the second alone, or the person is stuck
-// with no way to spend their own words.
-describe("the Kiro CLI forwarding latch lets the agent correct the line", () => {
-  test("the verbatim first next passes the latch, and the corrected second call is not refused", () => {
-    const proj = createTestProject();
-    created.push(proj);
-    removeWorkspaceRecord(proj);
-    cpSync(join(REPO_ROOT, "dist", "kiro", ".kiro"), join(proj, ".kiro"), { recursive: true });
-    const health = hooksHealthDir(proj);
-    mkdirSync(health, { recursive: true });
-    writeFileSync(join(health, "record-human-turn.last"), new Date().toISOString());
-    const typed = "/aidlc --plan-aprroval off add the export";
-    const intercept = spawnSync(BUN, [join(proj, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "verb-intercept"], {
-      cwd: proj,
-      input: JSON.stringify({ hook_event_name: "userPromptSubmit", session_id: SESSION, cwd: proj, prompt: typed }),
-      env: { ...env(proj), CLAUDE_PROJECT_DIR: undefined, USER_PROMPT: undefined },
-      encoding: "utf-8",
-      timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
-    });
-    expect(intercept.status, `${intercept.stdout}${intercept.stderr}`).toBe(0);
-    const records = listMessages(proj);
-    expect(records.length, JSON.stringify(records)).toBe(1);
-    expect(records[0].text).toBe(typed);
-    const first = next(proj, ["--plan-aprroval", "off", "add", "the", "export"]);
-    expect(first.d.kind, first.out).toBe("print");
-    expect(String(first.d.message)).toContain("--plan-aprroval off");
-    expect(first.out).not.toContain("dropped or changed the user's arguments");
-    const second = next(proj, ["--plan-approval", "off", "add the export"]);
-    expect(second.out).not.toContain("dropped or changed the user's arguments");
-    expect(second.d.kind, second.out).toBe("ask");
-    expect(String(second.d.compose_command)).toContain("--plan-approval off");
-  });
 });
 
 // A flag-shaped word inside their reply is still their reply. "approve, but add

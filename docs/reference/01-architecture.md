@@ -55,7 +55,7 @@ graph LR
 
 **Rules** (the space memory layer, `aidlc/spaces/<active-space>/memory/`, reached through the `rules/aidlc.md` @-import stub) -- the org, team, project and phase rule files: the framework's working-practice, testing, deployment and code-style defaults, the Guard Policy section, and the guardrail sections (`## Forbidden`, `## Mandated`, `## Corrections`). Self-learning: confirmed human corrections are written there as practices.
 
-**Agents** (`agents/*.md`) -- Fourteen flat agent files: 11 domain-expert personas, 2 review-only agents, and the adaptive-workflows composer. Each defines its role, responsibilities, collaboration pattern, tools, and relevant memory focus. Authored core personas carry `disallowedTools: Task`; the packager keeps that native denial where supported and projects the same no-nested-delegation boundary to each harness's tool policy. Kiro agent Markdown omits the unsupported key, while Kiro CLI agent JSON and Kiro IDE `tools:` grants exclude the `subagent` tool from delegates.
+**Agents** (`agents/*.md`) -- Fourteen flat agent files: 11 domain-expert personas, 2 review-only agents, and the adaptive-workflows composer. Each defines its role, responsibilities, collaboration pattern, tools, and relevant memory focus. Authored core personas carry `disallowedTools: Task`; the packager keeps that native denial where supported and projects the same no-nested-delegation boundary to each harness's tool policy. Kiro agent Markdown omits the unsupported key, and its `tools:` grants exclude the `subagent` tool from delegates.
 
 **Knowledge** (`knowledge/`) -- Two-tier methodology reference:
 - `aidlc-shared/` -- Principles, verification, brownfield safeguards, **audit event taxonomy** (canonical event registry), state template
@@ -951,8 +951,8 @@ selected space when choosing the bare space root. Switching spaces with
 `/aidlc space <name>` also
 writes the switched space's `memory/` files into `aidlc/active-memory/`,
 the git-ignored copy every harness-native rule include reads (the Claude
-`@`-import stub described above, Kiro CLI resources, Cursor rules, opencode's
-`instructions` glob, and Copilot's `AGENTS.md` `@`-imports; Kiro IDE's steering
+`@`-import stub described above, Cursor rules, opencode's
+`instructions` glob, and Copilot's `AGENTS.md` `@`-imports; Kiro's steering
 file carries the text itself, and Codex has no include: the engine hands each
 step its rules). No tracked file changes, so a committed tree never churns and
 teammates keep their own space. SessionStart writes the copy for the resolved

@@ -7,8 +7,8 @@
 //
 // The construction, topology, reviewer and swarm modules each carry one
 // binding subsection per tool. A tool reads only its own, so each shipped tree
-// carries only its own: the agent no longer reads six other tools' text every
-// time it loads a module. The authored source keeps all seven, and nothing
+// carries only its own: the agent no longer reads five other tools' text every
+// time it loads a module. The authored source keeps all six, and nothing
 // outside the bindings changes.
 
 import { describe, expect, test } from "bun:test";
@@ -18,7 +18,6 @@ import { REPO_ROOT } from "../harness/fixtures.ts";
 
 const TREES: ReadonlyArray<readonly [string, string, string]> = [
   ["claude", ".claude", "Claude Code"],
-  ["kiro", ".kiro", "Kiro CLI"],
   ["kiro-ide", ".kiro", "Kiro IDE"],
   ["codex", ".codex", "Codex CLI"],
   ["cursor", ".cursor", "Cursor"],
@@ -134,11 +133,11 @@ describe("t-own-harness-bindings", () => {
       "Shared text.",
       "",
     ].join("\n");
-    const kiro = keepOwnHarnessBindings(source, "kiro", "fixture.md");
+    const kiro = keepOwnHarnessBindings(source, "kiro-ide", "fixture.md");
     expect(kiro).toContain("```bash\n### Cursor\n```");
-    expect(kiro).toContain("### Kiro CLI\n\nKiro CLI body.\n\n#### Kiro CLI detail\n\nmore Kiro CLI.\n");
+    expect(kiro).toContain("### Kiro IDE\n\nKiro IDE body.\n\n#### Kiro IDE detail\n\nmore Kiro IDE.\n");
     expect(kiro).not.toContain("Claude Code body.");
-    expect(kiro).not.toContain("#### Kiro IDE detail");
+    expect(kiro).not.toContain("#### Codex CLI detail");
     expect(kiro).toContain("### After the run\n\nShared text.\n");
     expect(keepOwnHarnessBindings("# No bindings\n\ntext\n", "codex", "plain.md")).toBe("# No bindings\n\ntext\n");
   });
@@ -161,7 +160,7 @@ describe("t-own-harness-bindings", () => {
 
   test("a binding run that is missing a tool fails the build", async () => {
     const { keepOwnHarnessBindings } = await import("../../scripts/harness-bindings.ts");
-    const partial = TOOLS.slice(0, 6).map((tool) => `### ${tool}\n\n${tool} body.\n`).join("\n");
+    const partial = TOOLS.slice(0, 5).map((tool) => `### ${tool}\n\n${tool} body.\n`).join("\n");
     expect(() => keepOwnHarnessBindings(`## Bindings\n\n${partial}`, "claude", "partial.md"))
       .toThrow("missing GitHub Copilot");
     expect(() => keepOwnHarnessBindings("### Cursor\n\nalone\n\n### Next\n", "cursor", "lone.md"))

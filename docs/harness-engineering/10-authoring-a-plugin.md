@@ -310,8 +310,7 @@ fragments:
 Fragments splice, record into the sidecar and strip on disable exactly like
 stage fragments. They reach the agent on every harness: compose writes them
 into the Markdown persona and into the native agent file a harness builds
-from it (the Codex agent TOML, the OpenCode and Copilot native agents), and
-Kiro CLI's agent JSON loads its prompt from the Markdown persona.
+from it (the Codex agent TOML, the OpenCode and Copilot native agents).
 
 ### Engine upgrade lifecycle
 
@@ -367,7 +366,6 @@ projection remains deferred (doc 18 §9 Status).
   creates the native `.opencode/agents/` subagent twin and denies nested
   `task` delegation. See
   [Adding an Agent](03-adding-an-agent.md).
-  On Kiro CLI, a natively dispatched plugin roster worker's hand-authored agent-v1 JSON must also include `file://aidlc/active-memory/**/*.md` (the engine's copy of the active space's memory, the same path on every install) in its `resources` array, resolving to at least one existing Markdown file, because plugin workers receive the same active-stage rules as core workers.
 - **Sensors.** Ship the manifest `sensors/aidlc-<id>.md` **and** its script under
   `tools/` (both — a manifest alone is discoverable but its script must live in
   `tools/` to run). The `aidlc-<id>.md` name at the top of `sensors/` is a hard
@@ -505,29 +503,28 @@ audit failure rolls the whole selection back. `plugin list` is different: it
 compares host inventory with composition/ownership stamps and does not change
 selection.
 
-### Kiro (no store — folder-drop, then run the composer explicitly)
+### Kiro (no store — folder-drop)
 
 ```bash
 # From the AIDLC source root, materialize the ignored local plugin projections:
 bun scripts/package.ts
 # Then copy the Kiro projection into the project:
-cp -r dist/plugins/<name>/kiro/. <project>/
-# preferred when aidlc is on PATH:
+cp -r dist/plugins/<name>/kiro-ide/. <project>/
+# optional, to compose before Kiro starts (preferred when aidlc is on PATH):
 AIDLC_PLUGIN_ROOT="<plugin-root>" AIDLC_PROJECT_DIR="<project>" \
   AIDLC_HARNESS_DIR=.kiro aidlc engine plugin sync
 
 # fallback: run the composer explicitly:
 AIDLC_PLUGIN_ROOT="<plugin-root>" AIDLC_PROJECT_DIR="<project>" \
   AIDLC_HARNESS_DIR=.kiro bun "<plugin-root>/hooks/compose.ts"
-# open in Kiro IDE or kiro-cli chat → /aidlc
+# open in Kiro IDE or kiro-cli → /aidlc
 ```
 
-> **Kiro note.** Use the `kiro-ide` projection for Kiro IDE 1.x or Kiro CLI v3; its folder-drop
+> **Kiro note.** The `kiro-ide` projection serves Kiro IDE 1.x and Kiro CLI v3. Its folder-drop
 > includes a `version: "v1"` `.kiro/hooks/aidlc-<plugin>-compose.json` SessionStart registration
 > that runs the cross-platform `hooks/aidlc-plugin-compose.ts` Bun launcher from
-> the workspace root. The `kiro` projection emits no hook registration,
-> so run one of the explicit composer commands above. Neither projection emits the
-> retired `.kiro.hook` plugin registration.
+> the workspace root, so compose also runs when the next session starts. It does
+> not emit the retired `.kiro.hook` plugin registration.
 
 ### Trust
 
@@ -664,8 +661,8 @@ compose a second time to prove idempotency. Any compose drop, graph failure,
 missing plugin node, or second-pass file change exits `1`. The live install is
 hashed before and after and is never a compose target.
 
-Pass `--harness` when the install is ambiguous, including `.kiro` (Kiro CLI vs
-Kiro IDE) and `.aidlc` (Copilot vs OpenCode). `--dist <version>` is reserved
+Pass `--harness` when the install is ambiguous, such as `.aidlc` (Copilot vs
+OpenCode). `--dist <version>` is reserved
 until RFC #722 milestone 2 defines a released runtime-bundle channel.
 
 1. **Content validation** is the always-on baseline. Run

@@ -1829,7 +1829,7 @@ describe("t265b hook lifecycle", () => {
         for (const args of [
           "config --statusline maybe",
           "config --statusline",
-          "config --statusline off --harness kiro-cli-legacy",
+          "config --statusline off --harness kiro",
           "config --statusline off --frobnicate",
           "config --statusline off --mcp none",
           "config --statusline off extra",
@@ -1898,7 +1898,7 @@ describe("t265b hook lifecycle", () => {
         "config flags --local --yes",
         "config project --mcp none --completions none --yes",
         "config models --preset minimal --dry-run",
-        "config models --preset balanced --harness kiro-cli-legacy --plan-token abc123 --yes",
+        "config models --preset balanced --harness kiro --plan-token abc123 --yes",
         `config models --preset balanced --project-dir '${proj}' --quiet --no-color --verbose --yes`,
         `config trust --show --project-dir='${proj}'`,
       ];
@@ -1932,8 +1932,8 @@ describe("t265b hook lifecycle", () => {
         "config project --from /tmp/release --yes",
         "config project --mcp none --from=/tmp/release --yes",
         "config flags --from /tmp/release --yes",
-        `config --harness kiro-cli-legacy --download --project-dir '${proj}'`,
-        `config --harness kiro-cli-legacy --project-dir '${proj}'`,
+        `config --harness kiro --download --project-dir '${proj}'`,
+        `config --harness kiro --project-dir '${proj}'`,
       ];
       // A bypass with extra flags is judged whole, whoever asked.
       const refused = ["config flags --default-scope feature --bypass AIDLC_DISABLE_SENSORS --local --yes"];
@@ -4439,23 +4439,6 @@ describe("t265c registrations", () => {
     );
     expect(adapter).toContain('"aidlc-plan-approval-guard.ts"');
     expect(adapter).toContain('tool_name: "Agent"');
-  });
-
-  test("kiro: the conductor agent registers the guard on the subagent matcher", () => {
-    const agent = readFileSync(
-      join(REPO_ROOT, "dist", "kiro", ".kiro", "agents", "aidlc.json"),
-      "utf-8",
-    );
-    expect(agent).toContain("plan-approval-guard");
-    const parsed = JSON.parse(agent) as {
-      hooks: { preToolUse: Array<{ matcher?: string; command: string }> };
-    };
-    const entries = parsed.hooks.preToolUse.filter((h) =>
-      h.command.includes("plan-approval-guard")
-    );
-    expect(entries.map((entry) => entry.matcher).sort()).toEqual(
-      ["execute_bash", "fs_write", "subagent"],
-    );
   });
 
   test("opencode: the plugin consults the guard on task dispatches", () => {

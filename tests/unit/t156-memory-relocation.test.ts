@@ -192,49 +192,6 @@ describe("t156 method relocation to aidlc/spaces/default/memory/ + per-harness i
     expect(rulesDirFiles).toEqual(["aidlc.md"]);
   });
 
-  test("7: EVERY Kiro CLI agent resources glob points at the active space's memory tree", () => {
-    // Select the CLI resource binding from explicit matrix capabilities, then
-    // derive the agent list from each shipped tree. Kiro IDE uses its native
-    // always-included steering file instead; its agent JSONs are compatibility
-    // surfaces, not the IDE binding.
-    const kiroTrees = HARNESS_MATRIX.filter(
-      (harness) => harness.capabilities.memoryInclude === "kiro-resources",
-    );
-    expect(kiroTrees.length).toBeGreaterThan(0);
-
-    let checkedAgents = 0;
-    let expectedAgents = 0;
-    for (const harness of kiroTrees) {
-      const agentsDir = join(harness.engineRoot, "agents");
-      const agentFiles = readdirSync(agentsDir).filter((f) => f.endsWith(".json"));
-      expect(agentFiles.length, `${harness.name} ships agent JSONs`).toBeGreaterThan(0);
-      expectedAgents += agentFiles.length;
-      let harnessChecked = 0;
-      for (const f of agentFiles) {
-        const json = JSON.parse(readFileSync(join(agentsDir, f), "utf-8")) as {
-          resources?: string[];
-        };
-        expect(Array.isArray(json.resources), `${harness.name}/${f}: resources`).toBe(true);
-        if (!json.resources) continue;
-        checkedAgents++;
-        harnessChecked++;
-        expect(json.resources, `${harness.name}/${f} resources → the engine's copy of the active space's memory`).toContain(
-          "file://aidlc/active-memory/**/*.md",
-        );
-        // Only the always-on native onboarding may load from steering; method
-        // globs must use relocated memory. Inspect resources, not write permissions.
-        expect(
-          json.resources.some((r) =>
-            r.includes(".kiro/steering") && r !== "file://.kiro/steering/aidlc-onboarding.md"
-          ),
-          `${harness.name}/${f} resources may load only native onboarding from steering`,
-        ).toBe(false);
-      }
-      expect(harnessChecked, `${harness.name}: agents with resources`).toBeGreaterThan(0);
-    }
-    expect(checkedAgents).toBe(expectedAgents);
-  });
-
   test("7b: Kiro IDE standing rules ride in always-included steering that carries the memory text", () => {
     const ide = HARNESS_MATRIX.find((harness) => harness.name === "kiro-ide");
     expect(ide?.capabilities.memoryInclude).toBe("kiro-steering");

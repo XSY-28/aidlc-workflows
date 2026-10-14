@@ -9,10 +9,10 @@ hook wiring, activation) differs.
 
 Harness-specific onboarding lives in `.kiro/steering/aidlc-onboarding.md`,
 whose `inclusion: always` frontmatter loads it automatically. The root
-`AGENTS.md` block is harness-neutral and shared with other installed harnesses;
-engine directories must still differ (this Kiro row, `--harness kiro`, and the legacy Kiro CLI row,
-`--harness kiro-cli-legacy`, cannot share `.kiro/`; in a project on the legacy row, `aidlc config --harness kiro`
-switches `.kiro/` to this row in place).
+`AGENTS.md` block is harness-neutral and shared with other installed harnesses.
+This is AI-DLC's one Kiro row: you set it up with `aidlc config --harness kiro`.
+A project set up with the earlier, retired Kiro CLI row moves to it once (see
+[Coming from the legacy Kiro CLI row](#coming-from-the-legacy-kiro-cli-row)).
 
 > [!IMPORTANT]
 > **Run AI-DLC on Kiro with Claude Opus 4.8.** The conductor drives a
@@ -197,7 +197,7 @@ The install ships:
   an intent or space, however it quotes or spaces the command. Only the
   pipeline-deploy persona creates, merges, discards, and restores Bolt
   worktrees.
-  No agent-v1 JSON ships. Their shell
+  No JSON agent files ship. Their shell
   rules run AI-DLC's own commands and `bun --version` without
   asking; the project's own test and build commands still ask.
 - `.kiro/settings/cli.json` — pins Kiro CLI to its v3 engine and the `aidlc`
@@ -224,6 +224,27 @@ The install ships:
   turn it back on under Agent Hooks rather than to trust the folder. AI-DLC never
   turns a hook back on for you. The IDE 0.x `.kiro.hook` format is no longer
   shipped: Kiro IDE 1.x never executes it.
+
+### Coming from the legacy Kiro CLI row
+
+Earlier releases also shipped a second Kiro row for Kiro CLI, with JSON agents
+on Kiro CLI's v2 engine. AI-DLC no longer ships it. In a project still set up
+for it, `aidlc config` stops before writing anything and `aidlc doctor` fails
+one row, both with this line:
+
+```text
+.kiro is set up for the legacy Kiro CLI row, which AI-DLC no longer ships. Move .kiro aside (for example to .kiro.old), run `aidlc config --harness kiro`, then copy your own files (steering, MCP settings) back from it. aidlc/ is kept.
+```
+
+After `aidlc update`, the project's hooks stop running until you do this. A
+project pinned to an older release keeps running that release until its pin
+changes. To move the project:
+
+1. Move `.kiro` aside, for example `mv .kiro .kiro.old`.
+2. Run `aidlc config --harness kiro`.
+3. Copy your own files (steering, MCP settings) back from `.kiro.old`.
+
+Your `aidlc/` folder (state, audit trail, artifacts, memory) is kept as it is.
 
 ## First run
 
@@ -355,8 +376,7 @@ checkpoint in chat, and can look over the changes afterwards.
 
 Kiro IDE and Kiro CLI v3 register hooks through v2 hook JSON files
 (`{"version":"v1","hooks":[{name,trigger,matcher,action}]}`, PascalCase
-triggers) under `.kiro/hooks/` (a different mechanism from the `kiro` CLI
-distribution, which carries a `hooks` block inside the agent JSON). Native hook commands route through
+triggers) under `.kiro/hooks/`. Native hook commands route through
 `aidlc engine adapter kiro-ide`; source/development copies route through the projected
 `aidlc-kiro-adapter.ts` shim. Both normalize the IDE event into the shape the
 shared core hooks expect. Which Kiro tools are writes, shells, delegations, and
@@ -609,16 +629,14 @@ files (`hooks/`), the personas' delegate shell deny (`delegate-shell-deny.ts`),
 and onboarding fills — edit those
 (or `core/`), never hand-edit the generated `dist/kiro-ide`.
 
-This harness differs from the `kiro` CLI harness (`harness/kiro/`) in four ways:
-the `/aidlc` skill and the Markdown `agents/aidlc-aidlc.md` are its conductor surfaces
+The manifest shapes the shared core for Kiro in four ways: the `/aidlc` skill
+and the Markdown `agents/aidlc-aidlc.md` are its conductor surfaces
 (`settings/cli.json` also makes that agent Kiro CLI's default); it ships v2 hook
-JSON files (the `kiro` harness relies on the agent-JSON `hooks` block); it preloads standing rules through
-always-included steering rather than CLI agent resources; the shared Kiro
-projection removes the core persona's Claude-only `disallowedTools` key; and
-its manifest adds `permissions.rules` frontmatter to every persona, beside the
-`tools:` line both harnesses add (each persona a stage reads inline also ships without them, as
+JSON files; it preloads standing rules through always-included steering; and
+the Kiro projection removes the core persona's Claude-only `disallowedTools`
+key and adds a `tools:` line and `permissions.rules` frontmatter to every
+persona (each persona a stage reads inline also ships without them, as
 `.kiro/aidlc-common/personas/<agent>.md`, the file the lead reads in its own chat).
-It does not ship the `kiro` harness's agent-v1 JSON.
 See [Porting to a New Harness](../../harness-engineering/09-porting-to-a-new-harness.md).
 
 ## Next steps

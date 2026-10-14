@@ -97,7 +97,6 @@ export function classifyLiveFiles(root: string): Map<LiveFamily, string[]> {
 }
 
 export const PLATFORM_ONLY: Record<string, readonly NodeJS.Platform[]> = {
-  "tests/e2e/t-acp-kiro-new-work-routing.serial.test.ts": ["win32"],
   "tests/e2e/t-tui-journey-orientation-windows.serial.test.ts": ["win32"],
   "tests/e2e/t-tui-windows-user-settings-isolation.serial.test.ts": ["win32"],
   // The golden journeys run nightly on Linux; stage logic is the same on every OS.

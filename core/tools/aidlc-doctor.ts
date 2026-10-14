@@ -28,7 +28,6 @@ import {
   type UpdateState,
 } from "./aidlc-update.ts";
 import { collectPluginStatus } from "./aidlc-plugin.ts";
-import { isKiroPreset, kiroSessionDoctorFindings } from "./aidlc-kiro-session.ts";
 import {
   describeWindowsUninstallFailure,
   scanWindowsUninstallJournals,
@@ -37,6 +36,7 @@ import {
 import {
   aidlcInvocation,
   discoverProjectHarnesses,
+  retiredRow,
 } from "./aidlc-runtime-paths.ts";
 import { installRoot, windowsGitBashLauncherState } from "./aidlc-install-paths.ts";
 import { versionChannel } from "./aidlc-channel.ts";
@@ -255,7 +255,9 @@ function productName(distribution: string): string {
 }
 
 export function modelsPolicyCheck(projectDir: string, verbose: boolean): DoctorCheck {
-  const harnesses = discoverProjectHarnesses(projectDir);
+  // A tree on a row AI-DLC no longer ships has its own line (the retired-row
+  // check), and no model surface to check here.
+  const harnesses = discoverProjectHarnesses(projectDir).filter((harness) => !retiredRow(harness.distribution));
   if (harnesses.length === 0) {
     return {
       pass: true,
@@ -322,35 +324,6 @@ export function modelsPolicyCheck(projectDir: string, verbose: boolean): DoctorC
     pass: true,
     label: "Models: recorded policy is expressible",
   };
-}
-
-// Kiro CLI runs each session on one model from the person's personal Kiro
-// settings; these lines check that session against the recorded preset.
-export async function kiroSessionDoctorChecks(projectDir: string): Promise<DoctorCheck[]> {
-  const kiro = discoverProjectHarnesses(projectDir).find((harness) => harness.distribution === "kiro");
-  if (!kiro) return [];
-  const policy = modelPolicyForHarness(resolveAidlcSettings(projectDir).models, "kiro");
-  const invoke = aidlcInvocation();
-  let findings: Awaited<ReturnType<typeof kiroSessionDoctorFindings>>;
-  try {
-    findings = await kiroSessionDoctorFindings({
-      projectDir,
-      harnessDir: kiro.harnessDir,
-      preset: isKiroPreset(policy?.preset) ? policy.preset : null,
-      modelsCommand: `${invoke} config models`,
-      configCommand: `${invoke} config`,
-    });
-  } catch (error) {
-    return [{
-      pass: true,
-      label: `Session model: not checked (${error instanceof Error ? error.message : String(error)})`,
-    }];
-  }
-  return findings.map((finding) =>
-    finding.pass
-      ? { pass: true, label: finding.label }
-      : { pass: false, severity: "warn", label: finding.label, ...(finding.fix ? { fix: finding.fix } : {}) }
-  );
 }
 
 function humanReport(
@@ -605,9 +578,8 @@ export async function main(argv: string[]): Promise<void> {
   checks.push(pluginCheck(projectDir, flags.verbose === "true"));
   checks.push(...settingsDoctorChecks(projectDir));
   checks.push(modelsPolicyCheck(projectDir, flags.verbose === "true"));
-  checks.push(...await kiroSessionDoctorChecks(projectDir));
-  const retiredRow = retiredRowDoctorCheck(projectDir, sameDirectory(projectDir, process.cwd()));
-  if (retiredRow) checks.push(retiredRow);
+  const retired = retiredRowDoctorCheck(projectDir, sameDirectory(projectDir, process.cwd()));
+  if (retired) checks.push(retired);
   const kiroWorkflows = kiroIdeWorkflowsDoctorCheck(projectDir, harnessDir());
   if (kiroWorkflows) checks.push(kiroWorkflows);
   const kiroTerminal = kiroIdeTerminalDoctorCheck(projectDir, harnessDir());

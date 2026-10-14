@@ -56,7 +56,7 @@ function run(tool: string, args: string[], cwd: string): { status: number; out: 
 }
 
 describe("a copy keeps one AI-DLC part in each managed file after a settings change", () => {
-  for (const [harness, harnessDir] of [["opencode", ".aidlc"], ["claude", ".claude"], ["kiro", ".kiro"]] as const) {
+  for (const [harness, harnessDir] of [["opencode", ".aidlc"], ["claude", ".claude"], ["kiro-ide", ".kiro"]] as const) {
     test(`${harness}: first session, a settings change from the copy, then a refresh from a release`, () => {
       const release = join(REPO_ROOT, "dist-release", harness);
       const { descriptor } = projectionFiles(release);

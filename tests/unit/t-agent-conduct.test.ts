@@ -73,7 +73,7 @@ describe("t-agent-conduct", () => {
   // the skill is what the lead always has, so the one sentence about where files go rides
   // in every skill's "run the engine" paragraph too.
   test("every skill tells the lead that its files stay inside the project", () => {
-    for (const harness of ["claude", "codex", "copilot", "cursor", "kiro-ide", "kiro", "opencode"]) {
+    for (const harness of ["claude", "codex", "copilot", "cursor", "kiro-ide", "opencode"]) {
       const skill = readFileSync(join(REPO_ROOT, "harness", harness, "skills", "aidlc", "SKILL.md"), "utf-8");
       expect(skill, harness).toMatch(
         /Run the engine binary directly via [^.]*\. Every file you make on your own, a scratch file, a helper script, a command's output, stays inside the project \(nothing in \/tmp or any folder outside it\), and a command's output is read from the tool result, never sent to a file; a file the person asks for, or one the plan names, goes where they say\./,

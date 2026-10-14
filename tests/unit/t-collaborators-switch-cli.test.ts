@@ -217,7 +217,7 @@ describe("t-collaborators-cli the agent is told how to switch collaborators", ()
     expect(inFlight).toContain("collaborators to --collaborators");
   });
 
-  test.each(["claude", "codex", "copilot", "cursor", "kiro-ide", "kiro", "opencode"])(
+  test.each(["claude", "codex", "copilot", "cursor", "kiro-ide", "opencode"])(
     "%s: asking in plain chat to bring collaborators in or go lead-only is carried out for the person",
     (harness) => {
       const skill = readFileSync(join(import.meta.dir, "..", "..", "harness", harness, "skills", "aidlc", "SKILL.md"), "utf-8");

@@ -45,7 +45,6 @@ const METHODOLOGY = [
 
 const TREES: ReadonlyArray<readonly [string, string]> = [
   ["claude", ".claude"],
-  ["kiro", ".kiro"],
   ["kiro-ide", ".kiro"],
   ["codex", ".codex"],
   ["cursor", ".cursor"],

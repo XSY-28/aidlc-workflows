@@ -129,7 +129,6 @@ describe("t298 aidlc.settings hierarchy", () => {
       ["codex", ".codex"],
       ["copilot", ".aidlc"],
       ["cursor", ".cursor"],
-      ["kiro", ".kiro"],
       ["kiro-ide", ".kiro"],
       ["opencode", ".aidlc"],
     ]) {

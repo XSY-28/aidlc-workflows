@@ -19,7 +19,7 @@
 
 import { afterEach, beforeAll, describe, expect, test, setDefaultTimeout } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { NATIVE_FIXTURE_SETUP_TIMEOUT_MS, NATIVE_STARTUP_TIMEOUT_MS, remainingOperationTimeoutMs } from "../harness/test-budget.ts";
 import { appendAuditEntry } from "../../dist/claude/.claude/tools/aidlc-audit.ts";
@@ -42,7 +42,7 @@ import {
 setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
 const CLAUDE_TOOLS = join(AIDLC_SRC, "tools");
-const KIRO_TOOLS = join(REPO_ROOT, "dist", "kiro", ".kiro", "tools");
+const KIRO_TOOLS = join(REPO_ROOT, "dist", "kiro-ide", ".kiro", "tools");
 const MID_IDEATION = join(FIXTURES_DIR, "state-mid-ideation.md");
 const COMPLETED = join(FIXTURES_DIR, "state-completed.md");
 
@@ -232,7 +232,7 @@ describe("t-carry-on-continues-the-work: no word list", () => {
 });
 
 describe("t-carry-on-continues-the-work: work in progress", () => {
-  for (const [harness, tools] of [["claude", CLAUDE_TOOLS], ["kiro", KIRO_TOOLS]] as const) {
+  for (const [harness, tools] of [["claude", CLAUDE_TOOLS], ["kiro-ide", KIRO_TOOLS]] as const) {
     test(`${harness}: every way of saying go on gets the one reading print, which names the bare next`, () => {
       proj = activeProject();
       const bare = next(tools, proj, []);
@@ -351,7 +351,7 @@ describe("t-carry-on-continues-the-work: what is waiting on the person stays as 
 });
 
 describe("t-carry-on-continues-the-work: work here but none selected in this chat", () => {
-  for (const [harness, tools] of [["claude", CLAUDE_TOOLS], ["kiro", KIRO_TOOLS]] as const) {
+  for (const [harness, tools] of [["claude", CLAUDE_TOOLS], ["kiro-ide", KIRO_TOOLS]] as const) {
     test(`${harness}: words alone get the reading print naming the pieces, the bare next and the request`, () => {
       proj = cloneWithWork(tools);
       const bare = next(tools, proj, []);
@@ -374,11 +374,11 @@ describe("t-carry-on-continues-the-work: work here but none selected in this cha
       expect(goOn.calls).toBe(2);
       const request = follow(tools, proj, ["fix the login"], "request");
       expect(request.last.kind, JSON.stringify(request.last).slice(0, 300)).toBe("ask");
-      expect(request.last.ask_type).toBe(harness === "kiro" ? ROUTING_QUESTION : "scope-confirm");
+      expect(request.last.ask_type).toBe(harness === "kiro-ide" ? ROUTING_QUESTION : "scope-confirm");
       expect(String(request.last.question)).toContain("fix the login");
       // Kiro asks which work it belongs to at once; the others take the plan
       // proposal step first, then the plan the agent proposes, then the question.
-      expect(request.calls).toBe(harness === "kiro" ? 2 : 3);
+      expect(request.calls).toBe(harness === "kiro-ide" ? 2 : 3);
     });
   }
 
@@ -392,6 +392,9 @@ describe("t-carry-on-continues-the-work: work here but none selected in this cha
       test(`${host}: "/aidlc ${words}" typed in the chat: the reading print, then the bare next asks which piece to pick up`, async () => {
         const tools = host === "claude" ? CLAUDE_TOOLS : KIRO_TOOLS;
         proj = cloneWithWork(tools);
+        // The Kiro row's engine already wrote its steering file into .kiro, so
+        // put the whole tree (its adapter included) in place as an install does.
+        if (host === "kiro-ide") cpSync(join(KIRO_TOOLS, ".."), join(proj, ".kiro"), { recursive: true });
         const pick = next(tools, proj, []);
         expect(pick.ask_type, JSON.stringify(pick).slice(0, 300)).toBe("intent-pick");
         const hook = await say(proj, `/aidlc ${words}`, host);
@@ -421,7 +424,7 @@ describe("t-carry-on-continues-the-work: work here but none selected in this cha
 // agent selects that piece and carries on in the same turn and the person never
 // says it twice; words that only name a piece keep the switch and its stop.
 describe("t-carry-on-continues-the-work: words that name one piece and ask for it to go on", () => {
-  for (const [harness, tools] of [["claude", CLAUDE_TOOLS], ["kiro", KIRO_TOOLS]] as const) {
+  for (const [harness, tools] of [["claude", CLAUDE_TOOLS], ["kiro-ide", KIRO_TOOLS]] as const) {
     for (const labels of [["auth", "billing"], ["auth"]] as const) {
       test(`${harness}: "continue auth" over ${labels.length} piece(s), none selected: the pick, the switch and the stage step in one chain`, () => {
         proj = cloneWithWork(tools, labels);

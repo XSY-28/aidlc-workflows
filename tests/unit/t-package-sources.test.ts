@@ -85,7 +85,7 @@ describe("the packaged-sources record", () => {
 
   test("a recorded tree is current until a packaged input changes", () => {
     const root = checkout();
-    recordPackagedSources(root, ["claude", "kiro"], packageInputsFingerprint(root));
+    recordPackagedSources(root, ["claude", "kiro-ide"], packageInputsFingerprint(root));
     expect(stalePackageMessage(root, "claude")).toBeNull();
     writeFileSync(join(root, "core/tools/example.ts"), "export const x = 2;\n");
     expect(stalePackageMessage(root, "claude")).toBe(
@@ -95,12 +95,12 @@ describe("the packaged-sources record", () => {
 
   test("a one-harness build updates its own entry and keeps the others", () => {
     const root = checkout();
-    recordPackagedSources(root, ["claude", "kiro"], packageInputsFingerprint(root));
+    recordPackagedSources(root, ["claude", "kiro-ide"], packageInputsFingerprint(root));
     writeFileSync(join(root, "core/tools/example.ts"), "export const x = 2;\n");
-    recordPackagedSources(root, ["kiro"], packageInputsFingerprint(root));
-    expect(stalePackageMessage(root, "kiro")).toBeNull();
+    recordPackagedSources(root, ["kiro-ide"], packageInputsFingerprint(root));
+    expect(stalePackageMessage(root, "kiro-ide")).toBeNull();
     expect(stalePackageMessage(root, "claude")).toContain("was packaged from other");
-    expect(Object.keys(JSON.parse(readFileSync(join(root, PACKAGE_SOURCES_FILE), "utf8")).harnesses)).toEqual(["claude", "kiro"]);
+    expect(Object.keys(JSON.parse(readFileSync(join(root, PACKAGE_SOURCES_FILE), "utf8")).harnesses)).toEqual(["claude", "kiro-ide"]);
   });
 
   test("a source edited while the build runs leaves its trees unrecorded, and says so to the caller", () => {
@@ -115,10 +115,10 @@ describe("the packaged-sources record", () => {
 
   test("a build that stops halfway leaves its trees unrecorded, never current", () => {
     const root = checkout();
-    recordPackagedSources(root, ["claude", "kiro"], packageInputsFingerprint(root));
+    recordPackagedSources(root, ["claude", "kiro-ide"], packageInputsFingerprint(root));
     forgetPackagedSources(root, ["claude"]);
     expect(stalePackageMessage(root, "claude")).toContain("has no record");
-    expect(stalePackageMessage(root, "kiro")).toBeNull();
+    expect(stalePackageMessage(root, "kiro-ide")).toBeNull();
     const fresh = checkout();
     forgetPackagedSources(fresh, ["claude"]);
     expect(existsSync(join(fresh, PACKAGE_SOURCES_FILE))).toBe(false);

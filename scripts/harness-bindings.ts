@@ -2,11 +2,11 @@
 //
 // Several core protocol modules end a section with one `### <tool>` subsection
 // per harness (the construction, topology, reviewer and swarm bindings). Each
-// harness reads only its own, so a dist tree that carried all seven would hand
-// the agent six other tools' instructions on every load. The packager keeps the
+// harness reads only its own, so a dist tree that carried all six would hand
+// the agent five other tools' instructions on every load. The packager keeps the
 // matching subsection and drops the rest.
 //
-// A run is the seven tool headings in a row at one level, ended by the next
+// A run is the six tool headings in a row at one level, ended by the next
 // heading at that level or above, or the end of the file. Fenced code is not
 // read for headings. A tool heading outside a complete run, a run missing a
 // tool, or a run naming one twice is a build error, so a new harness or a
@@ -14,7 +14,6 @@
 
 export const BINDING_HEADINGS: Readonly<Record<string, string>> = {
   claude: "Claude Code",
-  kiro: "Kiro CLI",
   "kiro-ide": "Kiro IDE",
   codex: "Codex CLI",
   cursor: "Cursor",
@@ -47,7 +46,7 @@ function headingsOutsideFences(lines: string[]): Heading[] {
  * The module as `harness` ships it: every binding run cut to that tool's own
  * subsection. A module with no tool headings is returned unchanged, and so is
  * every module for a harness with no heading here yet (a new port keeps all
- * seven subsections until it adds its own).
+ * six subsections until it adds its own).
  */
 export function keepOwnHarnessBindings(content: string, harness: string, file: string): string {
   const own = BINDING_HEADINGS[harness];

@@ -222,7 +222,7 @@ Verifies the orchestrator's structural correctness without invoking the LLM. If 
 - Scope-stage mapping, graph consistency, stage I/O contract chains, protocol compliance (integration)
 - Stage output-to-step validation: all declared outputs referenced in instruction steps (integration, deterministic via the `aidlc-validate.ts` CLI tool)
 - Scope runs: every shipped scope driven from the person's first request to done (integration, `tests/integration/t-scope-run-*`; see below)
-- Scope-host runs: one classic journey on the Claude, Codex, Copilot CLI, Kiro CLI and Kiro IDE trees, through each tree's own hooks (integration, `tests/integration/t-scope-host-*`; see below)
+- Scope-host runs: one classic journey on the Claude, Codex, Copilot CLI and Kiro trees, through each tree's own hooks (integration, `tests/integration/t-scope-host-*`; see below)
 - Guard matrix: what the person meets when files change under approved work, per Guard Policy, review cap and plan approval (integration, `tests/integration/t-guard-matrix-*`; see below)
 
 **Run:** `bun tests/run-tests.ts --no-llm`. The default profile includes the
@@ -270,9 +270,7 @@ as it ships, gives the agent's shell what that tool gives it (Codex's
 `CODEX_THREAD_ID`, Kiro's `KIRO_SESSION_ID`), and at every moment (a chat
 starts, the person types or picks, a shell or file tool runs, a helper is sent,
 the turn ends) runs each command the tree's wiring registers, fed that tool's
-payload: `.codex/hooks.json`, `.github/hooks/aidlc.json`, Kiro CLI's agent JSON
-(`.kiro/agents/<agent>.json`, glob matchers over a tool's name and its alias; a
-helper runs its own agent's hooks under a session of its own) and Kiro IDE's
+payload: `.codex/hooks.json`, `.github/hooks/aidlc.json`, and Kiro's
 hook cards (`.kiro/hooks/*.json`, regex matchers in file-name order; no card runs
 after a write or a command, so the next card does that work, as in Kiro).
 `tests/unit/t-scope-hosts.test.ts` pins those payloads against the ones recorded
@@ -283,7 +281,7 @@ may run the turn's first `next` itself, so the agent acts on that reply. Every
 tool call fires the hooks, so a refusal stops the run, and a hook command that
 fails is a problem.
 
-Each `t-scope-host-<harness>.test.ts` (`claude`, `codex`, `copilot`, `kiro`,
+Each `t-scope-host-<harness>.test.ts` (`claude`, `codex`, `copilot`,
 `kiro-ide`) drives one
 journey: classic with its design stages skipped and two Units built one at a
 time, a checkpoint each. After the first Unit's checkpoint the person stops for
@@ -394,11 +392,8 @@ No WSL or Docker is required; the supported validation substrate is native Windo
 For Kiro CLI coverage, put the signed-in native `kiro-cli.exe` on `PATH`.
 Pin `AIDLC_BUN_BIN` to the validated Bun executable and keep its directory first
 on `PATH`; Kiro installations can include an older bundled Bun.
-Set `AIDLC_KIRO_ACP_LIVE=1` for ACP files. For terminal files, set
-`AIDLC_KIRO_TUI_LIVE=1` and `AIDLC_TUI_LIVE=1`; the native Bun terminal backend
-handles Windows input and screen capture. These files check the CLI, account,
-and selected terminal backend before running, with the same journey assertions
-on each supported platform.
+Set `AIDLC_KIRO_ACP_LIVE=1` for ACP files. These files check the CLI and
+account before running, with the same assertions on each supported platform.
 
 **Repeatable MR10 Windows EC2 runbook:**
 
@@ -1362,8 +1357,7 @@ The runner writes these additional artifacts under its timestamped log directory
   paths under the system temporary directory so deep report paths do not break
   fixture copies.
 
-The Kiro reviewer journey saves its primary artifact and matched review receipt
-before assertions. The scope-exclusion journey saves its final state and audit,
+The scope-exclusion journey saves its final state and audit,
 including on timeout. That journey uses a fully specified miniature security
 patch while retaining whole-workflow completion and the scope-derived forbidden
 stage checks; setup and both SDK drives share the original case deadline.
@@ -1873,25 +1867,6 @@ Local runs with `AIDLC_KIRO_ACP_LIVE=1`, `AIDLC_KIRO_TUI_LIVE=1` or
 `AIDLC_KIRO_IDE_LIVE=1` remain the coverage path. A follow-up issue tracks the
 hosted lane.
 
-Before each stable release, a maintainer runs the Kiro CLI release journey
-(`tests/e2e/t-tui-kiro-release-journey.serial.test.ts`, the same journey as the
-Copilot lane's, in the interactive `kiro-cli chat` terminal) on the exact commit
-to be tagged, on a machine with a signed-in Kiro CLI:
-
-```bash
-bun scripts/package.ts
-AIDLC_KIRO_TUI_LIVE=1 AIDLC_TUI_LIVE=1 bun tests/run-tests.ts --e2e --production-guards \
-  --filter t-tui-kiro-release-journey
-```
-
-On Linux it gives Kiro a scratch home and keeps the machine's sign-in, so
-`~/.kiro` is not touched. It takes about five minutes and about eleven Kiro
-credits, and prints one line, for example `Kiro CLI 2.29.0 release journey on
-<commit>: PASS (4.7 min of turns, 10.46 credits, 0 permission prompts)`, that
-goes into a comment on the release-preparation PR. Nothing in the workflows reads
-that comment: a failed pass means a fix on `main` and a new release-preparation
-PR, or a maintainer who releases anyway and says so in the comment.
-
 The live jobs use the existing `ai-pr-review` environment and role. Verify these
 prerequisites before running Full Suite:
 
@@ -2078,31 +2053,6 @@ no binary/screenshot allowlist. Remaining UTF-8 text is redacted for AWS
 credentials, vendor keys, bearer tokens and Anthropic keys; links are removed
 without following targets. Redaction remains defense in depth, not proof against
 encoded secrets; retaining raw text traces increases that residual risk.
-
-## Kiro prompt-hook transport controls
-
-Kiro's agent-v1 prompt hook has a default `max_output_size` of 10 KiB,
-independent of the shell tool's output budget. The adapter counts the complete
-UTF-8 pre-dispatch packet, including its explanatory text, before injecting a
-non-steering directive. Oversized packets and every `load-steering` directive
-use the existing exact-argument forwarding latch so the engine's full JSON is
-returned through the actual tool call. `--single` skips hook pre-dispatch
-entirely, leaving its first issuance to that tool call. Only a line the engine
-reads exactly is pre-dispatched at all (`readNextLine`): anything it would hand
-to the agent goes to the agent untouched, so this seam never acts on the
-person's words before anyone has read them.
-
-`t147-kiro-hook-adapter.test.ts` checks the 10 KiB boundary with multibyte
-content, native shell aliases, retained terminal guards, and a real multipart
-engine round trip. It reconstructs every delivered rule byte and passes each
-opaque continuation token unchanged. A token surviving alone does not prove
-complete rule delivery; moving it before truncated rules is not a valid repair.
-
-These deterministic controls test the adapter and engine stdout. They do not
-calibrate a native Kiro release's tool-channel ceiling. Before changing that
-transport budget, verify complete near-limit payloads on each supported native
-platform. Increasing a hook's configured `max_output_size` also requires that
-calibration; it does not change this adapter's conservative injection policy.
 
 ## Unit Sharding
 

@@ -1,10 +1,8 @@
 #!/usr/bin/env bun
-// aidlc-kiro-adapter.ts — the Kiro IDE hook shim (AUTHORED shell file; the
+// aidlc-kiro-adapter.ts — the Kiro hook shim (AUTHORED shell file; the
 // aidlc-*.ts hook bodies beside it are PACKAGED core, byte-shared with the
-// Claude Code harness). This is the IDE-specific adapter; the CLI harness ships
-// its own (harness/kiro/) wired to kiro-cli's agent-JSON hook events and their
-// payload shapes. They are deliberately separate files so neither carries a
-// runtime "am I CLI or IDE?" branch.
+// Claude Code harness), for Kiro IDE and for Kiro CLI on its v3 engine, which
+// runs the same tree.
 //
 // Kiro IDE hook context (live-captured on 0.12-main, 1.0.165, and 1.0.242 — see
 // docs/reference/kiro-ide-hook-payload.md). The channel changed across IDE
@@ -1117,7 +1115,7 @@ function nextQuotedFlagValues(args: PowerShellWord[], next: number): Set<number>
     const word = args[passed[i]];
     if (i === 0 && !word.opaque && word.value === "compose") continue;
     // The engine takes these off the line with their value before it reads
-    // its flags (stripOrchestratorLauncherOptions, nextArgsWithRequestFile).
+    // its flags (readOrchestratorLauncherOptions, nextArgsWithRequestFile).
     if (!word.opaque && ["--request-file", ...ORCHESTRATOR_LAUNCHER_OPTIONS].includes(word.value)) {
       i++;
       continue;

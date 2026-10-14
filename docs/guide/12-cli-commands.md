@@ -5,12 +5,11 @@ workflow through `/aidlc` (or `$aidlc` on Codex); the installed native
 `aidlc` command initializes projects and provides machine lifecycle,
 diagnostic and lifecycle routes.
 
-> **Invocation prefix differs by harness.** On Claude Code, Kiro IDE, Kiro CLI,
+> **Invocation prefix differs by harness.** On Claude Code, Kiro (IDE and CLI),
 > Cursor, opencode, and GitHub Copilot you type `/aidlc`; on Codex CLI it is `$aidlc` (or
 > `/skills` → aidlc). The flags and behaviour below are identical either way —
 > only the prefix changes. The examples use `/aidlc`; substitute `$aidlc` on
-> Codex. See the [Kiro CLI](harnesses/kiro-cli.md),
-> [Kiro IDE](harnesses/kiro-ide.md), [Codex CLI](harnesses/codex-cli.md),
+> Codex. See the [Kiro](harnesses/kiro-ide.md), [Codex CLI](harnesses/codex-cli.md),
 > [Cursor](harnesses/cursor.md), [opencode](harnesses/opencode.md), and
 > [GitHub Copilot](harnesses/copilot.md) harness guides.
 
@@ -1518,12 +1517,7 @@ person to hear. Otherwise it says what happened to a reply the person already
 sent: on a harness that runs hooks only after the person acts, the steps that
 turn them on; elsewhere, one line for the person: "Your answer didn't reach
 AI-DLC. Please give it once more. If
-it happens again, type /aidlc --doctor." In Kiro CLI, where a reply typed to
-another agent picked in `/agent` is never recorded, that line is "Your answer
-didn't reach AI-DLC. Type /agent and pick aidlc, then give it once more." When
-Kiro says agent "aidlc" needs upgrading for its 3.0 engine, the line is "Your
-answer didn't reach AI-DLC. Quit Kiro and start it again in this folder with:
-kiro-cli chat --agent-engine v2 --agent aidlc, then give it once more." The
+it happens again, type /aidlc --doctor." The
 agent is told never to offer to turn a check off for them.
 
 Only `AIDLC_SKIP_HUMAN_PRESENCE_GUARD=1` lowers human presence, set machine-wide
@@ -2734,8 +2728,7 @@ Re-run it after every engine reinstall or upgrade: copying a fresh
 `dist/<harness>/` restores the shipped graph and core stage sources, so
 previously composed plugin graph entries and contribution merges must be
 applied again. Hosts with plugin SessionStart hooks (Claude, Codex, Cursor, and
-Kiro IDE) also self-heal on the next session start; Kiro CLI requires the
-explicit sync.
+Kiro) also self-heal on the next session start.
 
 `/aidlc plugin validate [path]` and
 `/aidlc plugin build <harness> [outDir]` expose the shipped standalone

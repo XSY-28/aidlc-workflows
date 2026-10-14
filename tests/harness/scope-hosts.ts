@@ -36,15 +36,14 @@ import {
   ScopeHost,
   RESUME_AGAIN,
   ScopeRunRefused,
-  ScopeRunStuck,
   type ScopeRun,
   scopeRunProblems,
   scopeScratchDir,
   stopVerdict,
 } from "./scope-run.ts";
 
-export type HostName = "codex" | "copilot" | "kiro" | "kiro-ide";
-export const HOSTS: readonly ("claude" | HostName)[] = ["claude", "codex", "copilot", "kiro", "kiro-ide"];
+export type HostName = "codex" | "copilot" | "kiro-ide";
+export const HOSTS: readonly ("claude" | HostName)[] = ["claude", "codex", "copilot", "kiro-ide"];
 
 type Payload = Record<string, unknown>;
 
@@ -70,27 +69,6 @@ interface CopilotWiring {
 /** The commands `.github/hooks/aidlc.json` registers for an event (no matchers: each target reads the tool name). */
 export function copilotWired(wiring: CopilotWiring, event: string, platform: NodeJS.Platform = process.platform): string[] {
   return (wiring.hooks[event] ?? []).map((entry) => (platform === "win32" ? entry.powershell : entry.bash));
-}
-
-interface KiroCliAgent {
-  hooks?: Record<string, { matcher?: string; command: string }[]>;
-}
-
-/** Kiro CLI's tool families: an agent-v1 matcher selects a tool by its canonical name or its alias. */
-const KIRO_CLI_ALIASES: readonly (readonly string[])[] = [["fs_write", "write"], ["fs_read", "read"], ["execute_bash", "shell"]];
-
-/** Whether a Kiro CLI agent-v1 matcher (a glob) selects the tool the CLI names. */
-export function kiroCliMatches(matcher: string, tool: string): boolean {
-  const names = KIRO_CLI_ALIASES.find((family) => family.includes(tool)) ?? [tool];
-  const glob = new Bun.Glob(matcher);
-  return names.some((name) => glob.match(name));
-}
-
-/** The commands an agent JSON (`.kiro/agents/<agent>.json`) registers for an event and tool, in order. */
-export function kiroCliWired(agent: KiroCliAgent, event: string, tool: string | null): string[] {
-  return (agent.hooks?.[event] ?? [])
-    .filter((hook) => hook.matcher === undefined || (tool !== null && kiroCliMatches(hook.matcher, tool)))
-    .map((hook) => hook.command);
 }
 
 export interface KiroIdeCard {
@@ -155,14 +133,6 @@ export function copilotPayload(event: string, at: Moment, fields: Payload): Payl
     ...(event === "Stop" || event === "SubagentStop" ? { transcript_path: at.transcript } : {}),
     ...fields,
   };
-}
-
-/**
- * A Kiro CLI payload (captured on 2.29.0): camelCase events, the folder, and the
- * session the event belongs to on every event; a helper's events carry its own.
- */
-export function kiroCliPayload(event: string, at: Moment, fields: Payload): Payload {
-  return { hook_event_name: event, cwd: at.proj, session_id: at.helper?.id ?? at.session, ...fields };
 }
 
 /** A Kiro IDE payload (1.2.37): snake_case, the chat's session on every event, a helper's calls included. */
@@ -523,130 +493,6 @@ export class CopilotScopeHost extends NativeScopeHost {
   }
 }
 
-/** The aidlc skill as Kiro expands `/aidlc <args>` into the prompt: the installed SKILL.md with every `$ARGUMENTS` replaced. */
-export function kiroSkillPrompt(proj: string, args: string): string {
-  return readFileSync(join(proj, ".kiro", "skills", "aidlc", "SKILL.md"), "utf-8").split("$ARGUMENTS").join(args);
-}
-
-/**
- * Kiro CLI (v2 agent engine): the conductor's agent JSON (`.kiro/agents/aidlc.json`)
- * through `engine adapter kiro`. Questions are numbered prose. The
- * person-turn hook may run the turn's first `next` itself, or name the exact
- * first call (AgentStandIn.fromTurn). A helper runs its own agent JSON's hooks
- * under a session of its own, while its shell keeps the chat's
- * KIRO_SESSION_ID (captured on 2.29.0, tmp/workshop-fixes/e2e-gaps/item3).
- */
-export class KiroCliScopeHost extends NativeScopeHost {
-  override readonly dir = ".kiro";
-  override readonly picker = false;
-  protected override readonly stopEvent = "stop";
-  /** The agent whose JSON hooks fire: the conductor's, or a helper's own while it works. */
-  private agent = "aidlc";
-
-  protected override sessionName(n: number): string {
-    return `0c11a000-${hex(this.hostNumber, 4)}-4000-8000-${hex(n, 12)}`;
-  }
-
-  wired(event: string, tool: string | null): string[] {
-    const file = join(this.proj, ".kiro", "agents", `${this.agent}.json`);
-    if (!existsSync(file)) throw new ScopeRunStuck(`Kiro CLI has no agent ${this.agent} to hand the work to: ${file} is not installed`);
-    return kiroCliWired(JSON.parse(readFileSync(file, "utf-8")) as KiroCliAgent, event, tool);
-  }
-
-  protected payload(event: string, fields: Payload): Payload {
-    return kiroCliPayload(event, this.moment(), fields);
-  }
-
-  protected transcript(): string {
-    return "";
-  }
-
-  // Kiro names the chat in the hooks' and the agent's shell environment.
-  protected override hookEnv(): NodeJS.ProcessEnv {
-    return { ...this.env, KIRO_SESSION_ID: this.session };
-  }
-
-  protected override shellEnv(): NodeJS.ProcessEnv {
-    return this.hookEnv();
-  }
-
-  protected refusal(res: RunResult): string | null {
-    return res.status === 2 ? res.stderr : null;
-  }
-
-  protected override startChat(): void {
-    this.fire("agentSpawn", null, {});
-  }
-
-  override typed(words: string): string {
-    const skill = /^\/aidlc(?:\s+|$)/.exec(words);
-    const prompt = skill ? kiroSkillPrompt(this.proj, words.slice(skill[0].length)) : words;
-    return this.fire("userPromptSubmit", null, { prompt }).map((res) => res.stdout).join("");
-  }
-
-  override bash(line: string): RunResult {
-    const input = { __tool_use_purpose: "Run the step AI-DLC named", command: line };
-    const call = { tool_name: "shell", tool_tags: ["shell", "@builtin"], tool_input: input };
-    this.refuseOn("shell", input, this.fire("preToolUse", "shell", call));
-    const res = this.run(line);
-    this.fire("postToolUse", "shell", {
-      ...call,
-      tool_response: { items: [{ Json: { exit_status: `exit status: ${res.status}`, stdout: res.stdout, stderr: res.stderr } }] },
-    });
-    return res;
-  }
-
-  override write(rel: string, content: string): void {
-    const abs = join(this.proj, rel);
-    const before = existsSync(abs) ? readFileSync(abs, "utf-8") : null;
-    const purpose = "Write the stage's file";
-    const input = before === null
-      ? { __tool_use_purpose: purpose, command: "create", path: abs, content }
-      : { __tool_use_purpose: purpose, command: "str_replace", path: abs, old_str: before, new_str: content };
-    const call = { tool_name: "write", tool_tags: ["write", "@builtin"], tool_input: input };
-    this.refuseOn("write", input, this.fire("preToolUse", "write", call));
-    mkdirSync(dirname(abs), { recursive: true });
-    writeFileSync(abs, content);
-    const said = before === null ? `Successfully created ${abs} (${content.split("\n").length} lines).` : `Successfully replaced text in ${abs}.`;
-    this.fire("postToolUse", "write", { ...call, tool_response: { items: [{ Text: said }] } });
-  }
-
-  override remove(rel: string): void {
-    const input = { __tool_use_purpose: "Remove a file", command: `rm ${rel}` };
-    const call = { tool_name: "shell", tool_tags: ["shell", "@builtin"], tool_input: input };
-    this.refuseOn("shell", input, this.fire("preToolUse", "shell", call));
-    rmSync(join(this.proj, rel), { force: true });
-    this.fire("postToolUse", "shell", { ...call, tool_response: { items: [{ Json: { exit_status: "exit status: 0", stdout: "", stderr: "" } }] } });
-  }
-
-  /** The subagent tool with one stage; the helper's own agent JSON fires for its spawn, its brief, each call, its report and its stop. */
-  override task(agent: string, prompt: string, work: () => void): void {
-    const input = { __tool_use_purpose: "Hand the stage to its agent", task: "stage work", mode: "blocking", stages: [{ name: "stage", role: agent, prompt_template: prompt }] };
-    const call = { tool_name: "subagent", tool_tags: ["subagent", "@builtin"], tool_input: input };
-    this.refuseOn("subagent", input, this.fire("preToolUse", "subagent", call));
-    const conductor = this.agent;
-    this.agent = agent;
-    this.helper = { agent, id: `0c11a000-${hex(this.hostNumber, 4)}-4000-9000-${hex(++helpers, 12)}` };
-    try {
-      this.fire("agentSpawn", null, {});
-      this.fire("userPromptSubmit", null, { prompt });
-      work();
-      const report = { tool_name: "summary", tool_tags: ["@builtin"], tool_input: { __tool_use_purpose: "Report back", taskDescription: prompt.slice(0, 200), taskResult: "Done." } };
-      this.fire("preToolUse", "summary", report);
-      this.fire("postToolUse", "summary", { ...report, tool_response: { items: [{ Text: "" }] } });
-      this.fire("stop", null, { assistant_response: "DONE" });
-    } finally {
-      this.agent = conductor;
-      this.helper = null;
-    }
-    this.fire("postToolUse", "subagent", { ...call, tool_response: { items: [{ Text: "Pipeline completed: 1 stages finished.\n\n## stage\n\nDone." }] } });
-  }
-
-  protected stopFields(): Payload {
-    return { assistant_response: "Over to you." };
-  }
-}
-
 /**
  * Kiro IDE (1.2.37): the hook cards in `.kiro/hooks/*.json` through `engine
  * adapter kiro-ide`. Questions are numbered prose. After a write or a command
@@ -771,7 +617,6 @@ function hostFor(name: "claude" | HostName, proj: string): ScopeHost {
     case "claude": return new ScopeHost(proj);
     case "codex": return new CodexScopeHost(proj);
     case "copilot": return new CopilotScopeHost(proj);
-    case "kiro": return new KiroCliScopeHost(proj);
     case "kiro-ide": return new KiroIdeScopeHost(proj);
   }
 }

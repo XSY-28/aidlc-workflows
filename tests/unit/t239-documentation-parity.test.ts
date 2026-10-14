@@ -156,8 +156,7 @@ const harnessLabels: Record<string, string> = {
   codex: "Codex CLI",
   copilot: "GitHub Copilot",
   cursor: "Cursor",
-  kiro: "Kiro CLI",
-  "kiro-ide": "Kiro IDE",
+  "kiro-ide": "Kiro",
   opencode: "opencode",
 };
 
@@ -300,7 +299,6 @@ describe("documentation parity derives current behavior from authored implementa
       "codex",
       "copilot",
       "cursor",
-      "kiro",
       "kiro-ide",
       "opencode",
     ]);
@@ -386,7 +384,7 @@ describe("documentation parity derives current behavior from authored implementa
     const ideCell = (label: string): string => {
       const row = rows.find((candidate) => candidate[0].startsWith(`**${label}**`));
       if (!row) throw new Error(`missing primitive-map row: ${label}`);
-      return row[3];
+      return row[2];
     };
 
     expect(ideCell("Agent personas")).toContain("`tools:`/`permissions.rules`");
@@ -867,7 +865,7 @@ describe("documentation parity derives current behavior from authored implementa
         `agent-system must state the shipped Codex projection for ${tier}`,
       ).toContain(normalized(codexCell(tier)));
       expect(
-        normalized(cells[5]),
+        normalized(cells[4]),
         `agent-system must state the shipped opencode projection for ${tier}`,
       ).toContain(normalized(opencodeCell(tier)));
     }

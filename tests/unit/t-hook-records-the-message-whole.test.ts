@@ -50,7 +50,7 @@ const CLEAR = {
   AIDLC_SESSION_OVERRIDE: SESSION,
   AIDLC_UNATTENDED: "0",
 };
-const HARNESSES = ["claude", "codex", "copilot", "cursor", "kiro", "kiro-ide", "opencode"];
+const HARNESSES = ["claude", "codex", "copilot", "cursor", "kiro-ide", "opencode"];
 
 interface Emitted {
   kind: string;

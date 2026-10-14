@@ -453,7 +453,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
     }
 
     for (const harness of HARNESS_MATRIX.filter(
-      (candidate) => candidate.name !== "kiro" && candidate.name !== "kiro-ide",
+      (candidate) => candidate.name !== "kiro-ide",
     )) {
       test(`${harness.name}: scoped new prose preserves the request through routing`, () => {
         seedTwoIntentsNoCursor();
@@ -1276,7 +1276,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
       expect(createdDescription()).toBe("fix the broken login button");
     });
 
-    for (const harnessName of ["kiro", "kiro-ide"] as const) {
+    for (const harnessName of ["kiro-ide"] as const) {
       test(`${harnessName}: scoped new prose emits the typed routing ask with record selectors`, () => {
         seedTwoIntentsNoCursor();
         const harness = harnessByName(harnessName);
@@ -1310,7 +1310,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
     }
 
     test("Kiro duplicate labels expose switchable full record selectors", () => {
-      const kiro = harnessByName("kiro");
+      const kiro = harnessByName("kiro-ide");
       const kiroUtility = join(
         kiro.engineRoot,
         "tools",

@@ -252,7 +252,7 @@ describe("the Units carry on per Unit after the switch (#1401)", () => {
 describe("every harness and every way in", () => {
   const harnesses = [
     ["claude", ".claude"], ["codex", ".codex"], ["copilot", ".aidlc"],
-    ["cursor", ".cursor"], ["kiro", ".kiro"], ["kiro-ide", ".kiro"], ["opencode", ".aidlc"],
+    ["cursor", ".cursor"], ["kiro-ide", ".kiro"], ["opencode", ".aidlc"],
   ];
   for (const [harness, dir] of harnesses) {
     test(`${harness}'s generated tool switches and names the dropped approval`, () => {

@@ -19,7 +19,7 @@ import { writeReleaseFixture } from "../harness/release-fixture.ts";
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const INIT = join(REPO_ROOT, "core", "tools", "aidlc-init.ts");
 const CLAUDE_RELEASE = join(REPO_ROOT, "dist-release", "claude");
-const KIRO_RELEASE = join(REPO_ROOT, "dist-release", "kiro");
+const KIRO_RELEASE = join(REPO_ROOT, "dist-release", "kiro-ide");
 const OTHER_VERSION = "9.9.9";
 const EARLIER_VERSION = "2.10.0";
 
@@ -145,7 +145,7 @@ describe("config --pin while a workflow is running (#1418)", () => {
     writeFileSync(join(proj.dir, ".aidlc-version"), `${AIDLC_VERSION}\n`);
     const both = config(proj, ["--unpin"]);
     expect(both.status, both.output).toBe(0);
-    expect(both.output).toMatch(/Run `[^`]* config --harness claude` and `[^`]* config --harness kiro-cli-legacy` to finish updating this project\./);
+    expect(both.output).toMatch(/Run `[^`]* config --harness claude` and `[^`]* config --harness kiro` to finish updating this project\./);
   });
 
   test("with no workflow running, a pin to an earlier release says the step that brings the files to it", () => {

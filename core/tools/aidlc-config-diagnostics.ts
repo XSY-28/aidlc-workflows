@@ -41,7 +41,6 @@ import {
   jsonFileText,
   jsoncRootMembers,
   jsoncSettingValue,
-  kiroUpgradedAgentFile,
   managedBlockIsSafe,
   managedBlockMarkers,
   mergeBlock,
@@ -59,10 +58,10 @@ import {
 import {
   aidlcInvocation,
   discoverProjectHarnesses,
-  kiroTreeLayout,
   quoteCommandArgument,
+  retiredProjectTree,
+  retiredRow,
   retiredRowLine,
-  rowNewProjectsGet,
   typedHarnessName,
 } from "./aidlc-runtime-paths.ts";
 import { AIDLC_VERSION } from "./aidlc-version.ts";
@@ -882,7 +881,9 @@ function binaryProbe(
   };
 }
 
-const HARNESS_CLI: Record<
+// No entry for a row AI-DLC no longer ships (the legacy `kiro` row): its CLI
+// is not probed, and the probe says not-applicable.
+const HARNESS_CLI: Partial<Record<
   ModelHarness,
   {
     command?: string;
@@ -896,7 +897,7 @@ const HARNESS_CLI: Record<
     cliName?: string;
     editor?: { name: string; minimumVersion: string };
   }
-> = {
+>> = {
   claude: {
     command: "claude",
     required: true,
@@ -920,21 +921,12 @@ const HARNESS_CLI: Record<
     required: false,
     install: "Install the Cursor CLI and ensure `cursor --version` works; IDE-only installs may omit it.",
   },
-  // The 2.x line is where the hooks, skills and workspace default agent this
-  // distribution relies on shipped; the guide asks for 2.6 or later.
-  kiro: {
-    command: "kiro-cli",
-    required: true,
-    minimumVersion: "2.6.0",
-    install: "Install or upgrade Kiro CLI to 2.6.0 or later.",
-  },
-  // Probed so a machine with a supported Kiro CLI detects this row, the one new
-  // projects get for Kiro CLI and Kiro IDE (rowNewProjectsGet). 2.24.1 is the
-  // oldest Kiro CLI this row has been checked on (its v3 engine runs the hooks,
-  // and `/aidlc --doctor` reports no problem), and Kiro IDE 1.1.70 the oldest
-  // Kiro IDE (it has no CLI to ask, so only setup's line names it); an older
-  // Kiro CLI counts only for the legacy kiro row, setup asks before it sets the
-  // row up on one, and doctor warns about it here.
+  // Probed so a machine with a supported Kiro CLI detects this row, the one
+  // AI-DLC ships for Kiro CLI and Kiro IDE. 2.24.1 is the oldest Kiro CLI this
+  // row has been checked on (its v3 engine runs the hooks, and `/aidlc
+  // --doctor` reports no problem), and Kiro IDE 1.1.70 the oldest Kiro IDE (it
+  // has no CLI to ask, so only setup's line names it); setup asks before it
+  // sets the row up on an older Kiro CLI, and doctor warns about it here.
   "kiro-ide": {
     command: "kiro-cli",
     required: false,
@@ -985,12 +977,12 @@ export function probeHarnessCli(
   options: RuntimeProbeOptions = {},
 ): HarnessCliProbe {
   const spec = HARNESS_CLI[harness];
-  if (!spec.command) {
+  if (!spec?.command) {
     return {
       harness,
-      required: spec.required,
+      required: spec?.required ?? false,
       status: "not-applicable",
-      remediation: spec.install,
+      ...(spec ? { remediation: spec.install } : {}),
     };
   }
   const env = options.env ?? process.env;
@@ -1486,65 +1478,6 @@ export function hasLegacyCodexProviderConfig(
   return true;
 }
 
-// The `aws-mcp` region in `.kiro/settings/mcp.json` is plain MCP configuration.
-// Kiro CLI no longer asks a provider question, so no record drives it; but every
-// refresh restages that file from the release bytes, which would silently move a
-// region the project already carries (set by an earlier build's Bedrock answer,
-// or by hand) back to the shipped one. Carry the project's current endpoint
-// region and `AWS_REGION` metadata into the staged file instead, so the staged
-// bytes equal the current bytes and the refresh preserves the file. Reads only
-// the two aws-mcp arguments; everything else comes from the release.
-export function preserveKiroMcpRegion(
-  projectDir: string,
-  stagedRoot: string,
-  harnessDir: string,
-): void {
-  const relative = join(harnessDir, "settings", "mcp.json");
-  const currentPath = join(projectDir, relative);
-  const stagedPath = join(stagedRoot, relative);
-  if (!existsSync(currentPath) || !existsSync(stagedPath)) return;
-  const awsArgs = (path: string): { value: Record<string, unknown>; args: unknown[] } | null => {
-    let value: Record<string, unknown>;
-    try {
-      value = readJsonFile(path) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
-    const servers = isRecord(value.mcpServers) ? value.mcpServers : {};
-    const aws = isRecord(servers["aws-mcp"]) ? servers["aws-mcp"] : null;
-    return aws && Array.isArray(aws.args) ? { value, args: aws.args } : null;
-  };
-  const current = awsArgs(currentPath);
-  const staged = awsArgs(stagedPath);
-  if (!current || !staged) return;
-  const endpoint = current.args.find((arg): arg is string =>
-    typeof arg === "string" && /^https:\/\/aws-mcp\.[^.]+\.api\.aws\/mcp$/.test(arg)
-  );
-  const metadata = current.args.find((arg): arg is string =>
-    typeof arg === "string" && /^AWS_REGION=/.test(arg)
-  );
-  if (!endpoint && !metadata) return;
-  const servers = staged.value.mcpServers as Record<string, unknown>;
-  const aws = servers["aws-mcp"] as Record<string, unknown>;
-  aws.args = staged.args.map((arg) => {
-    if (typeof arg !== "string") return arg;
-    if (endpoint && /^https:\/\/aws-mcp\.[^.]+\.api\.aws\/mcp$/.test(arg)) return endpoint;
-    if (metadata && /^AWS_REGION=/.test(arg)) return metadata;
-    return arg;
-  });
-  // When the region was the only difference, stage the project's exact bytes so
-  // the refresh sees an identical file and preserves it, whatever its
-  // formatting. Otherwise the release changed the file elsewhere and the staged
-  // copy carries the preserved region in canonical form.
-  const currentText = readFileSync(currentPath, "utf-8");
-  if (JSON.stringify(current.value) === JSON.stringify(staged.value)) {
-    writeFileSync(stagedPath, currentText);
-    return;
-  }
-  writeJson(stagedPath, staged.value);
-}
-
-
 // A staged opencode.json as plain JSON, or null when it is the team's own file
 // with comments (a copy's own tree), which holds no provider block AI-DLC
 // writes or clears here.
@@ -1731,8 +1664,7 @@ export function applyConfigDiagnosticRecords(
   previousProvider: ProvidersRecord | null = null,
 ): void {
   // Owned harnesses record no provider answer; a legacy record is not applied
-  // anywhere. The Kiro CLI MCP region is carried by preserveKiroMcpRegion from
-  // the project's own file during staging, not from a record.
+  // anywhere.
   if (harnessOwnsModelAccess(harness)) return;
   const provider = records.providers;
   if (!provider?.provider) {
@@ -2113,12 +2045,6 @@ function projectMcpSurface(
 ): ProjectMcpSurface {
   if (harness === "claude") {
     return { kind: "claude", path: join(projectDir, ".mcp.json") };
-  }
-  if (harness === "kiro") {
-    return {
-      kind: "always",
-      path: join(projectDir, harnessDir, "settings", "mcp.json"),
-    };
   }
   if (harness === "cursor") {
     const path = join(projectDir, harnessDir, "mcp.json");
@@ -2727,23 +2653,14 @@ export function trustFilesForHarness(
       join(process.env.CODEX_HOME || join(process.env.HOME || homedir(), ".codex"), "config.toml"),
     );
   }
-  const kiroLayout = harness === "kiro-ide"
-    ? "kas"
-    : harness === "kiro"
-      ? kiroTreeLayout(join(projectDir, harnessDir)) ?? "agent-v1"
-      : null;
-  if (kiroLayout) {
-    // The agent-v1 layout grants trust in JSON agents and registers legacy hooks;
-    // the KAS layout grants it in the Markdown agents' permissions and registers
-    // v1 hook JSON, and pins the Kiro CLI engine in settings/cli.json. A `kiro`
-    // project can carry either, so its installed tree decides.
-    const agentSuffix = kiroLayout === "agent-v1" ? ".json" : ".md";
-    const hookSuffix = kiroLayout === "agent-v1" ? ".kiro.hook" : ".json";
+  if (harness === "kiro-ide") {
+    // The KAS layout grants trust in the Markdown agents' permissions and
+    // registers v1 hook JSON, and pins the Kiro CLI engine in settings/cli.json.
     const agentsDir = join(projectDir, harnessDir, "agents");
     if (existsSync(agentsDir)) {
       files.push(
         ...readdirSync(agentsDir)
-          .filter((name) => name.endsWith(agentSuffix))
+          .filter((name) => name.endsWith(".md"))
           .sort()
           .map((name) => join(agentsDir, name)),
       );
@@ -2752,13 +2669,11 @@ export function trustFilesForHarness(
     if (existsSync(hooksDir)) {
       files.push(
         ...readdirSync(hooksDir)
-          .filter((name) => name.endsWith(hookSuffix))
+          .filter((name) => name.endsWith(".json"))
           .sort()
           .map((name) => join(hooksDir, name)),
       );
     }
-  }
-  if (kiroLayout === "kas") {
     files.push(join(projectDir, harnessDir, "settings", "cli.json"));
   }
   if (harness === "cursor") {
@@ -2911,7 +2826,7 @@ export function codexHookTrustStep(issueId: string): string | null {
 
 /** The oldest version of a row's CLI that counts for it, if it has one. */
 export function rowCliFloor(row: string): string | undefined {
-  return Object.hasOwn(HARNESS_CLI, row) ? HARNESS_CLI[row as ModelHarness].minimumVersion : undefined;
+  return Object.hasOwn(HARNESS_CLI, row) ? HARNESS_CLI[row as ModelHarness]?.minimumVersion : undefined;
 }
 
 /**
@@ -2940,6 +2855,13 @@ export function rowOlderCli(row: string, options: RuntimeProbeOptions = {}): str
   return `${spec.cliName}${version ? ` ${version}` : ""} is older than ${spec.minimumVersion}. ` +
     `AI-DLC's ${HARNESS_PRODUCT_NAMES[row as ModelHarness]} row works in ${spec.cliName} ${spec.minimumVersion} or later ` +
     `(and in ${spec.editor.name} ${spec.editor.minimumVersion} or later).`;
+}
+
+/** What to do when someone declines setting `row` up on an older CLI: update it, then `command` again. */
+export function rowCliUpdateStep(row: string, command: string): string | null {
+  const spec = Object.hasOwn(HARNESS_CLI, row) ? HARNESS_CLI[row as ModelHarness] : undefined;
+  if (!spec?.cliName || !spec.minimumVersion) return null;
+  return `Update ${spec.cliName} to ${spec.minimumVersion} or later, then run \`${command}\` again.`;
 }
 
 // The runtimes this shell finds that the system-wide PATH does not. A harness
@@ -3370,7 +3292,9 @@ function selectedHarness(
   harness: ModelHarness;
   frameworkVersion?: string;
 } | null {
-  const harnesses = discoverProjectHarnesses(projectDir);
+  // A tree on a row AI-DLC no longer ships gets one line of its own
+  // (retiredRowDoctorCheck); no other check reads it.
+  const harnesses = discoverProjectHarnesses(projectDir).filter((candidate) => !retiredRow(candidate.distribution));
   const selected = harnessDirHint
     ? harnesses.find((candidate) => candidate.harnessDir === harnessDirHint) ??
       harnesses[0]
@@ -3488,28 +3412,26 @@ export function kiroIdeWorkflowsDoctorCheck(
   };
 }
 
-// Doctor tells a project on a row new projects no longer get how to move it,
-// as config does: a line it always shows, not a warning, since a team may stay
-// on that row on purpose.
+// Doctor fails a project on a row AI-DLC no longer ships, with the line config
+// stops with: its hooks do not run on this install.
 export function retiredRowDoctorCheck(
   projectDir: string,
   // Whether doctor runs from the project itself (aidlc-lib's sameDirectory,
   // which the caller holds).
   here: boolean,
 ): DiagnosticDoctorCheck | null {
-  // Any tree on such a row, not only the one doctor reports on: a project can
-  // hold another harness beside it.
-  const selected = discoverProjectHarnesses(projectDir).find((tree) => rowNewProjectsGet(tree.distribution));
-  const instead = selected && rowNewProjectsGet(selected.distribution);
-  if (!selected || !instead) return null;
-  // Run from another folder, the step names this project, and a copied
-  // project's tool by its path.
-  const invoke = aidlcInvocation() === "aidlc" || here
-    ? invocationForHarness(selected.harnessDir)
-    : `bun ${quoteCommandArgument(join(projectDir, selected.harnessDir, "tools", "aidlc.ts"))}`;
+  const tree = retiredProjectTree(projectDir);
+  if (!tree) return null;
+  // The step never runs the retired tree's own tool, which is the one moved
+  // aside: a copied project uses another tree's tool when it has one.
+  const other = discoverProjectHarnesses(projectDir).find((candidate) => candidate.harnessDir !== tree.harnessDir);
+  const invoke = aidlcInvocation() === "aidlc" || !other
+    ? "aidlc"
+    : here
+    ? invocationForHarness(other.harnessDir)
+    : `bun ${quoteCommandArgument(join(projectDir, other.harnessDir, "tools", "aidlc.ts"))}`;
   const target = here ? "" : ` --project-dir ${quoteCommandArgument(projectDir)}`;
-  const line = retiredRowLine(selected.distribution, invoke, target, rowCliFloor(instead));
-  return line ? { pass: true, shown: true, label: line } : null;
+  return { pass: false, label: retiredRowLine(tree, invoke, target) };
 }
 
 // Doctor reads Kiro IDE's default terminal like the trust section does, on
@@ -3963,17 +3885,9 @@ export function frameworkFilesDoctorCheck(
     // The instruction row reports a missing or unreadable record.
     return { pass: true, label: "AI-DLC files: not checked, no record of what AI-DLC wrote" };
   }
-  const differ = changedFrameworkFiles(projectDir, selected.harnessDir, selected.harness, baseline);
-  // Config keeps an agent file Kiro upgraded for its 3.0 engine: not the person's change.
-  const upgraded = differ.filter((rel) => kiroUpgradedAgentFile(projectDir, rel));
-  const changed = differ.filter((rel) => !upgraded.includes(rel));
+  const changed = changedFrameworkFiles(projectDir, selected.harnessDir, selected.harness, baseline);
   if (changed.length === 0) {
-    const kept = upgraded.length === 0
-      ? ""
-      : `, apart from ${upgraded.length} agent ${
-        upgraded.length === 1 ? "file" : "files"
-      } Kiro upgraded for its 3.0 engine, which config keeps`;
-    return { pass: true, label: `AI-DLC files: unchanged since AI-DLC wrote them${kept}` };
+    return { pass: true, label: "AI-DLC files: unchanged since AI-DLC wrote them" };
   }
   const invoke = invocationForHarness(selected.harnessDir);
   const one = changed.length === 1;

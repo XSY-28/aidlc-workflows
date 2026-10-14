@@ -275,7 +275,7 @@ describe("t220 tier projection module", () => {
   });
 
   // --- structural invariant: the kiro slot can never carry an effort ----------
-  test("TIER_PROJECTIONS kiro slots are model-only (no effort key can leak to agent JSON)", () => {
+  test("TIER_PROJECTIONS kiro slots are model-only (no effort key can leak to an agent file)", () => {
     for (const tier of TIERS) {
       expect(Object.keys(TIER_PROJECTIONS[tier].kiro)).toEqual(["model"]);
     }
@@ -291,7 +291,7 @@ describe("t220 tier projection module", () => {
 // for a judgment agent) fails here even when the dist was faithfully
 // regenerated from the broken writer.
 // ---------------------------------------------------------------------------
-describe("t220 shipped projection bytes (codex TOML, kiro JSON + md)", () => {
+describe("t220 shipped projection bytes (codex TOML, kiro md)", () => {
   const dist = (...p: string[]): string => join(REPO_ROOT, "dist", ...p);
 
   test("codex TOMLs: every tier inherits model; balanced pins medium effort", () => {
@@ -309,40 +309,12 @@ describe("t220 shipped projection bytes (codex TOML, kiro JSON + md)", () => {
     ).toBe(false);
   });
 
-  const kiroHarnesses = HARNESS_MATRIX.filter(
-    (harness) => harness.capabilities.kiroAgentJson,
-  );
   const kiroFamilyHarnesses = HARNESS_MATRIX.filter(
-    (harness) => harness.name === "kiro" || harness.name === "kiro-ide",
+    (harness) => harness.name === "kiro-ide",
   );
-  test("matrix exposes at least one kiroAgentJson harness (floor guard)", () => {
-    expect(kiroHarnesses.length).toBeGreaterThan(0);
+  test("matrix exposes the Kiro harness (floor guard)", () => {
+    expect(kiroFamilyHarnesses.length).toBe(1);
   });
-  for (const harness of kiroHarnesses) {
-    test(`${harness.name} agent JSONs: NO "model" pin on any agent (inherit the session model, #601), NO effort-like keys anywhere`, () => {
-      // The full shipped roster, not a sample: a single pinned ID rejects
-      // every spawn on installs where that model isn't enabled.
-      const agentsDir = join(harness.engineRoot, "agents");
-      const jsons = readdirSync(agentsDir).filter((f) => f.endsWith(".json"));
-      expect(jsons.length).toBeGreaterThanOrEqual(15); // conductor + 14 personas
-      for (const file of jsons) {
-        const parsed = JSON.parse(
-          readFileSync(join(agentsDir, file), "utf-8"),
-        ) as Record<string, unknown>;
-        expect("model" in parsed, `${harness.name}/${file}: must omit "model" (#601)`).toBe(
-          false,
-        );
-        // kiro-cli fail-closes on unknown agent-JSON fields: any effort-like
-        // key would break agent validation at install.
-        for (const key of Object.keys(parsed)) {
-          expect(
-            /effort|reasoning|thinking/i.test(key),
-            `${harness.name}/${file}: forbidden inference key "${key}"`,
-          ).toBe(false);
-        }
-      }
-    });
-  }
 
   test("Kiro-family agent .md frontmatter never carries model: or effort: (inherit, #601)", () => {
     const fmOf = (raw: string): string => {
@@ -362,13 +334,10 @@ describe("t220 shipped projection bytes (codex TOML, kiro JSON + md)", () => {
     }
   });
 
-  test("Kiro CLI and Kiro IDE cli.json ship no model defaults", () => {
+  test("Kiro cli.json ships no model defaults", () => {
     // A project chat.modelDefaults replaces the person's whole personal map,
     // so any entry (or an empty map) would hide the session effort saved in
     // their personal Kiro settings and reset every other model's effort.
-    expect(
-      JSON.parse(readFileSync(dist("kiro", ".kiro", "settings", "cli.json"), "utf-8")),
-    ).toEqual({ "chat.defaultAgent": "aidlc" });
     expect(
       JSON.parse(readFileSync(dist("kiro-ide", ".kiro", "settings", "cli.json"), "utf-8")),
     ).toEqual({ "chat.agentEngine": "v3", "chat.defaultAgent": "aidlc" });

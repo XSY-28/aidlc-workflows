@@ -689,16 +689,6 @@ function kiroNative(call: ToolCall, dir: string): { tool_name: string; tool_inpu
   }
 }
 
-const kiro: Shape = {
-  name: "kiro", dir: ".kiro",
-  install: (proj) => installTree(proj, "kiro", ".kiro"),
-  call: (proj, session, call) => stderrVerdict(spawnShape(
-    proj, [join(proj, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "plan-approval-guard"],
-    { hook_event_name: "preToolUse", cwd: proj, session_id: session, ...kiroNative(call, ".kiro") },
-    { CLAUDE_PROJECT_DIR: proj },
-  )),
-};
-
 const kiroIde: Shape = {
   name: "kiro-ide", dir: ".kiro",
   install: (proj) => installTree(proj, "kiro-ide", ".kiro"),
@@ -745,6 +735,6 @@ const opencode: Shape = {
   },
 };
 
-export const SHAPES: Shape[] = [claude, codex, copilot, cursor, kiro, kiroIde, opencode];
+export const SHAPES: Shape[] = [claude, codex, copilot, cursor, kiroIde, opencode];
 
 export const DEVELOPER = "aidlc-developer-agent";

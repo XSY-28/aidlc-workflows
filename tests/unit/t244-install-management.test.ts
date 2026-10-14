@@ -109,7 +109,6 @@ const RELEASE_HARNESSES = [
   "codex",
   "copilot",
   "cursor",
-  "kiro",
   "kiro-ide",
   "opencode",
 ] as const;
@@ -1336,13 +1335,13 @@ describe("t244 management lifecycle", () => {
     expect(missingChoice.status).toBe(2);
     expect(missingChoice.stdout + missingChoice.stderr).toContain("--harness");
     const configured = run(DISPATCHER, [
-      "config", "--project-dir", project, "--harness", "kiro-cli-legacy", "--mcp", "none",
+      "config", "--project-dir", project, "--harness", "kiro", "--mcp", "none",
     ], project, env);
     expect(configured.status, configured.stdout + configured.stderr).toBe(0);
     expect(existsSync(join(project, ".kiro"))).toBe(true);
     const multi = run(DISPATCHER, [
       "config", "--project-dir", temp("aidlc-t241-multi-project-"),
-      "--harness", "claude", "--harness", "kiro-cli-legacy", "--mcp", "none",
+      "--harness", "claude", "--harness", "kiro", "--mcp", "none",
     ], project, env);
     expect(multi.status).toBe(2);
     expect(multi.stdout + multi.stderr).toContain("multi-harness config is not supported yet");
@@ -3545,7 +3544,7 @@ describe("t244 Windows and completion release surfaces", () => {
     expect(windows).toContain("offline installer did not verify release provenance");
     expect(windows).toContain("offline installer did not bind the trusted source digest");
     expect(windows).toContain(
-      "$harnesses = @('claude', 'codex', 'copilot', 'cursor', 'kiro', 'kiro-ide', 'opencode')",
+      "$harnesses = @('claude', 'codex', 'copilot', 'cursor', 'kiro', 'opencode')",
     );
     expect(windows).toContain(
       "$env:COPILOT_HOME = Join-Path $env:RUNNER_TEMP 'aidlc-copilot-home'",
@@ -3601,7 +3600,7 @@ describe("t244 Windows and completion release surfaces", () => {
     expect(unix).toContain('test -s "$gh_marker"');
     expect(unix).toContain("grep -qx 'verified-11' \"$gh_marker\"");
     expect(unix).toContain(
-      "for harness in claude codex copilot cursor kiro kiro-ide opencode; do",
+      "for harness in claude codex copilot cursor kiro opencode; do",
     );
     expect(unix).toContain(
       'export COPILOT_HOME="$RUNNER_TEMP/aidlc-copilot-home"',

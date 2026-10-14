@@ -22,7 +22,6 @@ import {
   ORCHESTRATOR_VERBS,
   READ_ONLY_FLAGS,
   RESERVED_RECORD_NAMES,
-  stripOrchestratorLauncherOptions,
   WORKSPACE_VERBS,
 } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
 
@@ -315,18 +314,6 @@ test("config without a typed subcommand and config in descriptions remain workfl
     expect(isReadOnlyNextArgv(args), JSON.stringify(args)).toBe(false);
     expect(classifyTerminalCommand(args), JSON.stringify(args)).toBeNull();
   }
-});
-
-test("stripOrchestratorLauncherOptions preserves only command argv before the literal delimiter", () => {
-  expect(stripOrchestratorLauncherOptions(["--project-dir", "/x", "team-board"]))
-    .toEqual(["team-board"]);
-  expect(stripOrchestratorLauncherOptions(["--aidlc-attempt-id", "a1", "--project-dir", "/x", "--status"]))
-    .toEqual(["--status"]);
-  expect(stripOrchestratorLauncherOptions(["--", "--project-dir", "/x"]))
-    .toEqual(["--", "--project-dir", "/x"]);
-  expect(stripOrchestratorLauncherOptions(["--project-dir"])).toEqual(["--project-dir"]);
-  expect(stripOrchestratorLauncherOptions(["team-board", "--aidlc-attempt-id"]))
-    .toEqual(["team-board", "--aidlc-attempt-id"]);
 });
 
 describe("classifyTerminalCommand() - sole bare help tokens are terminal", () => {

@@ -38,7 +38,6 @@ import { HARNESS_MATRIX } from "../harness/harness-matrix.ts";
 // The tools that hide the Stop note from the person, by the name the skill
 // gives them; their agent says the carrying-on line itself.
 const SAYS_THE_LINE: Record<string, string> = {
-  "harness/kiro/skills/aidlc/SKILL.md": "Kiro CLI",
   "harness/kiro-ide/skills/aidlc/SKILL.md": "Kiro IDE",
   "harness/opencode/skills/aidlc/SKILL.md": "opencode",
 };
@@ -405,7 +404,7 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
 
   // The person on every tool gets the same one line. Claude Code, Codex and
   // Copilot show the note itself (as does Cursor's follow-up message), so
-  // their agent says nothing about it; opencode, Kiro IDE and Kiro CLI hide it,
+  // their agent says nothing about it; opencode and Kiro (IDE and CLI) hide it,
   // so their agent says the line once, word for word, but only when it carries
   // on with the work. Recording a question it just asked says nothing at all.
   test("only the skills of tools that hide the stop note have the agent say its line", () => {
@@ -433,7 +432,6 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
     expect(problems).toEqual([]);
     expect(Object.keys(SAYS_THE_LINE).sort()).toEqual([
       "harness/kiro-ide/skills/aidlc/SKILL.md",
-      "harness/kiro/skills/aidlc/SKILL.md",
       "harness/opencode/skills/aidlc/SKILL.md",
     ]);
   });
@@ -1038,7 +1036,7 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
 
   test("Kiro conductor SKILLs pin the native todo_list schema", () => {
     const missing: string[] = [];
-    for (const harness of ["kiro", "kiro-ide"]) {
+    for (const harness of ["kiro-ide"]) {
       const rel = `harness/${harness}/skills/aidlc/SKILL.md`;
       const body = readFileSync(join(REPO_ROOT, rel), "utf-8");
       if (!body.includes(KIRO_TASK_LIST_TOKEN)) {
@@ -1050,7 +1048,7 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
 
   test("Kiro conductor SKILLs pin the native subagent crew schema", () => {
     const missing: string[] = [];
-    for (const harness of ["kiro", "kiro-ide"]) {
+    for (const harness of ["kiro-ide"]) {
       const rel = `harness/${harness}/skills/aidlc/SKILL.md`;
       const body = readFileSync(join(REPO_ROOT, rel), "utf-8");
       if (!body.includes(KIRO_SUBAGENT_TOKEN)) {
@@ -1071,7 +1069,7 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
 
     const failures: string[] = [];
     const bodies = new Map<string, string>();
-    for (const harness of ["kiro", "kiro-ide"]) {
+    for (const harness of ["kiro-ide"]) {
       const rel = `harness/${harness}/skills/aidlc/SKILL.md`;
       const body = readFileSync(join(REPO_ROOT, rel), "utf-8");
       bodies.set(harness, body);
@@ -1084,63 +1082,16 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
     }
     expect(failures).toEqual([]);
 
-    const cli = bodies.get("kiro") as string;
+    // The isolated-runner, run-stage and wave rows the diary contract rides on ship.
     const ide = bodies.get("kiro-ide") as string;
     for (const anchor of [
       "**Isolated stage-runner branch.**",
       "| `run-stage` |",
       "**Per-unit batch waves (optional).**",
     ]) {
-      const nextAnchor =
-        anchor === "**Isolated stage-runner branch.**"
-          ? "For an isolated run's reviewer"
-          : anchor === "| `run-stage` |"
-            ? "| `ask` |"
-            : "`directive.mode` selects";
-      const cliStart = cli.indexOf(anchor);
-      const ideStart = ide.indexOf(anchor);
-      expect(cliStart, `Kiro CLI missing ${anchor}`).toBeGreaterThan(-1);
-      expect(ideStart, `Kiro IDE missing ${anchor}`).toBeGreaterThan(-1);
-      expect(
-        cli.slice(cliStart, cli.indexOf(nextAnchor, cliStart)).trim(),
-        `${anchor} diary contract drifted between Kiro CLI and IDE`,
-      ).toBe(ide.slice(ideStart, ide.indexOf(nextAnchor, ideStart)).trim());
+      expect(ide.indexOf(anchor), `Kiro missing ${anchor}`).toBeGreaterThan(-1);
     }
   });
-  test("Kiro CLI conductor surfaces defer rule delivery to the native-preload protocol", () => {
-    const citation = '`stage-protocol.md` § "For subagent stages" step 2';
-    const residualPaste = /\bpaste\b[^.\n]*(?:rule|steering) bundle[^.\n]*\bverbatim\b|\b(?:complete|accumulated) (?:rule|steering) bundle verbatim\b|briefs with artifacts by path and rules as the accumulated load-steering bundle/i;
-    for (const [skillRoot, protocolRoot] of [
-      ["harness/kiro/skills/aidlc", "core/aidlc-common/protocols"],
-      ["dist/kiro/.kiro/skills/aidlc", "dist/kiro/.kiro/aidlc-common/protocols"],
-    ]) {
-      const read = (rel: string) => readFileSync(join(REPO_ROOT, rel), "utf-8");
-      const protocol = read(`${protocolRoot}/stage-protocol.md`);
-      expect(protocol).toContain("Kiro CLI `resources`");
-      expect(protocol).toContain("through that preload instead of pasting it");
-
-      const skill = read(`${skillRoot}/SKILL.md`);
-      expect(skill, skillRoot).not.toMatch(residualPaste);
-      for (const anchor of ["| `run-stage` |", "**Per-unit batch waves (optional).**"]) {
-        const instruction = skill.split("\n").find((line) => line.startsWith(anchor));
-        expect(instruction, `${skillRoot}: ${anchor}`).toContain(citation);
-      }
-
-      const ensemble = read(`${protocolRoot}/stage-protocol-ensemble.md`);
-      // The Kiro CLI subsection runs to the next heading; a shipped tree
-      // carries only its own tool's subsection, so that may be the end.
-      const cliStart = ensemble.indexOf("### Kiro CLI\n");
-      expect(cliStart).toBeGreaterThan(-1);
-      const next = ensemble.slice(cliStart + 1).search(/\n#{2,3} /);
-      const binding = ensemble.slice(cliStart, next === -1 ? undefined : cliStart + 1 + next);
-      expect(binding, protocolRoot).toContain(citation);
-      expect(binding, protocolRoot).not.toMatch(residualPaste);
-
-      const construction = read(`${protocolRoot}/stage-protocol-construction.md`);
-      expect(construction, protocolRoot).not.toMatch(residualPaste);
-    }
-  });
-
   // Step 2 is the one owner of how a brief gets the stage's rules, the
   // `rules_held` case included: there the directive carries only the bundle's
   // digest, so a paste order cannot be met. Every recipe that dispatches
@@ -1160,7 +1111,6 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
     const expectStepTwo = (path: string, heading: string) => {
       const step = section(path, heading, "\n3. ");
       expect(step, path).toContain("`run-stage.rules_content`, or the accumulated `load-steering` parts");
-      expect(step, path).toContain("Kiro CLI `resources`");
       expect(step, path).toContain(
         "When `run-stage` carries `rules_held` instead of `rules_content`, the chat already holds the bundle and the directive does not repeat it: paste nothing for the rules and name `directive.stage_file` in the brief",
       );
@@ -1178,7 +1128,7 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
     expectDefers(docs("docs/reference/15-stage-definition.md"), section(docs("docs/reference/15-stage-definition.md"), "- `subagent` — hub-and-spoke.", "\n- `pipeline`"));
     expectDefers(docs("docs/reference/17-skill-system.md"), section(docs("docs/reference/17-skill-system.md"), "| `run-stage` |", "\n"));
 
-    const ensembleBindings = ["Claude Code", "Kiro CLI", "Kiro IDE", "Codex CLI", "Cursor", "opencode", "GitHub Copilot"];
+    const ensembleBindings = ["Claude Code", "Kiro IDE", "Codex CLI", "Cursor", "opencode", "GitHub Copilot"];
     const trees = [
       { label: "core", protocols: docs("core/aidlc-common/protocols"), stages: docs("core/aidlc-common/stages"), skills: [] as string[] },
       ...HARNESS_MATRIX.map((harness) => ({
@@ -1343,7 +1293,7 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
 
   test("Kiro renders engine asks without a second routing query or replacement prompt", () => {
     const missing: string[] = [];
-    for (const harness of ["kiro", "kiro-ide"]) {
+    for (const harness of ["kiro-ide"]) {
       const skillRel = `harness/${harness}/skills/aidlc/SKILL.md`;
       const annexRel = `harness/${harness}/skills/aidlc/question-rendering.md`;
       const skill = readFileSync(join(REPO_ROOT, skillRel), "utf-8");
@@ -1607,7 +1557,7 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
 
   test("prose renderers remap file-backed source letters to numbered prose", () => {
     const missing: string[] = [];
-    for (const harness of ["cursor", "kiro", "kiro-ide"]) {
+    for (const harness of ["cursor", "kiro-ide"]) {
       const skillRel = `harness/${harness}/skills/aidlc/SKILL.md`;
       const annexRel =
         `harness/${harness}/skills/aidlc/question-rendering.md`;
@@ -1641,7 +1591,6 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
       "copilot",
       "codex",
       "cursor",
-      "kiro",
       "kiro-ide",
       "opencode",
     ]) {

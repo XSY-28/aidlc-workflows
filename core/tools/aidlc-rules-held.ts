@@ -6,10 +6,10 @@
 // chat provably holds that exact text, and the full text everywhere else. What
 // counts as proof was measured live on each tool:
 //
-//   - Kiro CLI (agent `resources` glob) and opencode (`instructions` glob) put
-//     the memory files in context on every request: an edit is seen at once and
-//     survives a compaction. The proof is that the host's own include, as it
-//     stood when the chat started, covers every file of the stage's bundle. The
+//   - opencode (the `instructions` glob) puts the memory files in context on
+//     every request: an edit is seen at once and survives a compaction. The
+//     proof is that the host's own include, as it stood when the chat started,
+//     covers every file of the stage's bundle. The
 //     include reads the engine's copy of the active space's memory
 //     (aidlc-includes.ts ACTIVE_MEMORY_DIR), so the proof also needs that copy
 //     to be the memory files now; a step that finds it behind sends the text
@@ -214,28 +214,17 @@ function claudeImportedFiles(projectDir: string, harnessDir: string, space: stri
 
 // The directory a memory include reads, when `globs` holds the include for
 // the copy or for the files of `space` themselves; null for neither.
-function includedMemoryDir(globs: unknown, space: string, prefix: string): string | null {
+function includedMemoryDir(globs: unknown, space: string): string | null {
   if (!Array.isArray(globs)) return null;
   for (const dir of [COPY_DIR_REL, memoryDirRel(space)]) {
-    if (globs.includes(`${prefix}${dir}**/*.md`)) return dir;
+    if (globs.includes(`${dir}**/*.md`)) return dir;
   }
   return null;
 }
 
-// Kiro CLI on its 2.0 agent engine: the conductor agent file is the one AI-DLC
-// ships (hooks keyed by event; the 3.0 upgrade rewrites them as a list) and its
-// resources glob carries the active space's whole memory tree.
-function kiroIncludedMemoryDir(projectDir: string, space: string): string | null {
-  const agent = readJson<{ hooks?: unknown; resources?: unknown }>(join(projectDir, ".kiro", "agents", "aidlc.json"));
-  if (agent === null || agent.hooks === null || typeof agent.hooks !== "object" || Array.isArray(agent.hooks)) {
-    return null;
-  }
-  return includedMemoryDir(agent.resources, space, "file://");
-}
-
 function opencodeIncludedMemoryDir(projectDir: string, space: string): string | null {
   const config = readJson<{ instructions?: unknown }>(join(projectDir, rootIntegrationTarget(projectDir, "opencode.json")));
-  return includedMemoryDir(config?.instructions, space, "");
+  return includedMemoryDir(config?.instructions, space);
 }
 
 function removeQuietly(path: string): void {
@@ -296,10 +285,8 @@ export function recordRulesLoad(
       (source === "resume" && !known) ||
       !["startup", "clear", "compact", "resume"].includes(source);
     record = { ...base, refresh: "at-load", files, ...(stale ? { stale: true as const } : {}) };
-  } else if (harness === "kiro" || harness === "opencode") {
-    const dir = includeChanged ? null : (harness === "kiro"
-      ? kiroIncludedMemoryDir(projectDir, space)
-      : opencodeIncludedMemoryDir(projectDir, space));
+  } else if (harness === "opencode") {
+    const dir = includeChanged ? null : opencodeIncludedMemoryDir(projectDir, space);
     record = dir !== null ? { ...base, refresh: "per-request", dir } : null;
   } else if (harness === "codex") {
     record = { ...base, refresh: "none", ...(transcriptPath ? { transcript: transcriptPath } : {}) };
@@ -331,13 +318,11 @@ function hostRunsThisChat(harness: string, sessionId: string): boolean {
     isStopHookProbe() && env.AIDLC_SESSION_OVERRIDE_SOURCE === "payload" &&
     env.AIDLC_SESSION_OVERRIDE === sessionId
   ) {
-    return ["claude", "kiro", "opencode", "codex"].includes(harness);
+    return ["claude", "opencode", "codex"].includes(harness);
   }
   switch (harness) {
     case "claude":
       return env.CLAUDE_CODE_SESSION_ID ? env.CLAUDE_CODE_SESSION_ID === sessionId : env.CLAUDECODE === "1";
-    case "kiro":
-      return env.KIRO_SESSION_ID === sessionId;
     case "kiro-ide":
       // Kiro CLI v3 names the chat; Kiro IDE's shell has no chat id, so
       // chatHoldsRules checks every open turn instead.

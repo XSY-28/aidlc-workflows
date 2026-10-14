@@ -19,7 +19,7 @@ plain text or left out. The other tools differ in a few steps, listed in
   | --- | --- |
   | Codex CLI | 0.145.0 |
   | GitHub Copilot CLI | 1.0.74 (VS Code-only installs may omit the CLI) |
-  | Kiro CLI | 2.6.0 for the `kiro` row; 2.24.1 for the `kiro-ide` row |
+  | Kiro CLI | 2.24.1 |
 
 - **Git, for Codex CLI and Cursor.** Codex CLI finds a project's hooks only in
   a Git repository, and Cursor may skip them outside one, so run `git init` in
@@ -193,8 +193,10 @@ every default except the provider, where it chose Amazon Bedrock:
     2. Codex CLI
     3. GitHub Copilot
     4. Cursor
-    5. Kiro IDE
+    5. Kiro
     6. opencode
+
+  AI-DLC's Kiro row runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.
   Harness [1]:
   Using Claude Code.
 
@@ -319,8 +321,10 @@ up, with no default:
     2. Codex CLI
     3. GitHub Copilot
     4. Cursor
-    5. Kiro IDE
+    5. Kiro
     6. opencode
+
+  AI-DLC's Kiro row runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.
   Harness [1-6]:
 
   That's not one of the choices - enter 1, 2, ... or 6.
@@ -637,8 +641,7 @@ The steps are the same everywhere; these differ:
 | Harness | Config value | Open | Invoke |
 | --- | --- | --- | --- |
 | Claude Code | `claude` | `claude` | `/aidlc` |
-| Kiro IDE | `kiro-ide` | Open the project, then choose **aidlc** in the chat panel's agent picker | `/aidlc` |
-| Kiro CLI (legacy) | `kiro` | `kiro-cli chat` | `/aidlc` |
+| Kiro (Kiro IDE and Kiro CLI) | `kiro` | In Kiro IDE, open the project, then choose **aidlc** in the chat panel's agent picker; or run `kiro-cli` | `/aidlc` |
 | Codex CLI | `codex` | `codex` | `$aidlc` |
 | Cursor | `cursor` | Open Cursor or run `agent` | `/aidlc` |
 | opencode | `opencode` | `opencode` | `/aidlc` |
@@ -649,8 +652,7 @@ After config, complete the one step config names for your tool:
 | Harness | Typical action |
 | --- | --- |
 | Claude Code | If Claude Code is already open in this folder, exit it and start it again |
-| Kiro IDE | Open the configured project, then choose **aidlc** in the chat panel's agent picker |
-| Kiro CLI (legacy) | Start `kiro-cli chat`; the project selects the AI-DLC agent |
+| Kiro | In Kiro IDE, open the configured project, then choose **aidlc** in the chat panel's agent picker; in Kiro CLI, start `kiro-cli`, which opens on the AI-DLC agent |
 | Codex CLI | Approve the hook trust prompt or apply the generated trust seed |
 | Cursor | Open the configured project or run `agent` |
 | opencode | Start `opencode` in the project |
@@ -658,9 +660,10 @@ After config, complete the one step config names for your tool:
 
 The welcome message is Claude Code's alone. AI-DLC draws its own status line
 on Claude Code; on Codex, setup offers Codex's built-in status line, with the
-task progress AI-DLC keeps current. On Kiro CLI 2.24.1 or later, use `kiro-ide`, which pins
-Kiro's v3 engine; `kiro` is the legacy row ([Kiro CLI](harnesses/kiro-cli.md)
-says how an existing `kiro` project switches).
+task progress AI-DLC keeps current. The Kiro row pins Kiro CLI's v3 engine;
+AI-DLC no longer ships the legacy Kiro CLI row, and
+[Coming from the legacy Kiro CLI row](harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-row)
+says how a project set up with it moves.
 
 In Kiro IDE, the **aidlc** agent appears in the agent picker only after you
 trust the folder and reload the window: if the Restricted Mode banner shows,

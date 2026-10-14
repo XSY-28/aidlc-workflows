@@ -135,12 +135,14 @@ export const HARNESS_HONESTY = Object.freeze({
     message:
       "opencode can express model and variant policy; xhigh effort clamps down to high.",
   }),
+  // The legacy Kiro CLI row, which AI-DLC no longer ships: a settings file may
+  // still name it, and no tree on it gets a model surface any more.
   kiro: Object.freeze({
-    model: true,
-    effort: true,
+    model: false,
+    effort: false,
     groupEffort: false,
     message:
-      "Kiro CLI runs every agent on your session's model and effort, so an effort set here without a model is kept for other tools and changes nothing in Kiro CLI; a preset (minimal, balanced or thorough) sets the session's effort.",
+      "AI-DLC no longer ships the legacy Kiro CLI row, so a model or effort set here for it is kept for other tools and changes nothing.",
   }),
   "kiro-ide": Object.freeze({
     model: false,
@@ -181,7 +183,7 @@ export function sessionSetsAgentModels(harness: ModelHarness): boolean {
 // this, so they never disagree on where a change lands.
 export function modelPolicyAgentsDir(harness: ModelHarness, harnessDir: string): string | null {
   if (harness === "opencode") return ".opencode/agents";
-  if (harness === "claude" || harness === "codex" || harness === "kiro") return `${harnessDir}/agents`;
+  if (harness === "claude" || harness === "codex") return `${harnessDir}/agents`;
   return null;
 }
 
@@ -454,21 +456,12 @@ export function resolveModelPolicy(
   }
 
   if (requestedEffort !== undefined) {
-    const kiroHasModel = harness === "kiro" && model !== undefined;
-    const supported = honesty.effort &&
-      (honesty.groupEffort || agentPolicy !== undefined || kiroHasModel) &&
-      (harness !== "kiro" || kiroHasModel);
-    // On Kiro CLI a preset's effort rides on the session model (the person's
-    // personal Kiro settings, see aidlc-kiro-session.ts), not on agents, so a
-    // preset alone leaves agents inheriting and is not an unexpressed policy.
-    // An explicit group dial still has no Kiro surface.
-    const kiroSessionCarried = harness === "kiro" && agentPolicy?.effort === undefined &&
-      policy?.preset !== undefined && policy.groups?.[group]?.effort === undefined;
+    const supported = honesty.effort && (honesty.groupEffort || agentPolicy !== undefined);
     if (supported) {
       const clamped = clampEffort(requestedEffort, harness);
       effort = clamped.effort;
       clampedEffort = clamped.clamped;
-    } else if (!kiroSessionCarried) {
+    } else {
       unexpressed.push("effort");
     }
   }
@@ -591,16 +584,6 @@ export function writeCodexAgentSurface(
   return `${kept.join("\n")}${hadNewline ? "\n" : ""}`;
 }
 
-export function writeKiroAgentSurface(
-  content: string,
-  effective: Pick<EffectiveModelPolicy, "model">,
-): string {
-  const parsed = JSON.parse(content) as Record<string, unknown>;
-  if (effective.model === undefined) delete parsed.model;
-  else parsed.model = effective.model;
-  return `${JSON.stringify(parsed, null, 2)}\n`;
-}
-
 export function writeKiroCliSurface(
   content: string,
   modelEfforts: readonly { model: string; effort: KiroEffort }[] = [],
@@ -684,22 +667,6 @@ export function applyModelPolicyToProjection(
         }),
       );
     }
-  } else if (harness === "kiro") {
-    const modelEfforts: Array<{ model: string; effort: KiroEffort }> = [];
-    for (const item of effective) {
-      const path = join(agentsRoot, `${modelAgentStem(item.agent)}.json`);
-      if (!existsSync(path)) throw new Error(`${path}: missing agent surface`);
-      writeFileSync(path, writeKiroAgentSurface(readFileSync(path, "utf-8"), item));
-      if (item.model && item.effort) {
-        modelEfforts.push({ model: item.model, effort: item.effort });
-      }
-    }
-    const path = join(harnessRoot, "settings", "cli.json");
-    if (!existsSync(path)) throw new Error(`${path}: missing Kiro CLI settings`);
-    writeFileSync(
-      path,
-      writeKiroCliSurface(readFileSync(path, "utf-8"), modelEfforts, cap),
-    );
   }
   return effective;
 }
@@ -759,24 +726,10 @@ export function modelPolicySurfaceDrift(
       resolveModelPolicy(policy, name, tier, harness, cap),
     ]),
   ) as Record<string, EffectiveModelPolicy>;
-  const kiroCollapsed = harness === "kiro"
-    ? kiroModelDefaults(
-        cap,
-        Object.values(expectedByAgent)
-          .filter((item): item is EffectiveModelPolicy & {
-            model: string;
-            effort: KiroEffort;
-          } => Boolean(item.model && item.effort))
-          .map((item) => ({ model: item.model, effort: item.effort })),
-      )
-    : {};
   for (const [name] of Object.entries(tiers).sort(([left], [right]) =>
     left.localeCompare(right)
   )) {
     const expected = expectedByAgent[name];
-    const surfaceExpected = harness === "kiro" && expected.model && kiroCollapsed[expected.model]
-      ? { ...expected, effort: kiroCollapsed[expected.model] }
-      : expected;
     for (const field of expected.unexpressed) {
       issues.push(`${name}: ${field} policy is not expressible on ${harness}`);
     }
@@ -791,26 +744,6 @@ export function modelPolicySurfaceDrift(
     } else if (harness === "opencode") {
       path = join(agentsRoot, `${modelAgentStem(name)}.md`);
       if (existsSync(path)) actual = markdownSurfaceValues(readFileSync(path, "utf-8"), "variant");
-    } else if (harness === "kiro") {
-      path = join(agentsRoot, `${modelAgentStem(name)}.json`);
-      if (existsSync(path)) {
-        const parsed = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
-        actual.model = typeof parsed.model === "string" ? parsed.model : undefined;
-        if (surfaceExpected.model && surfaceExpected.effort) {
-          const cli = JSON.parse(
-            readFileSync(join(harnessRoot, "settings", "cli.json"), "utf-8"),
-          ) as Record<string, unknown>;
-          const defaults = isRecord(cli["chat.modelDefaults"])
-            ? cli["chat.modelDefaults"]
-            : {};
-          const rawEntry = defaults[surfaceExpected.model];
-          const entry: Record<string, unknown> = isRecord(rawEntry) ? rawEntry : {};
-          const output = isRecord(entry.output_config) ? entry.output_config : {};
-          actual.effort = typeof output.effort === "string" && isModelEffort(output.effort)
-            ? output.effort
-            : undefined;
-        }
-      }
     } else {
       actual = {};
     }
@@ -818,7 +751,7 @@ export function modelPolicySurfaceDrift(
       issues.push(`${name}: missing surface ${path}`);
       continue;
     }
-    for (const issue of valuesDiffer(actual, surfaceExpected)) {
+    for (const issue of valuesDiffer(actual, expected)) {
       issues.push(`${name}: ${issue}`);
     }
   }

@@ -281,22 +281,22 @@ describe("t296 first-run config setup walk", () => {
       "--project-dir",
       path,
       "--from",
-      join(REPO_ROOT, "dist-release", "kiro"),
+      join(REPO_ROOT, "dist-release", "kiro-ide"),
       "--harness",
-      "kiro-cli-legacy",
+      "kiro",
       "--mcp",
       "none",
       "--yes",
     ];
     expect(run(kiroScaffold, path, env, "n\n").status).toBe(0);
     const section = run(
-      ["config", "providers", "--project-dir", path, "--harness", "kiro-cli-legacy"],
+      ["config", "providers", "--project-dir", path, "--harness", "kiro"],
       path,
       env,
     );
     expect(section.status, section.stdout + section.stderr).toBe(0);
     expect(section.stdout).toContain(
-      "Model access comes with Kiro CLI; AI-DLC configures no model provider for it.",
+      "Model access comes with Kiro; AI-DLC configures no model provider for it.",
     );
     expect(section.stdout).toContain("Nothing to answer");
     expect(section.stdout).not.toContain("Provider [");
@@ -307,7 +307,7 @@ describe("t296 first-run config setup walk", () => {
     // `--quiet` one line, and a non-TTY caller gets the same answer without a
     // usage error.
     const asJson = run(
-      ["config", "providers", "--project-dir", path, "--harness", "kiro-cli-legacy", "--json"],
+      ["config", "providers", "--project-dir", path, "--harness", "kiro", "--json"],
       path,
       env,
     );
@@ -315,19 +315,19 @@ describe("t296 first-run config setup walk", () => {
     expect(asJson.stdout.trim().split("\n")).toHaveLength(1);
     expect(JSON.parse(asJson.stdout)).toEqual(expect.objectContaining({
       ok: true,
-      message: "providers needs no answer for kiro; its model access is harness-managed",
+      message: "providers needs no answer for kiro-ide; its model access is harness-managed",
     }));
     const quiet = run(
-      ["config", "providers", "--project-dir", path, "--harness", "kiro-cli-legacy", "--quiet"],
+      ["config", "providers", "--project-dir", path, "--harness", "kiro", "--quiet"],
       path,
       env,
     );
     expect(quiet.status, quiet.stdout + quiet.stderr).toBe(0);
     expect(quiet.stdout.trim().split("\n")).toEqual([
-      "providers needs no answer for kiro; its model access is harness-managed",
+      "providers needs no answer for kiro-ide; its model access is harness-managed",
     ]);
     const nonTty = run(
-      ["config", "providers", "--project-dir", path, "--harness", "kiro-cli-legacy"],
+      ["config", "providers", "--project-dir", path, "--harness", "kiro"],
       path,
       hookPathEnv("aidlc", false),
     );
@@ -350,9 +350,9 @@ describe("t296 first-run config setup walk", () => {
         "--project-dir",
         path,
         "--from",
-        join(REPO_ROOT, "dist-release", "kiro"),
+        join(REPO_ROOT, "dist-release", "kiro-ide"),
         "--harness",
-        "kiro-cli-legacy",
+        "kiro",
         "--mcp",
         "none",
         "--yes",
@@ -365,7 +365,7 @@ describe("t296 first-run config setup walk", () => {
     expect(setupRows(result.stdout).find((line) => line.includes("Providers")))
       .toContain("[ok]");
     expect(result.stdout).toContain(
-      "model access comes with Kiro CLI; nothing for AI-DLC to configure",
+      "model access comes with Kiro; nothing for AI-DLC to configure",
     );
     expect(result.stdout).not.toContain("provider access unverified");
     expect(result.stdout).not.toContain("Choose and configure a model provider");
@@ -396,7 +396,7 @@ describe("t296 first-run config setup walk", () => {
     const providers = setupRows(walk.stdout).find((line) => line.includes("Providers"));
     expect(providers).toContain("[ok]");
     expect(providers).toContain(
-      "model access comes with Kiro CLI; nothing for AI-DLC to configure",
+      "model access comes with Kiro; nothing for AI-DLC to configure",
     );
     expect(walk.stdout).not.toContain("Fix the");
     expect(walk.stdout).not.toContain("config providers");
@@ -883,16 +883,5 @@ describe("t296 first-run config setup walk", () => {
           .toContain(`every agent uses your ${product} session's model and effort`);
       }
     }
-
-    // Kiro CLI can carry a per-agent model, so its row still asks.
-    const kiro = project("aidlc-t296-session-models-kiro-");
-    const kiroRun = run([
-      "config", "--project-dir", kiro, "--from", join(REPO_ROOT, "dist-release", "kiro"),
-      "--harness", "kiro-cli-legacy", "--mcp", "none", "--yes",
-    ], kiro, env, "n\n");
-    expect(kiroRun.status, kiroRun.stdout + kiroRun.stderr).toBe(0);
-    expect(setupRows(kiroRun.stdout).find((line) => line.includes("Models")))
-      .toContain("[needs]  Models      no recorded policy; agents inherit your session model and effort");
-    expect(kiroRun.stdout).toContain("models       bun .kiro/tools/aidlc.ts config models");
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 });

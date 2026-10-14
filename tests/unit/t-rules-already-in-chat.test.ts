@@ -6,7 +6,7 @@
 // `rules_held` pointer instead of the text, but only where the chat provably
 // holds that exact text, and the full text everywhere else:
 //
-//   - Kiro CLI and opencode put the memory files in context on every request
+//   - opencode puts the memory files in context on every request
 //     (live: an edit is seen at once and survives a compaction), so the pointer
 //     needs only the host's own include to cover the stage's files.
 //   - On every tool, a chat's first step, and a step whose bundle differs from
@@ -92,7 +92,6 @@ function stateAt(stage: string): string {
 
 const HARNESS_DIR: Record<string, string> = {
   claude: ".claude",
-  kiro: ".kiro",
   "kiro-ide": ".kiro",
   codex: ".codex",
   opencode: ".aidlc",
@@ -408,38 +407,7 @@ describe("Claude Code: the memory the host loaded at the chat's last load", () =
   });
 });
 
-describe("Kiro CLI and opencode: the host sends the memory files with every request", () => {
-  test("Kiro CLI: the pointer inside the chat, even after an edit; the text outside it or on an upgraded agent", async () => {
-    const proj = await projectFor("kiro");
-    const sid = randomUUID();
-    const env = { AIDLC_SESSION_OVERRIDE: sid, KIRO_SESSION_ID: sid };
-    await sessionStart(proj, "kiro", sid, "startup");
-    expect(sentInFull(await next(proj, "kiro", env))).toBe(true);
-    expect(pointerOnly(await next(proj, "kiro", env))).toBe(true);
-    // Kiro holds the edited file at once, but the step after a change hands the
-    // text once, so the change is in front of the agent; then the pointer again.
-    editTeam(proj, "Every queue has a dead-letter alarm.");
-    const changed = await next(proj, "kiro", env);
-    expect(sentInFull(changed)).toBe(true);
-    expect(JSON.stringify(changed.results)).toContain("Every queue has a dead-letter alarm.");
-    expect(pointerOnly(await next(proj, "kiro", env))).toBe(true);
-    // A chat resumed after the rules changed while it was closed: the text once.
-    editTeam(proj, "Every alarm names its runbook.");
-    await sessionStart(proj, "kiro", sid, "startup");
-    expect(sentInFull(await next(proj, "kiro", env))).toBe(true);
-    expect(pointerOnly(await next(proj, "kiro", env))).toBe(true);
-
-    expect(sentInFull(await next(proj, "kiro", { AIDLC_SESSION_OVERRIDE: sid }))).toBe(true);
-
-    // An agent file rewritten to the 3.0 format: what that engine loads is not proven.
-    const agentPath = join(proj, ".kiro", "agents", "aidlc.json");
-    const agent = JSON.parse(readFileSync(agentPath, "utf-8")) as Record<string, unknown>;
-    writeFileSync(agentPath, JSON.stringify({ ...agent, hooks: [] }, null, 2));
-    const upgraded = randomUUID();
-    await sessionStart(proj, "kiro", upgraded, "startup");
-    expect(sentInFull(await next(proj, "kiro", { AIDLC_SESSION_OVERRIDE: upgraded, KIRO_SESSION_ID: upgraded }))).toBe(true);
-  });
-
+describe("opencode: the host sends the memory files with every request", () => {
   test("opencode: the pointer under opencode; the text outside it or without the memory instructions", async () => {
     const proj = await projectFor("opencode");
     const sid = randomUUID();
@@ -871,17 +839,21 @@ describe("the conductor persona reaches every chat that works on the workflow", 
     expect(personaSent(await next(proj, "claude", env))).toBe(false);
   });
 
-  test("Kiro CLI and Codex: the same, under their own chat ids", async () => {
-    for (const harness of ["kiro", "codex"]) {
-      const proj = await projectFor(harness);
-      const sid = harness === "kiro" ? `sess_${randomUUID()}` : randomUUID();
-      const env: Record<string, string> = harness === "kiro"
-        ? { AIDLC_SESSION_OVERRIDE: sid, KIRO_SESSION_ID: sid }
-        : { AIDLC_SESSION_OVERRIDE: sid, CODEX_THREAD_ID: sid };
-      await sessionStart(proj, harness, sid, "startup");
-      expect(personaSent(await next(proj, harness, env)), harness).toBe(true);
-      expect(personaSent(await next(proj, harness, env)), harness).toBe(false);
-    }
+  test("Codex: the same, under its own chat id", async () => {
+    const proj = await projectFor("codex");
+    const sid = randomUUID();
+    const env: Record<string, string> = { AIDLC_SESSION_OVERRIDE: sid, CODEX_THREAD_ID: sid };
+    await sessionStart(proj, "codex", sid, "startup");
+    expect(personaSent(await next(proj, "codex", env))).toBe(true);
+    expect(personaSent(await next(proj, "codex", env))).toBe(false);
+  });
+
+  test("Kiro: the same, under the chat its prompt hook names", async () => {
+    const proj = await kiroIdeProject();
+    const sid = kiroChat();
+    await kiroIdePrompt(proj, sid);
+    expect(personaSent(await next(proj, "kiro-ide", inKiroIde(sid)))).toBe(true);
+    expect(personaSent(await next(proj, "kiro-ide", inKiroIde(sid)))).toBe(false);
   });
 
   test("Copilot and Cursor keep one delivery per workflow (no chat signal in the command)", async () => {

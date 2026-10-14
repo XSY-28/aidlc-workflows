@@ -27,10 +27,10 @@ bun install --frozen-lockfile
 
 ```
 core/                # Hand-authored, harness-neutral source (tools, stages, agents, rules, knowledge, hooks)
-harness/<name>/      # Per-harness authored surfaces; claude/, kiro/, kiro-ide/, codex/, opencode/, copilot/
+harness/<name>/      # Per-harness authored surfaces; claude/, kiro-ide/, codex/, opencode/, copilot/
 scripts/package.ts   # The build: materializes ignored local projections (`--check` builds twice and compares)
 scripts/build-binaries.ts # Release-only compiled CLI artifacts in ignored build/binaries/ after package --check
-dist/<harness>/      # GENERATED + ignored: dist/claude/, dist/kiro/, dist/kiro-ide/, dist/codex/, dist/opencode/, dist/copilot/ — never hand-edit or commit
+dist/<harness>/      # GENERATED + ignored: dist/claude/, dist/kiro-ide/, dist/codex/, dist/opencode/, dist/copilot/ — never hand-edit or commit
 tests/               # All-TypeScript test suite (t*.test.ts, run via bun)
 docs/                # Documentation
   guide/             # User guide (how to use AI-DLC)
@@ -92,9 +92,7 @@ candidate.
 
 Stable releases start from pushed version tags in `.github/workflows/release.yml`.
 Before tagging, merge the release-preparation PR and confirm its required branch
-checks, then run the Kiro CLI release journey on the commit to be tagged and post
-its one-line result as a comment on that PR ([Testing](09-testing.md); Kiro needs
-a signed-in identity, so it has no hosted lane). Stable publication validates the
+checks. Stable publication validates the
 exact tag source and release assets and
 requires a passing Full Suite for the tagged commit: `release.yml` reuses a
 passing `full-suite-result` or calls `full-suite.yml` itself.

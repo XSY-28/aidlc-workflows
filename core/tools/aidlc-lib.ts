@@ -1218,15 +1218,6 @@ export function readOrchestratorLauncherOptions(rawArgs: readonly string[]): {
   };
 }
 
-// aidlc-orchestrate.main's launcher-option extraction before subcommand
-// routing (readOrchestratorLauncherOptions); the literal delimiter preserves
-// all following intent text. A trailing option without a value stays, as in
-// main(). Its one caller (the Kiro CLI agent-v1 row) passes the words after
-// `next` without the verb, so their unmarked words are not told apart here.
-export function stripOrchestratorLauncherOptions(args: readonly string[]): string[] {
-  return readOrchestratorLauncherOptions(args).args;
-}
-
 export const WORKSPACE_NOUNS = ["intent", "space"] as const;
 export type WorkspaceNoun = (typeof WORKSPACE_NOUNS)[number];
 

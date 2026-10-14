@@ -21,7 +21,6 @@ const RELEASE_DISTRIBUTIONS = [
   "codex",
   "copilot",
   "cursor",
-  "kiro",
   "kiro-ide",
   "opencode",
 ] as const;

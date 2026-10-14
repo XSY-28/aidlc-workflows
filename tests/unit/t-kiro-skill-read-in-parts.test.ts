@@ -1,6 +1,6 @@
 // Kiro's agent cuts any tool result over 30,000 characters (CHAR_THRESHOLD in
-// the kiro-agent bundle): a file read shows the first 30,000. Both Kiro skills
-// are about three times that, and when the conductor had to read its own skill
+// the kiro-agent bundle): a file read shows the first 30,000. The Kiro skill
+// is about three times that, and when the conductor had to read its own skill
 // with its file tool in parts, Kiro IDE 1.2.37 stopped after four of ten parts
 // in five of six measured chats, so 230 of 390 lines never reached it. The
 // conductor now carries the skill and its two annexes as the agent's own
@@ -32,24 +32,17 @@ function frontmatter(text: string): string {
 }
 
 const TREES = [
-  ["Kiro IDE", "dist/kiro-ide"],
-  ["Kiro IDE release", "dist-release/kiro-ide"],
-  ["Kiro CLI", "dist/kiro"],
-  ["Kiro CLI release", "dist-release/kiro"],
+  ["Kiro", "dist/kiro-ide"],
+  ["Kiro release", "dist-release/kiro-ide"],
 ] as const;
 
 function conductorPrompt(treeRoot: string): string {
-  const ide = join(REPO, treeRoot, ".kiro", "agents", "aidlc-aidlc.md");
-  if (existsSync(ide)) return skillBody(readFileSync(ide, "utf-8"));
-  return (JSON.parse(readFileSync(join(REPO, treeRoot, ".kiro", "agents", "aidlc.json"), "utf-8")) as { prompt: string }).prompt;
+  return skillBody(readFileSync(join(REPO, treeRoot, ".kiro", "agents", "aidlc-aidlc.md"), "utf-8"));
 }
 
 function conductorResources(treeRoot: string): string[] {
-  const ide = join(REPO, treeRoot, ".kiro", "agents", "aidlc-aidlc.md");
-  if (existsSync(ide)) {
-    return [...frontmatter(readFileSync(ide, "utf-8")).matchAll(/^\s+- "(file:\/\/[^"]+)"$/gm)].map((m) => m[1]);
-  }
-  return (JSON.parse(readFileSync(join(REPO, treeRoot, ".kiro", "agents", "aidlc.json"), "utf-8")) as { resources: string[] }).resources;
+  const conductor = join(REPO, treeRoot, ".kiro", "agents", "aidlc-aidlc.md");
+  return [...frontmatter(readFileSync(conductor, "utf-8")).matchAll(/^\s+- "(file:\/\/[^"]+)"$/gm)].map((m) => m[1]);
 }
 
 describe("t-kiro-skill-read-in-parts: the conductor carries the skill as its own resources", () => {

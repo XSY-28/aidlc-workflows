@@ -2,7 +2,7 @@
 //
 // t-exec-codex-journey-workspace.serial.test.ts — the LIVE workspace journey,
 // Codex-exec logic half (P10 / Stage E). Proves the SAME composed §0 promise the
-// SDK + ACP legs prove (one feature spanning two repos · a 2nd intent alongside ·
+// SDK leg proves (one feature spanning two repos · a 2nd intent alongside ·
 // a non-default space, no collision), expressed in the Codex driver's NATIVE turn
 // shape: a SEQUENCE of SEPARATE single-shot `codex exec` spawns against one
 // shared on-disk workspace root.
@@ -10,15 +10,15 @@
 // CODEX IS LOGIC-HALF ONLY, BY SURFACE LIMITATION — stated, not skipped. There is
 // no Codex TUI driver (tui-drive.ts is tmux/Claude-shaped, zero codex awareness),
 // so the render-half (statusline-orientation) journey matrix is Claude TUI ONLY —
-// Kiro likewise ships no statusline surface (dist/kiro has no settings.json
-// statusLine row; its AGENTS.md/SKILL.md state "there is no statusline"), so neither
+// Kiro likewise ships no statusline surface (dist/kiro-ide has no settings.json
+// statusLine row; its SKILL.md states "there is no statusline"), so neither
 // Codex nor Kiro contributes a render-half orientation leg; both are logic-half only.
 // `codex exec` is a one-shot, non-interactive spawn
 // (stdio:["ignore",…] — no stdin), so it CANNOT answer a mid-run question; each
 // journey beat is therefore a separate single-shot spawn invoking one
 // deterministic /aidlc verb whose result we read off disk.
 //
-// The journey beats mirror the SDK + ACP legs (repos captured by sibling
+// The journey beats mirror the SDK leg (repos captured by sibling
 // auto-discovery on the auto-create path - see the SDK leg's DRIFT NOTE):
 //   1. `/aidlc "build auth across both repos"` → auto-create A spanning both repos.
 //   2. (cheaper variant) reverse-engineering writes per-repo codekb — no swarm.
@@ -184,8 +184,7 @@ function execCodex(
 // codekb-determinism placement fix), but the live RE subagent occasionally still
 // writes the bare workspace-root form aidlc/codekb/<repo>/. Either is a valid
 // per-repo store for this beat's promise; accept BOTH, only absence is a fail
-// (matching the SDK t-journey-workspace.sdk sibling helper verbatim, and the ACP
-// t-acp-kiro-journey-workspace sibling modulo candidate order).
+// (matching the SDK t-journey-workspace.sdk sibling helper verbatim).
 function codekbFiles(root: string, repo: string): string[] {
   const candidates = [
     join(root, "aidlc", "spaces", activeSpace(root), "codekb", repo),

@@ -31,7 +31,7 @@ export type State =
   | "fresh" | "work-open" | "plan-question-open" | "gate-open" | "two-similar-records"
   | "plan-offer-open" | "routing-question-open" | "stage-question-asked" | "parked" | "finished" | "archived"
   | "second-chat" | "kiro-pick" | "hooks-off" | "unattended";
-export type Harness = "claude" | "codex" | "kiro" | "kiro-ide" | "copilot";
+export type Harness = "claude" | "codex" | "kiro-ide" | "copilot";
 export type ArgvVariant = "posix" | "kiro-cli" | "kiro-ide-pwsh";
 
 export interface EngineExpectation {
@@ -84,7 +84,7 @@ export interface CorpusItem {
 }
 
 export const CORPUS = corpus as CorpusItem[];
-export const HARNESSES: Harness[] = ["claude", "codex", "kiro", "kiro-ide"];
+export const HARNESSES: Harness[] = ["claude", "codex", "kiro-ide"];
 export const ORCHESTRATE = join(AIDLC_SRC, "tools", "aidlc-orchestrate.ts");
 export const DISPATCHER = join(AIDLC_SRC, "tools", "aidlc.ts");
 export const UTILITY = join(AIDLC_SRC, "tools", "aidlc-utility.ts");
@@ -396,10 +396,10 @@ export async function say(proj: string, prompt: string, harness: Harness, opts: 
       input: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: session, turn_id: "t1", cwd: proj, prompt }),
     });
   }
-  return exec([process.execPath, join(proj, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), harness === "kiro" ? "verb-intercept" : "record-human-turn"], {
+  return exec([process.execPath, join(proj, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "record-human-turn"], {
     cwd: proj,
     env: unset,
-    input: JSON.stringify({ hook_event_name: harness === "kiro" ? "userPromptSubmit" : "UserPromptSubmit", session_id: session, cwd: proj, prompt }),
+    input: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: session, cwd: proj, prompt }),
   });
 }
 

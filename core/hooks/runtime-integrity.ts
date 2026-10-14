@@ -1231,8 +1231,10 @@ function installedRelativeProtected(path: string, root: string, harnessName = ba
   if (/^bin\/aidlc(?:\.exe)?$/.test(rel) || rel === "bin") return true;
   if (rel === "hooks.json") return true;
   if (harnessName === ".claude" && rel === "settings.json") return true;
-  // Kiro's AIDLC agents carry their own tool grants: JSON in the agent-v1 layout,
-  // Markdown frontmatter in the KAS layout.
+  // Kiro's AIDLC agents carry their own tool grants in Markdown frontmatter.
+  // An AIDLC-named JSON agent stays protected too: Kiro CLI still loads agent
+  // JSON (its 3.0 engine rewrites it into its own format), so one written here
+  // would grant itself tools.
   return harnessName === ".kiro" && (rel === "agents" || /^agents\/aidlc(?:-[a-z-]+)?\.(?:json|md)$/.test(rel));
 }
 

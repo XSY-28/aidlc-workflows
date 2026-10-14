@@ -375,9 +375,9 @@ When you switch spaces, two things follow the cursor automatically:
    knowledge agents load, all come from the space you switched into.
 2. **The rules your harness loads into context**: switching writes the new
    space's `memory/` files into `aidlc/active-memory/`, the git-ignored
-   copy your harness's native rule include reads (Claude's `@`-import, Kiro CLI
-   resources, Cursor rules, opencode's instructions, Copilot's `AGENTS.md`;
-   Kiro IDE's steering file carries the text itself, and on Codex the engine
+   copy your harness's native rule include reads (Claude's `@`-import, Cursor
+   rules, opencode's instructions, Copilot's `AGENTS.md`; Kiro's steering file
+   carries the text itself, and on Codex the engine
    hands each step its rules), so the next turn works under that team's method.
 
 No tracked file changes, so a switch never churns the committed tree and

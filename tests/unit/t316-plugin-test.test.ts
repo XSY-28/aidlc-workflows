@@ -36,7 +36,6 @@ const SOURCE_TOOLS = join(
 );
 const SOURCE_PLUGIN = join(REPO_ROOT, "plugins", "test-pro");
 const CLAUDE_INSTALL = join(REPO_ROOT, "dist", "claude");
-const KIRO_INSTALL = join(REPO_ROOT, "dist", "kiro");
 const OPENCODE_INSTALL = join(REPO_ROOT, "dist", "opencode");
 const CODEX_INSTALL = join(REPO_ROOT, "dist", "codex");
 const KIRO_IDE_INSTALL = join(REPO_ROOT, "dist", "kiro-ide");
@@ -431,11 +430,9 @@ describe("t316 standalone plugin compose test", () => {
     expect(treeDigest(poisonRoot)).toBe(beforePoison);
   }, COMPOSE_CASE_TIMEOUT_MS);
 
-  test("shared .kiro leaf requires --harness disambiguation", () => {
-    const { pluginRoot, installRoot } = copyFixture(
-      "kiro-ambiguity",
-      KIRO_INSTALL,
-    );
+  test("an install holding two harness trees requires --harness disambiguation", () => {
+    const { pluginRoot, installRoot } = copyFixture("ambiguity");
+    cpSync(KIRO_IDE_INSTALL, installRoot, { recursive: true });
     const result = run([pluginRoot, "--install", installRoot]);
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("install is ambiguous");

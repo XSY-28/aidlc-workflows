@@ -1914,7 +1914,6 @@ describe("t242 state-transition ownership guard", () => {
       ".claude/tools/aidlc-testing-posture.ts",
       ".claude/settings.json",
       ".codex/hooks.json",
-      ".kiro/agents/aidlc.json",
       ".kiro/agents/aidlc-aidlc.md",
       ".kiro/agents/aidlc-developer-agent.md",
       ".github/hooks/aidlc.json",

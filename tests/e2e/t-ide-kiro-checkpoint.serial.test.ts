@@ -1,15 +1,15 @@
 // covers: file:core/tools/aidlc-state.ts
 //
 // t-ide-kiro-checkpoint.serial.test.ts - the FIRST live test that drives the Kiro
-// IDE (the Electron desktop app), not the Kiro CLI. Every existing live Kiro test
-// drives the CLI over ACP (t-acp-kiro-*) or over a tmux TUI (t-tui-kiro-*); NONE
-// drives the GUI app. This is the gap, and it is the enforcement surface for the
+// IDE (the Electron desktop app), not the Kiro CLI. The live Kiro tests before it
+// drove the CLI over ACP or over a tmux TUI (those files left with the retired
+// legacy Kiro CLI row); none drove the GUI app. This is the enforcement surface for the
 // human-presence gate (a HUMAN_TURN event recorded on each human chat turn + a
 // preToolUse hard-block that refuses a model-fabricated approval while a checkpoint
 // gate is open with no HUMAN_TURN since the last gate resolution).
 //
-// Mirrors the skip-clean conventions of t-tui-kiro-status.serial.test.ts (the
-// closest sibling: live Kiro, opt-in env gate, skipReason() chain, reason in the
+// Mirrors the skip-clean conventions of the live Kiro TUI tests (the retired
+// t-tui-kiro-status: live Kiro, opt-in env gate, skipReason() chain, reason in the
 // test title, AIDLC_TEST_TIMEOUT 3rd arg, setupTuiProject + cleanupTuiProject in
 // finally, disk-only assertions). The ONE structural departure: it drives the
 // Electron app via a bun-native raw-CDP helper (kiro-ide-driver.ts), NOT the tmux
@@ -19,7 +19,7 @@
 // holds every `t-tui*` e2e file behind the tmux `t-tui-preflight` capability gate;
 // a `t-tui-*` name would wrongly SKIP this CDP/no-tmux test on every tmux-less box.
 // The `t-ide-` prefix runs it in the first/non-TUI band, the same way
-// `t-exec-codex-*` and `t-acp-kiro-*` dodge the gate. Each IDE launch owns a
+// `t-exec-codex-*` dodges the gate. Each IDE launch owns a
 // private profile and an OS-assigned debug port, including across worker copies.
 //
 // LIVE: uses real Kiro IDE (Bedrock credits). Gated behind AIDLC_KIRO_IDE_LIVE=1,
@@ -403,7 +403,7 @@ function installNextGateReviewFixture(sandbox: string): void {
 }
 
 function skipReason(): string | null {
-  // Order mirrors t-tui-kiro-status:56-68 - env gate (token/credit guard) first,
+  // Order mirrors the retired t-tui-kiro-status - env gate (token/credit guard) first,
   // then platform, then binary, then the shipped distributable. The seed is no longer
   // a gate: it is generated from constants when AIDLC_KIRO_IDE_SEED is unset.
   if (process.env.AIDLC_KIRO_IDE_LIVE !== "1") {

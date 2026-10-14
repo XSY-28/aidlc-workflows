@@ -2,7 +2,7 @@
 // per-unit reviewer read-scope bound (stage-protocol-reviewer.md §12a).
 //
 // covers: hook:aidlc-reviewer-scope, file:aidlc-common/protocols/stage-protocol-reviewer.md §12a,
-// file:harness/kiro/hooks/aidlc-kiro-adapter.ts, file:skills/aidlc/SKILL.md reviewer bullet
+// file:harness/opencode/plugin/aidlc-opencode-adapter.ts, file:skills/aidlc/SKILL.md reviewer bullet
 //
 // Three layers, matching the hook's structure:
 //   (a) MATCHER (mechanism none, in-process): evaluateReviewerScope is an
@@ -839,7 +839,7 @@ describe("t221 (b) dispatch-record lifecycle (shipped hook, subprocess)", () => 
     expect(runHook(proj, noAgent).code).toBe(0);
   });
 
-  test("scoped_registration substitutes for agent identity (the Kiro adapters' contract)", () => {
+  test("scoped_registration substitutes for agent identity (the opencode adapter's contract)", () => {
     const proj = scratchProject();
     seedRecord(proj);
     const { agent_type: _omit, ...noAgent } = SIBLING_SWEEP;
@@ -1053,40 +1053,6 @@ describe("t221 (c) harness registration and protocol prose", () => {
     }
   });
 
-  test("Kiro CLI wires the adapter's reviewer-scope target inside BOTH reviewer agent JSONs", () => {
-    const harnesses = HARNESS_MATRIX.filter(
-      (harness) => harness.capabilities.reviewerScopeRegistration === "kiro-agent-json",
-    );
-    expect(harnesses.length).toBeGreaterThan(0);
-    for (const harness of harnesses) {
-      for (const agent of ["aidlc-architecture-reviewer-agent", "aidlc-product-lead-agent"]) {
-        const a = JSON.parse(
-          readFileSync(join(harness.engineRoot, "agents", `${agent}.json`), "utf-8"),
-        ) as { hooks?: { preToolUse?: Array<{ matcher?: string; command?: string }> } };
-        const entries = a.hooks?.preToolUse ?? [];
-        const reviewerEntries = entries.filter((entry) =>
-          entry.command?.includes("aidlc.ts engine adapter kiro reviewer-scope")
-        );
-        expect(reviewerEntries.length, `${harness.name}/${agent}`).toBe(3);
-        const matchers = reviewerEntries.map((e) => e.matcher).sort();
-        expect(matchers).toEqual(["execute_bash", "fs_read", "fs_write"]);
-        for (const e of reviewerEntries) {
-          // The registration passes its own agent name so the adapter forwards
-          // a real identity instead of a bare scoped_registration.
-          expect(e.command).toBe(
-            `bun ${harness.manifest.harnessDir}/tools/aidlc.ts engine adapter kiro reviewer-scope ${agent}`,
-          );
-        }
-        expect(
-          entries.some((entry) =>
-            entry.command?.includes(`aidlc.ts engine adapter kiro state-transition-guard ${agent}`)
-          ),
-          `${harness.name}/${agent}`,
-        ).toBe(true);
-      }
-    }
-  });
-
   test("Kiro IDE ships NO reviewer-scope registration (documented gap: tool inputs are not uniform)", () => {
     // Tool inputs are not uniformly available across the IDE generations this
     // harness supports (docs/reference/kiro-ide-hook-payload.md): 0.12 and the
@@ -1102,7 +1068,7 @@ describe("t221 (c) harness registration and protocol prose", () => {
     );
     expect(harnesses.length).toBeGreaterThan(0);
     for (const harness of harnesses) {
-      // Both wiring generations: the legacy .kiro.hook and the v2 hook JSON.
+      // Neither a .kiro.hook card nor a hook JSON wires it.
       expect(existsSync(join(harness.engineRoot, "hooks", "aidlc-reviewer-scope.kiro.hook"))).toBe(
         false,
       );

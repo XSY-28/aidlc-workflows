@@ -40,14 +40,16 @@ describe("ci-update-from-previous helpers", () => {
       hooks: { Stop: [{ hooks: [{ type: "command", command: "aidlc engine hook continue-workflow" }] }] },
       statusLine: { command: "aidlc engine statusline" },
     }));
-    // A Kiro IDE hook file, written as text: its "then" key is the hook's action.
-    writeFileSync(join(tree, "hooks", "guard.kiro.hook"),
-      '{"then":{"command":"aidlc engine adapter kiro state-transition-guard aidlc-developer-agent"},' +
-        '"when":{"patterns":["aidlc engine adapter *"]}}');
+    // A Kiro hook file: its command sits in a hook's action, nested in a list.
+    writeFileSync(join(tree, "hooks", "aidlc-guard.json"), JSON.stringify({
+      version: "v1",
+      hooks: [{ name: "guard", trigger: "PreToolUse",
+        action: { type: "command", command: "aidlc engine adapter kiro-ide state-transition-guard aidlc-developer-agent" } }],
+    }));
     writeFileSync(join(tree, "hooks", "notes.md"), "aidlc engine hook session-start\n");
     writeFileSync(join(tree, "broken.json"), "{ not json");
     expect(hookCommands(tree)).toEqual([
-      "aidlc engine adapter kiro state-transition-guard aidlc-developer-agent",
+      "aidlc engine adapter kiro-ide state-transition-guard aidlc-developer-agent",
       "aidlc engine hook continue-workflow",
     ]);
     expect(hookCommands(join(tree, "missing"))).toEqual([]);
@@ -79,7 +81,7 @@ describe("ci-update-from-previous helpers", () => {
 
   test("a harness the release ships that the check does not set up is named", () => {
     const shipped = (names: string[]) => ({ distributions: names.map((name) => ({ name })) });
-    expect(uncheckedHarnesses(shipped(["claude", "codex", "copilot", "cursor", "kiro", "kiro-ide", "opencode"]))).toEqual([]);
+    expect(uncheckedHarnesses(shipped(["claude", "codex", "copilot", "cursor", "kiro-ide", "opencode"]))).toEqual([]);
     expect(uncheckedHarnesses(shipped(["claude", "newcli"]))).toEqual(["newcli"]);
     expect(uncheckedHarnesses({})).toEqual([]);
   });
@@ -102,7 +104,7 @@ describe("ci-update-from-previous helpers", () => {
     expect(tracedToCompletion(trace(join(root, "b"),
       { phase: "dispatcher-start", hook: "record-human-turn" }, { phase: "hook-child-started" }, { phase: "hook-run-end", code: 0 }))).toBe(true);
     expect(tracedToCompletion(trace(join(root, "c"),
-      { phase: "dispatcher-start", adapter: "kiro" }, { phase: "adapter-import-end" }, { phase: "exit", code: 1 }))).toBe(false);
+      { phase: "dispatcher-start", adapter: "kiro-ide" }, { phase: "adapter-import-end" }, { phase: "exit", code: 1 }))).toBe(false);
     expect(tracedToCompletion(trace(join(root, "d"), { phase: "dispatcher-start", hook: "x" }, { phase: "exit", code: 0 }))).toBe(false);
     expect(tracedToCompletion(join(root, "none"))).toBe(false);
     // By name: what the plugin's events reached, each to its end.
@@ -137,7 +139,6 @@ describe("ci-update-from-previous helpers", () => {
       });
     }
     expect(hookInput("kiro-ide", "aidlc engine adapter kiro-ide after-shell")).toBe("{}");
-    expect(hookInput("kiro", "aidlc engine adapter kiro guard-tool-call")).toBe("{}");
     expect(hookInput("claude", "aidlc engine hook review-freeze")).toBe("{}");
   });
 });

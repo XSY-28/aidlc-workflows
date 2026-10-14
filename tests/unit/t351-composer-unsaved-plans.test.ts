@@ -842,7 +842,7 @@ describe("t351 (6) approved stage changes and settings land in one recompose wri
 });
 
 describe("t351 (7) every conductor surface offers the save and never writes scope files itself", () => {
-  const harnesses = ["claude", "codex", "copilot", "cursor", "kiro", "kiro-ide", "opencode"];
+  const harnesses = ["claude", "codex", "copilot", "cursor", "kiro-ide", "opencode"];
   // A conductor reads the composer.md beside its SKILL.md when a plan is composed.
   const read = (surface: string) => {
     const text = readFileSync(join(REPO_ROOT, surface), "utf-8");
@@ -1015,7 +1015,7 @@ describe("t351 (8) a custom plan starts from classic's ceremony, whatever stock 
   });
 
   test("every conductor passes a plan_approval creation setting, and no flag only for the person's skip", () => {
-    for (const harness of ["claude", "codex", "copilot", "cursor", "kiro", "kiro-ide", "opencode"]) {
+    for (const harness of ["claude", "codex", "copilot", "cursor", "kiro-ide", "opencode"]) {
       const surface = `harness/${harness}/skills/aidlc/SKILL.md`;
       const text = read(surface);
       expect(text, surface).toContain("a `plan_approval` in `creationSettings` (a custom plan raising it on a base that builds without asking) becomes `--plan-approval` like the other settings");

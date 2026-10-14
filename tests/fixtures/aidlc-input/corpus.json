@@ -18185,7 +18185,7 @@
     "input": "--guard-policy off",
     "state": "work-open",
     "meaning": "the person means: turn the Guard Policy off for the open work",
-    "source": "harness/kiro/hooks/aidlc-kiro-adapter.ts:596 (comment)",
+    "source": "harness/kiro/hooks/aidlc-kiro-adapter.ts:596 (comment; that file left with the retired legacy Kiro CLI row)",
     "documented": "\"The person's own words, not the skill body Kiro expanded them into, so a typed switch (`/aidlc --guard-policy off`) is read as typed.\"",
     "expected": {
       "engine": {

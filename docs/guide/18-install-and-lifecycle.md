@@ -52,7 +52,7 @@ packages. The upstream Bun tracking includes `oven-sh/bun#15829` and
 `oven-sh/bun#29681`.
 
 The installer includes every harness runtime (`claude`, `codex`, `copilot`,
-`cursor`, `kiro`, `kiro-ide`, and `opencode`) together:
+`cursor`, `kiro-ide` for Kiro, and `opencode`) together:
 
 ```bash
 tmp="$(mktemp -d)"
@@ -329,7 +329,7 @@ harness that is on another release, with the one command that brings it to the
 release just written, whether or not work is open:
 
 ```
-  Kiro CLI (.kiro) is still on 2.9.0. To bring it to 2.10.0: `aidlc config --harness kiro-cli-legacy`.
+  Kiro (.kiro) is still on 2.9.0. To bring it to 2.10.0: `aidlc config --harness kiro`.
 ```
 
 When the files passed to `--from` hold that harness, the command reuses them.
@@ -360,15 +360,18 @@ regions, and the non-interactive hook runtime. With one detected harness, the
 wizard names it and offers three choices: recommended defaults, six-step
 customization, or exit with nothing written. Multiple detected harnesses get a
 numbered harness picker first; no detected harness gets the complete picker
-without a default. The picker leaves out a row new projects no longer get:
-the legacy Kiro CLI row (`--harness kiro-cli-legacy`), so a Kiro CLI at 2.24.1
-or later is detected as the Kiro row (`--harness kiro`), whose
-`.kiro/settings/cli.json` pins Kiro's v3 engine and which runs in Kiro IDE too.
-Under the list, and when it takes the Kiro row without one, setup says which
-versions that row runs in: Kiro IDE 1.1.70 or later and Kiro CLI 2.24.1 or later.
-An older Kiro CLI does not count for it; choosing the Kiro row then, setup says so
-and asks whether to set it up anyway (not in Kiro IDE's own terminal, where the
-CLI is optional). `aidlc config --harness kiro` says the same versions when it
+without a default. The picker lists one Kiro row, **Kiro**
+(`--harness kiro`), whose `.kiro/settings/cli.json` pins Kiro CLI's v3 engine
+and which runs in Kiro IDE too. `--harness kiro-ide`, its earlier typed name,
+is answered with "`kiro-ide` is now called `kiro`" and the fixed command;
+installed projects and `--json` output keep the row id `kiro-ide`. Under the
+list, and when it takes the Kiro row without one, setup says which versions that
+row runs in: "AI-DLC's Kiro row runs in Kiro IDE 1.1.70 or later and in Kiro CLI
+2.24.1 or later; older versions are not supported." An older Kiro CLI does not
+count for it; choosing the Kiro row then, setup says so and asks
+`Set up anyway? [y/N]:` (not in Kiro IDE's own terminal, where the CLI is
+optional). No prints "Nothing written. Update Kiro CLI to 2.24.1 or later, then
+run `aidlc config` again." `aidlc config --harness kiro` says the same versions when it
 sets a project up on the Kiro row, and asks the same question at a terminal; with
 `--yes` it says so and goes on. Other detected harnesses keep their order, and a
 harness editor's own terminal still comes first.
@@ -387,13 +390,11 @@ removed is named instead); see
 Recommended defaults preserve the harness's current model provider.
 Customization walks Harness, Model provider, Model effort preset, Plugins, MCP
 servers, and the model-preset settings layer. The provider step offers keeping
-the current provider first and Amazon Bedrock second. On the `kiro` row, step
-2 is Session model instead: it lists your Kiro account's models and saves the
-chosen model, with the preset's session effort, in your personal Kiro settings,
-last, after every AI-DLC step. Under Kiro auto, recommended defaults ask that
-one model question; see
-[Session model and effort](harnesses/kiro-cli.md#session-model-and-effort).
-For the `kiro-ide` row, see [First run](harnesses/kiro-ide.md#first-run).
+the current provider first and Amazon Bedrock second. On the Kiro row, when
+`kiro-cli` can be read, step 2 is Session model instead: it lists your Kiro
+account's models and saves the chosen model, never an effort, in your personal
+Kiro settings, last, after every AI-DLC step; see
+[First run](harnesses/kiro-ide.md#first-run).
 Every numbered prompt but that complete picker has
 a bracketed default, invalid input re-asks in place, and each answer is echoed.
 A check-your-answers table accepts Enter to apply or a step number to edit. No
@@ -404,7 +405,7 @@ launch and first workflow command.
 
 Step 3 also offers a fourth option, `unchanged`, which records no preset and
 preserves existing model settings; projects without model policy use shipped
-defaults. `balanced` remains the recommended default, except on Kiro IDE,
+defaults. `balanced` remains the recommended default, except on Kiro,
 Cursor, and GitHub Copilot: every agent there uses your session's model and
 effort, so setup recommends and defaults to `unchanged`, and the rerun map
 shows Models as `[ok]`, naming the host session.
@@ -425,11 +426,11 @@ for the project's release; a native install refreshes from its installed
 runtime without it. A missing
 `aidlc/` root is counted once: the Trust section's own
 `workspace-root-missing` issue is folded into the Workspace row. The Providers
-row reads `[ok]` with no recorded answer on Kiro CLI and Kiro IDE, which provide
+row reads `[ok]` with no recorded answer on Kiro, which provides
 their own model access, and on GitHub Copilot and Cursor, where no answer means
 the session's own model access (for example `model access comes with your GitHub
 Copilot session`); `aidlc config providers` records Amazon Bedrock there if you
-bring your own (on Cursor, only the IDE takes Bedrock keys). On GitHub Copilot, Cursor, and Kiro IDE the Models row
+bring your own (on Cursor, only the IDE takes Bedrock keys). On GitHub Copilot, Cursor, and Kiro the Models row
 reads `[ok]` and names the host, for example `every agent uses your GitHub
 Copilot session's model and effort`: those hosts cannot pin an agent's model or
 effort, so there is no policy to ask for, and a recorded one is named as not
@@ -471,8 +472,7 @@ you typed kept.
 (`aidlc.settings.json` for `--project`) and applies it through the normal config
 plan, confirmation, and transaction. It never contacts a model
 provider. On Kiro CLI, choosing a session model asks Kiro CLI for your account's
-model list and that model's effort levels; with `--yes`, only `--session-model`
-does.
+model list; with `--yes`, only `--session-model` does.
 
 The public groups are:
 
@@ -494,7 +494,7 @@ moves to a larger model. The framework never raises an agent above the session
 on its own. With no recorded policy, Deciding and Writing up inherit; only the
 measured reviewing tier baseline ships a step-down. The first-run wizard's
 default choice records the `balanced` preset, which sets all three groups to
-medium effort; on Kiro IDE, Cursor, and GitHub Copilot it records no preset.
+medium effort; on Kiro, Cursor, and GitHub Copilot it records no preset.
 
 ```bash
 aidlc config models --show
@@ -549,10 +549,7 @@ Three immutable effort-only presets ship:
 | `minimal` | `medium` | `medium` | `low` |
 
 Presets never set model IDs. Explicit group dials and per-agent exceptions can
-override the preset's efforts. On Kiro CLI, which runs each session on one
-model, each preset is one session effort instead: `minimal` low, `balanced`
-medium, `thorough` xhigh, or the model's next level down
-([Session model and effort](harnesses/kiro-cli.md#session-model-and-effort)).
+override the preset's efforts.
 
 On upgrade, an install that recorded `preset: balanced` or `preset: minimal`
 picks up these efforts the next time its projections are regenerated. After
@@ -576,15 +573,8 @@ policy. Without decisive flags, a TTY opens the model policy wizard; a non-TTY
 run fails with usage guidance.
 
 Harnesses receive only settings they can read. Codex clamps `max` effort down
-to `xhigh`. opencode clamps `xhigh` down to `high`. On Kiro CLI a preset sets
-one effort for the whole interactive session, saved with the session model in your personal
-Kiro settings
-([Session model and effort](harnesses/kiro-cli.md#session-model-and-effort));
-explicit group dials have no Kiro surface, and a per-agent model exception
-carries its effort through the project's `chat.modelDefaults`, which then
-replaces your personal effort map in that project. An effort set on Kiro CLI
-without a model is kept for other tools, and the command says so in one line.
-Kiro IDE, Cursor, and GitHub Copilot cannot portably pin
+to `xhigh`. opencode clamps `xhigh` down to `high`.
+Kiro, Cursor, and GitHub Copilot cannot portably pin
 agent models or effort, so setup records no preset there. A model or effort you
 set anyway is kept for teammates on tools that apply it, writes no inert keys,
 and the command says in one line that this tool uses the model you choose in its
@@ -601,25 +591,19 @@ scopes continue to own stage criticality.
 AI-DLC works best with a capable reasoning model; the recommended model is
 Claude Opus 4.8. Where you set the model and effort depends on the harness:
 
-- **GitHub Copilot, Cursor, and Kiro IDE:** in the host, for the whole session.
+- **GitHub Copilot, Cursor, and Kiro (IDE and CLI):** in the host, for the whole session.
   Every agent uses the model and effort of the chat you run `/aidlc` in, and
   nothing AI-DLC records changes that. On Kiro IDE, a `model:` line you add
   to an agent's `.md` file by hand changes that agent until the next refresh
   (see [Customization](13-customization.md)); on Copilot such a pin is not
-  portable, because the CLI and VS Code read model names differently.
+  portable, because the CLI and VS Code read model names differently. On Kiro
+  CLI, setup and `aidlc config models --session-model <id>` can also save the
+  session model (never an effort) in your personal Kiro settings; see
+  [First run](harnesses/kiro-ide.md#first-run).
 - **Claude Code, Codex CLI, and opencode:** the session's model and effort
   drive the conductor and every agent that inherits; `aidlc config models`
   can set agent efforts (the `balanced` preset sets them to medium) and
   per-agent exceptions.
-- **Kiro CLI:** the session model and its one effort. `aidlc config models`
-  saves them in your personal Kiro settings (a preset sets the effort:
-  `minimal` low, `balanced` medium, `thorough` extra-high); `/model` and
-  `/effort` change them inside Kiro. A `/model` switch reaches the agents the
-  conductor dispatches only once you save it with
-  `/model set-current-as-default`. Recommended setup keeps an effort you
-  already saved for your model. On Kiro IDE's row setup saves Kiro CLI's
-  session model only. See
-  [Session model and effort](harnesses/kiro-cli.md#session-model-and-effort).
 
 If your organization offers only a mid-tier model, such as a Claude Sonnet
 model, without Opus:
@@ -629,8 +613,8 @@ model, without Opus:
   maximum effort makes the whole run much slower and more expensive. Medium is
   what the `balanced` preset gives agents on harnesses that can set them.
 - **Raise effort only for a stage that needs it,** for example Code Generation
-  on a hard Unit, then lower it again. On GitHub Copilot, Cursor, Kiro IDE,
-  and Kiro CLI that is the session's effort. On Claude Code, Codex CLI, and
+  on a hard Unit, then lower it again. On GitHub Copilot, Cursor, and Kiro
+  that is the session's effort. On Claude Code, Codex CLI, and
   opencode, Code Generation runs on the developer agent, which follows the
   session only while no preset or effort is recorded for it. Otherwise its
   effort is the recorded one: to raise it, record it, for example
@@ -688,16 +672,16 @@ the command was found in, and says that a harness started from a terminal
 needs no change and that editing `.bashrc` or `.zshrc` does not change the
 check.
 
-The harness CLI check requires `claude`, `kiro-cli >= 2.6.0`, `codex >= 0.145.0`, or
+The harness CLI check requires `claude`, `codex >= 0.145.0`, or
 `opencode` for their matching harnesses. Copilot CLI and the Cursor `agent` CLI
 are advisory because those installs may be driven only by VS Code or the IDE.
-The `kiro-ide` distribution requires no separate CLI; `kiro-cli` is optional there, needed only to run AI-DLC from a terminal, and is checked against 2.24.1 when present.
+The Kiro row requires no separate CLI; `kiro-cli` is optional there, needed only to run AI-DLC from a terminal, and is checked against 2.24.1 when present.
 
 ### Provider Diagnostics
 
 `aidlc config providers` records provider answers for this project install.
 Keeping the provider already configured in the harness is the default answer.
-Amazon Bedrock is an explicit opt-in. Kiro CLI and Kiro IDE are not asked because
+Amazon Bedrock is an explicit opt-in. Kiro is not asked because
 model access comes with Kiro. `other` remains available for a manually configured
 provider and carries an acknowledgement reminder.
 
@@ -724,8 +708,7 @@ Recorded Bedrock answers apply through the normal staged config transaction:
 |---------|-----------------------------|
 | Claude Code | Enables Bedrock and writes `AWS_REGION` plus optional `AWS_PROFILE` in `.claude/settings.json`; also keeps the AWS MCP URL and `AWS_REGION` metadata in `.mcp.json` on the same region |
 | Codex CLI | Records the choice and instructs the user to keep provider, credentials, and model in `~/.codex/config.toml` |
-| Kiro CLI | No provider answer; model access comes with Kiro |
-| Kiro IDE | No provider answer; model access comes with Kiro |
+| Kiro | No provider answer; model access comes with Kiro |
 | opencode | Offers to write `provider.amazon-bedrock.options.region/profile` to `opencode.json`; `--opencode-default yes|no` records the answer |
 | GitHub Copilot | Records acknowledgement of the manual BYOK environment setup |
 | Cursor | Records acknowledgement of the manual provider and model-picker setup |
@@ -760,8 +743,8 @@ the two paths that actually exist for it:
 | Cursor | that you configure the provider in Cursor yourself |
 
 
-Kiro CLI and Kiro IDE provide their own model access, so AI-DLC configures no
-model provider for them. `aidlc config providers` states that model access
+Kiro provides its own model access, so AI-DLC configures no
+model provider for it. `aidlc config providers` states that model access
 comes with Kiro and asks nothing; so does the first-run wizard on Kiro IDE when
 `kiro-cli` cannot be read, while on Kiro CLI, and on Kiro IDE with a readable
 `kiro-cli`, its step 2 chooses Kiro CLI's session model instead. Provider flags are
@@ -840,7 +823,7 @@ complete seed. Until then zero Codex hooks fire.
 `--dangerously-bypass-hook-trust` does not fire untrusted hooks, and appending
 a second seed set produces invalid TOML.
 
-For the `kiro-ide` distribution, trust ships in the conductor's `permissions`
+For Kiro, trust ships in the conductor's `permissions`
 (`.kiro/agents/aidlc-aidlc.md`), so the check adds nothing there; Kiro IDE 1.x no
 longer reads `.vscode/settings.json` `kiroAgent.trustedCommands`. `--show` lists
 the selected harness's trust and allowlist files.
@@ -979,10 +962,8 @@ entries.
 
 On Claude Code, `.mcp.json` is the consent-managed surface: `--check` verifies
 both `defaults` and `none`, and later plain config refreshes reapply the answer.
-Kiro CLI always ships `.kiro/settings/mcp.json`; `defaults` is satisfied by
-that file and its five shipped servers, while `none` is an instruct-only
-preference and does not remove a framework-owned file. The current Codex,
-opencode, Copilot, Kiro IDE, and Cursor distributions ship no MCP surface, so
+The current Codex, opencode, Copilot, Kiro, and Cursor distributions ship no
+MCP surface, so
 their recorded answer is informational and does not make `--check`
 permanently red. `--show` names the actual MCP file whenever one exists.
 
@@ -1042,7 +1023,7 @@ puts the earlier value back, that command. A model or flag change also names
 the open workflows that pick it up: a bypass, hook debug, the sensor timeout,
 and question retention apply right away, with no restart; models and swarm
 apply from the next step (a step already running keeps what it started with),
-except that on Kiro CLI a model or effort change applies from your next Kiro CLI
+except that on Kiro CLI a session model change applies from your next Kiro CLI
 session, since a running one keeps what it started with;
 a default scope applies to new work only, and a saved model profile changes
 nothing until `--from` loads it. The runtime, providers, and trust answers
@@ -1086,11 +1067,6 @@ Refresh preserves:
   the `package.json`, `.gitignore`, and `node_modules/` (links included)
   opencode writes under `.opencode/` at its first start: config never copies,
   owns, or removes these
-- the agent files in `.kiro/agents` that Kiro CLI upgraded for its 3.0 engine
-  (Kiro keeps each file it replaced beside it as `.json.bak`): a refresh keeps
-  them as Kiro left them, says so in one line, and brings in the rest of the
-  release; `aidlc config --harness kiro-cli-legacy --force` takes the release's versions,
-  and Kiro upgrades them again the next time it starts on its 3.0 engine
 
 Under `aidlc/`, install and refresh copy only those seeds. The clone identity,
 sessions, engine health, and other per-machine state are never copied from the
@@ -1183,14 +1159,13 @@ the entries AI-DLC wrote.
 |---------|-----------|--------|
 | `.gitignore` | All | Own one marked AI-DLC block containing the union of installed harnesses' shipped entries; preserve every byte outside it |
 | `.mcp.json` / `mcpServers` | Claude | Add or remove only consented, baseline-owned entries; preserve user keys and overrides |
-| `.kiro/settings/mcp.json` / `mcpServers` | Kiro CLI | Per server, as `.mcp.json`: follow the release only for AI-DLC's servers you have not changed; keep the servers you add and a shipped server you turn on; a file the project already had at setup is merged, not refused |
-| `AGENTS.md` | Kiro CLI, Kiro IDE, Codex, Cursor, OpenCode, Copilot | One marked block; harness-neutral and shared (`shared: "identical"`) except Copilot, whose block carries its `@`-imports; preserve project instructions |
+| `AGENTS.md` | Kiro, Codex, Cursor, OpenCode, Copilot | One marked block; harness-neutral and shared (`shared: "identical"`) except Copilot, whose block carries its `@`-imports; preserve project instructions |
 | `opencode.json` | OpenCode | `json-entries`: add AI-DLC's entries (`$schema`, its `skills.paths` and `instructions` strings, its `permission` rules) only where absent, its rules for the team's own commands (the asks before `rm -r...` and `git push`) first in a map so the team's rules after them still decide; keep the team's model, provider, own instructions and rules, comments, and layout; record what AI-DLC wrote, follow or retire only entries still holding that value. A file AI-DLC wrote whole in an earlier release is adopted. The copy runtime leaves this file out; its setup (or the first session where setup never ran) adds AI-DLC's part |
 | `.vscode/settings.json` | Copilot | `jsonc-settings`: add `chat.agent.maxRequests` (200) only when the project does not set it; never change a value someone else set, other keys, or comments; record only what AI-DLC added, and on retirement remove it only while it holds the value AI-DLC wrote; once added, a key the team takes out of a file it keeps is not added back. The copy runtime leaves this file out |
 
 **More than one harness in a project.** Harnesses may coexist when their engine
 directories differ and they do not share an exclusive managed block. `AGENTS.md`
-is neutral and byte-identical (`shared: "identical"`) across Kiro CLI, Kiro IDE,
+is neutral and byte-identical (`shared: "identical"`) across Kiro,
 Codex, Cursor, and OpenCode, so any of those with distinct engine directories
 may coexist. Codex's harness-specific onboarding is injected through
 `developer_instructions` in the project `.codex/config.toml` when the project is
@@ -1198,35 +1173,10 @@ trusted, with `.codex/onboarding.md` as its readable copy.
 Claude Code may coexist with any other harness. Copilot's `AGENTS.md`
 stays exclusive: pairing it with another harness that ships that block is refused
 with `cannot coexist in one project`, regardless of which is installed first.
-Kiro CLI and Kiro IDE still share `.kiro/`, and OpenCode and Copilot share `.aidlc/`,
-so those pairs cannot coexist. Kiro CLI and Kiro IDE can replace each other
-instead: in a project that has one of them, `aidlc config --harness kiro`
-(or `--harness kiro-cli-legacy`) switches `.kiro/` to the other in place. The switch is a
-refresh planned from the installed row's ownership baseline: it removes the files
-only that row shipped, keeps `aidlc/`, reports a locally modified file it would
-replace or remove as a conflict, and, like any refresh, is done while work is open.
-Switching to `kiro-ide` names every `.kiro/hooks/*.json` file AI-DLC does not
-own: Kiro runs those on its v3 engine, which the switch pins in
-`.kiro/settings/cli.json`, and in Kiro IDE. When there is one, the switch applies
-only with your approval of that exact set of files: answer the prompt in a
-terminal, or run the switch with `--dry-run`, review the files, and apply it with
-the `--plan-token` that dry run prints. A hook file added, removed, renamed, or
-changed after that review stops the switch, including one that appears before
-the switch takes its transaction lock or while it commits its files, which rolls
-the switch back. The switch refuses when `.kiro/hooks` is
-a link or a file (before reading anything under it), or when a hook entry
-AI-DLC does not own is a link or anything other than a regular file, rather
-than follow it. It needs that baseline
-(`.kiro/tools/data/aidlc-manifest.json`). Without one, refresh the installed row
-with `aidlc config --harness <installed>` first; the same holds for a baseline
-recorded before AI-DLC listed only the files it ships there, which a refresh
-brings up to date. The switch never changes a damaged one: move it aside
-yourself (the printed step names its full path), then run that refresh. A
-switch that clears the trust review names the `config trust --harness <row>`
-command that records it again. A release passed with `--from`
-and no `--harness` never switches the row. OpenCode and Copilot are not switched
-this way. For an older installed harness whose root block
-is not shared, the `predates shared onboarding` error suggests refreshing it with
+OpenCode and Copilot share `.aidlc/`, so they cannot coexist. A project still
+set up with the retired legacy Kiro CLI row is moved by hand, once: see
+[Coming from the legacy Kiro CLI row](harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-row).
+For an older installed harness whose root block is not shared, the `predates shared onboarding` error suggests refreshing it with
 `aidlc config --harness <name>` first. This is a hint for an older sibling, not a
 promise that refreshing enables coexistence: if it still refuses afterwards,
 the sibling's block is exclusive. Copilot's block stays exclusive after refresh.
@@ -1320,8 +1270,7 @@ Successful config prints the host-specific next step:
 | Harness | Next step |
 |---------|-----------|
 | Claude Code | Open Claude Code in this project (if it is already open in this folder, exit it and start it again) and run `/aidlc --doctor` |
-| Kiro CLI | Run `kiro-cli chat`, then `/aidlc --doctor` |
-| Kiro IDE | Open this project in Kiro IDE; if the Restricted Mode banner shows at the top of the window and you know what is in this folder, select Manage on it, then Trust; run `Developer: Reload Window` from the Command Palette (Ctrl+Shift+P, or Cmd+Shift+P on macOS), choose the aidlc agent in the chat panel's agent picker, then run `/aidlc --doctor` (in Kiro CLI, start `kiro-cli` in the project instead and run `/aidlc --doctor`) |
+| Kiro | Open this project in Kiro IDE; if the Restricted Mode banner shows at the top of the window and you know what is in this folder, select Manage on it, then Trust; run `Developer: Reload Window` from the Command Palette (Ctrl+Shift+P, or Cmd+Shift+P on macOS), choose the aidlc agent in the chat panel's agent picker, then run `/aidlc --doctor` (in Kiro CLI, start `kiro-cli` in the project instead and run `/aidlc --doctor`) |
 | Codex CLI | Run `codex` (when it asks about hooks, choose Trust all and continue), then `$aidlc --doctor` |
 | OpenCode | Run `opencode`, then `/aidlc --doctor` |
 

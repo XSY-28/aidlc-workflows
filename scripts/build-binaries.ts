@@ -556,7 +556,7 @@ function harnessProbeGate(
 function compiledKiroNewWorkRoutingGate(artifact: string): GateResult {
   const project = mkdtempSync(join(tmpdir(), "aidlc-binary-kiro-routing-"));
   try {
-    cpSync(join(REPO_ROOT, "dist", "kiro"), project, { recursive: true });
+    cpSync(join(REPO_ROOT, "dist", "kiro-ide"), project, { recursive: true });
     chatStarted(project);
     const env: NodeJS.ProcessEnv = { ...process.env, PATH: "" };
     delete env.AIDLC_HARNESS_DIR;
@@ -1503,7 +1503,7 @@ function planApprovalHookGate(artifact: string): GateResult {
 
 function planApprovalAdapterGate(
   artifact: string,
-  harness: "codex" | "kiro",
+  harness: "codex" | "kiro-ide",
 ): GateResult {
   const project = mkdtempSync(join(tmpdir(), `aidlc-binary-plan-${harness}-`));
   try {
@@ -1524,18 +1524,12 @@ function planApprovalAdapterGate(
           },
         }
       : {
-          hook_event_name: "preToolUse",
+          hook_event_name: "PreToolUse",
           cwd: project,
-          tool_name: "subagent",
+          tool_name: "invoke_sub_agent",
           tool_input: {
-            task: "AIDLC-UNIT: todo-core\nImplement todo-core",
-            stages: [
-              {
-                name: "implement_todo_core",
-                role: "aidlc-developer-agent",
-                prompt_template: "AIDLC-UNIT: todo-core\nImplement todo-core",
-              },
-            ],
+            name: "aidlc-developer-agent",
+            prompt: "AIDLC-UNIT: todo-core\nImplement todo-core",
           },
         };
     const result = run(artifact, ["engine", "adapter", harness, "plan-approval-guard"], {
@@ -1937,16 +1931,11 @@ function routedProjectDirGate(artifact: string): GateResult {
 
 function dispatcherParityGate(artifact: string): GateResult {
   const codexProject = mkdtempSync(join(tmpdir(), "aidlc-binary-parity-codex-"));
-  const kiroProject = mkdtempSync(join(tmpdir(), "aidlc-binary-parity-kiro-"));
   const kiroIdeProject = mkdtempSync(join(tmpdir(), "aidlc-binary-parity-kiro-ide-"));
   try {
     mkdirSync(join(codexProject, ".git"));
-    mkdirSync(join(kiroProject, ".git"));
     mkdirSync(join(kiroIdeProject, ".git"));
     cpSync(join(REPO_ROOT, "dist-release", "codex", ".codex"), join(codexProject, ".codex"), {
-      recursive: true,
-    });
-    cpSync(join(REPO_ROOT, "dist-release", "kiro", ".kiro"), join(kiroProject, ".kiro"), {
       recursive: true,
     });
     cpSync(join(REPO_ROOT, "dist-release", "kiro-ide", ".kiro"), join(kiroIdeProject, ".kiro"), {
@@ -1988,16 +1977,6 @@ function dispatcherParityGate(artifact: string): GateResult {
           hook_event_name: "PreCompact",
           cwd: codexProject,
           session_id: "binary-parity",
-        }),
-      },
-      {
-        name: "adapter-kiro",
-        projectDir: kiroProject,
-        args: ["engine", "adapter", "kiro", "session-start"],
-        input: JSON.stringify({
-          hook_event_name: "agentSpawn",
-          cwd: kiroProject,
-          session_id: "binary-parity-kiro",
         }),
       },
       {
@@ -2064,7 +2043,6 @@ function dispatcherParityGate(artifact: string): GateResult {
     };
   } finally {
     rmSync(codexProject, { recursive: true, force: true });
-    rmSync(kiroProject, { recursive: true, force: true });
     rmSync(kiroIdeProject, { recursive: true, force: true });
   }
 }
@@ -2479,14 +2457,13 @@ function buildTarget(target: TargetConfig): TargetResult {
     ));
     result.gates.push(harnessRuntimeGate(actual.artifact, "codex", ".codex"));
     result.gates.push(harnessRuntimeGate(actual.artifact, "cursor", ".cursor"));
-    result.gates.push(harnessRuntimeGate(actual.artifact, "kiro", ".kiro"));
     result.gates.push(harnessRuntimeGate(actual.artifact, "kiro-ide", ".kiro"));
     result.gates.push(harnessRuntimeGate(actual.artifact, "copilot", ".aidlc"));
     result.gates.push(harnessRuntimeGate(actual.artifact, "opencode", ".aidlc"));
     result.gates.push(harnessProbeGate(
       actual.artifact,
-      "kiro",
-      "agents/aidlc.json or agents/aidlc-aidlc.md present (conductor wiring)",
+      "kiro-ide",
+      "agents/aidlc-aidlc.md present (conductor wiring)",
     ));
     result.gates.push(harnessProbeGate(
       actual.artifact,
@@ -2541,7 +2518,7 @@ function buildTarget(target: TargetConfig): TargetResult {
     result.gates.push(statuslineGate(actual.artifact));
     result.gates.push(codexAdapterGate(actual.artifact));
     result.gates.push(planApprovalAdapterGate(actual.artifact, "codex"));
-    result.gates.push(planApprovalAdapterGate(actual.artifact, "kiro"));
+    result.gates.push(planApprovalAdapterGate(actual.artifact, "kiro-ide"));
     result.gates.push(cursorAdapterGate(actual.artifact));
     result.gates.push(copilotAdapterGate(actual.artifact));
     result.gates.push(copilotLegacyProjectGate(actual.artifact));

@@ -193,7 +193,6 @@ describe("t266 review class", () => {
   test("compiled graph carries the class split (every harness tree)", () => {
     const graphs = [
       "dist/claude/.claude/tools/data/stage-graph.json",
-      "dist/kiro/.kiro/tools/data/stage-graph.json",
       "dist/kiro-ide/.kiro/tools/data/stage-graph.json",
       "dist/codex/.codex/tools/data/stage-graph.json",
       "dist/opencode/.aidlc/tools/data/stage-graph.json",

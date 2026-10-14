@@ -15,7 +15,7 @@ export type DirMap = { src: string; dst: string };
  * An authored harness file copied from harness/<name>/<src> into the dist tree.
  * By default <dst> is relative to <harnessDir>/ (e.g. .kiro/skills/aidlc/SKILL.md).
  * Set projectRoot:true to land it at the dist tree ROOT instead, beside the
- * harness dir (e.g. dist/kiro/AGENTS.md) — Kiro/Codex put AGENTS.md there.
+ * harness dir (e.g. dist/kiro-ide/AGENTS.md) — Kiro/Codex put AGENTS.md there.
  */
 export type FileMap = { src: string; dst: string; projectRoot?: boolean };
 
@@ -235,13 +235,14 @@ export type HarnessManifest = {
    */
   tierFlavor: "claude" | "codex" | "kiro" | "opencode" | "copilot" | "cursor";
   /**
-   * Kiro rows only: which tree layout this row ships. `agent-v1` is the Kiro CLI
-   * agent-JSON layout (JSON agents with hooks embedded in them); `kas` is the
-   * layout Kiro IDE 1.x and Kiro CLI v3 run (Markdown agents and standalone
+   * Kiro row only: which tree layout this row ships. `kas` is the layout Kiro
+   * IDE 1.x and Kiro CLI v3 run (Markdown agents and standalone
    * `.kiro/hooks/*.json`). Written to harness.json so code that depends on the
-   * layout reads it from the installed tree instead of from the row name.
+   * layout reads it from the installed tree instead of from the row name (an
+   * older tree may still record the retired `agent-v1` layout; see
+   * core/tools/aidlc-runtime-paths.ts KiroLayout).
    */
-  kiroLayout?: "agent-v1" | "kas";
+  kiroLayout?: "kas";
   /** core/<src> → <harnessDir>/<dst> projections. */
   coreDirs: DirMap[];
   /** harness/<name>/<src> → <harnessDir>/<dst> authored-file copies. */
@@ -256,8 +257,8 @@ export type HarnessManifest = {
    * key the core file already declares (so core later adding the key is a
    * loud conflict, never a silent double). Example: Kiro resolves a delegated
    * subagent's tool grants from the agent .md frontmatter
-   * (`tools: ["read", "write", "shell"]`), not from the CLI row's
-   * agent-v1 JSON - without the injected line a delegate runs toolless.
+   * (`tools: ["read", "write", "shell"]`) - without the injected line a
+   * delegate runs toolless.
    */
   frontmatterAdditions?: Array<{ file: string; lines: string[] }>;
   /**
@@ -356,8 +357,7 @@ export type HarnessManifest = {
    * `harnessDir` (manifestDir = "<harnessDir>-plugin", kind = "store"), so a
    * NEW harness added per the one-core-many-harnesses promise automatically
    * gets a plugin projection instead of being silently skipped. A harness with
-   * no host plugin store uses a folder-drop projection: Kiro CLI sets kind
-   * "kiro" and relies on the explicit composer, while Kiro IDE sets kind
+   * no host plugin store uses a folder-drop projection: the Kiro row sets kind
    * "kiro-ide" for its v2 SessionStart registration. Cursor sets kind "cursor"
    * for its flat camelCase hook schema.
    */
@@ -365,7 +365,7 @@ export type HarnessManifest = {
     /** Host plugin-manifest dir name (for example ".claude-plugin" or ".cursor-plugin"). */
     manifestDir: string;
     /** Host-specific plugin hook projection shape. */
-    kind: "store" | "kiro" | "kiro-ide" | "cursor";
+    kind: "store" | "kiro-ide" | "cursor";
     /**
      * Additional project-root surfaces emitted outside harnessDir that compose
      * must copy into a disposable plugin-test candidate.

@@ -137,7 +137,7 @@ describe("t247 claim-sources sensor", () => {
   test("marked TUI fixture authority reaches the public query and rejects a stale source register", () => {
     const description = "Build a simple React todo app";
     const root = setupTuiProject({
-      harness: "kiro",
+      harness: "kiro-ide",
       withState: "state-initialization-done.md",
       projectDescription: description,
     });

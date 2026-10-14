@@ -7,7 +7,7 @@
 // ran. This installs this checkout's release the way a person's machine has it,
 // configures a project through that launcher, runs each hook command from the
 // project's settings.json through the shell Claude Code uses (Git Bash on
-// Windows, sh elsewhere), and asks doctor, also as Kiro CLI's `/aidlc --doctor`.
+// Windows, sh elsewhere), and asks doctor.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
@@ -112,7 +112,7 @@ beforeAll(() => {
     repoRoot: REPO_ROOT,
     version: AIDLC_VERSION,
     binary: "executable",
-    distributions: ["claude", "kiro"],
+    distributions: ["claude"],
   });
   const machine = join(root, "machine");
   const bin = join(machine, "bin");
@@ -231,21 +231,5 @@ describe.skipIf(SKIP_REASON !== null)("a native install runs every Claude Code h
     // Warnings are advice (such as starting the harness from a desktop icon); a
     // hook row that fails means the hooks do not work.
     expect(checks.filter((check) => !check.pass && check.severity !== "warn" && /hook/i.test(check.label))).toEqual([]);
-  });
-
-  test("Kiro CLI's /aidlc --doctor answers with the doctor report", () => {
-    const configured = sh('aidlc config --project-dir "$NATIVE_HOOKS_PROJECT" --harness kiro-cli-legacy --mcp none --quiet', "", {
-      NATIVE_HOOKS_PROJECT: project,
-    });
-    expect(configured.status, configured.stdout + configured.stderr).toBe(0);
-    const agent = JSON.parse(readFileSync(join(project, ".kiro", "agents", "aidlc.json"), "utf-8")) as {
-      hooks?: Record<string, Array<{ command?: string }>>;
-    };
-    const prompt = agent.hooks?.userPromptSubmit?.[0]?.command ?? "";
-    expect(prompt).toBe("aidlc engine adapter kiro verb-intercept");
-    const r = sh(prompt, JSON.stringify({ cwd: project, hook_event_name: "userPromptSubmit", prompt: "/aidlc --doctor" }));
-    expect(r.status, r.stderr).toBe(0);
-    expect(r.stdout + r.stderr).not.toMatch(/command not found|unknown command/);
-    expect(r.stdout).toContain("AI-DLC doctor");
   });
 });

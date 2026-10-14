@@ -70,7 +70,7 @@ const NEW_CHAT = "01995000-7a11-7000-8000-00000000b002";
 const CHANGE = "also add a test for an empty title";
 
 type Policy = "off" | "strict";
-type Harness = "claude" | "kiro" | "kiro-ide" | "codex";
+type Harness = "claude" | "kiro-ide" | "codex";
 
 interface Emitted {
   kind: string;
@@ -170,8 +170,8 @@ function say(proj: string, prompt: string, harness: Harness = "claude", session 
       { ...unset, CODEX_THREAD_ID: undefined, CODEX_SESSION_ID: undefined });
     return;
   }
-  run(proj, [join(proj, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), harness === "kiro" ? "verb-intercept" : "record-human-turn"],
-    JSON.stringify({ hook_event_name: harness === "kiro" ? "userPromptSubmit" : "UserPromptSubmit", session_id: SESSION, cwd: proj, prompt }),
+  run(proj, [join(proj, ".kiro", "hooks", "aidlc-kiro-adapter.ts"), "record-human-turn"],
+    JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: SESSION, cwd: proj, prompt }),
     unset);
 }
 
@@ -369,7 +369,7 @@ describe("a number for the routing question answers it alone while the code plan
     expect(again.plan_approval?.editing).toBe(false);
   });
 
-  for (const harness of ["kiro", "kiro-ide", "codex"] as const) {
+  for (const harness of ["kiro-ide", "codex"] as const) {
     test(`${harness}: "1" through its own human-turn hook records nothing for the plan`, () => {
       const proj = project("off");
       routingQuestionOverThePlan(proj);

@@ -124,7 +124,9 @@ export function liveProject(harness: LiveHarness): LiveProject {
     return { proj: codex.proj, home: codex.home, cleanup: () => cleanupTestProject(codex.root) };
   }
   if (harness === "kiro") {
-    const proj = setupTuiProject({ harness: "kiro", noAidlcDocs: true });
+    // Kiro CLI on the v3 engine runs the one Kiro tree (row id kiro-ide): its
+    // `aidlc` conductor agent and settings/cli.json's v3 engine pin.
+    const proj = setupTuiProject({ harness: "kiro-ide", noAidlcDocs: true });
     seedAidlcMemory(proj);
     seedWorkspaceShell(proj);
     return { proj, cleanup: () => cleanupTuiProject(proj) };

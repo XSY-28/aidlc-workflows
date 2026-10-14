@@ -20,9 +20,6 @@ import {
   CopilotScopeHost,
   copilotWired,
   type KiroIdeCard,
-  KiroCliScopeHost,
-  kiroCliMatches,
-  kiroCliWired,
   KiroIdeScopeHost,
   kiroIdeWired,
 } from "../harness/scope-hosts.ts";
@@ -72,18 +69,6 @@ class CopilotCapture extends CopilotScopeHost {
   }
 }
 
-class KiroCliCapture extends KiroCliScopeHost {
-  readonly seen: Seen[] = [];
-  override wired(): string[] {
-    return [];
-  }
-  protected override payload(event: string, fields: Record<string, unknown>): Record<string, unknown> {
-    const payload = super.payload(event, fields);
-    this.seen.push({ event, payload });
-    return payload;
-  }
-}
-
 class KiroIdeCapture extends KiroIdeScopeHost {
   readonly seen: Seen[] = [];
   override wired(): string[] {
@@ -97,7 +82,7 @@ class KiroIdeCapture extends KiroIdeScopeHost {
 }
 
 /** Each moment the scope run plays, once. */
-function playMoments(host: CodexCapture | CopilotCapture | KiroCliCapture | KiroIdeCapture): Seen[] {
+function playMoments(host: CodexCapture | CopilotCapture | KiroIdeCapture): Seen[] {
   host.sessionStart("startup");
   host.typed("Guide me");
   if (host.picker) host.picked("Which option fits?", ["A", "B"], "A");
@@ -191,58 +176,6 @@ describe("Copilot CLI: .github/hooks/aidlc.json and Copilot's own payloads", () 
     expect(prompt.startsWith('The user explicitly invoked the "/aidlc" skill.')).toBe(true);
     expect(prompt).toContain('<skill-context name="aidlc">');
     expect(prompt).not.toContain("$ARGUMENTS");
-  });
-});
-
-describe("Kiro CLI: the agent JSON's hooks and Kiro CLI 2.29's own payloads", () => {
-  const agent = (name: string) => json(`dist/kiro/.kiro/agents/${name}.json`);
-  const kiro = (target: string) => `bun .kiro/tools/aidlc.ts engine adapter kiro ${target}`;
-  const cli = json("tests/fixtures/kiro-hook-payloads/cli-2.29.0.json") as Record<string, Record<string, unknown>>;
-
-  test("a matcher is a glob over the tool's name and its alias, as the CLI reads it", () => {
-    expect(kiroCliMatches("execute_bash", "shell")).toBe(true);
-    expect(kiroCliMatches("fs_write", "write")).toBe(true);
-    expect(kiroCliMatches("fs_read", "read")).toBe(true);
-    expect(kiroCliMatches("subagent", "subagent")).toBe(true);
-    expect(kiroCliMatches("subagent", "summary")).toBe(false);
-    expect(kiroCliMatches("*", "summary")).toBe(true);
-  });
-
-  test("each event fires the conductor's registrations in file order, and a helper its own agent's, named", () => {
-    const aidlc = agent("aidlc");
-    expect(kiroCliWired(aidlc, "preToolUse", "shell")).toEqual(
-      ["state-transition-guard", "guard-tool-call", "review-freeze", "plan-approval-guard"].map(kiro));
-    expect(kiroCliWired(aidlc, "preToolUse", "write")).toEqual(["review-freeze", "plan-approval-guard"].map(kiro));
-    expect(kiroCliWired(aidlc, "preToolUse", "subagent")).toEqual(["deliver-stage-rules", "plan-approval-guard"].map(kiro));
-    expect(kiroCliWired(aidlc, "postToolUse", "shell")).toEqual([kiro("rebuild-stage-graph")]);
-    expect(kiroCliWired(aidlc, "postToolUse", "write")).toEqual([kiro("audit-and-sensors")]);
-    expect(kiroCliWired(aidlc, "postToolUse", "subagent")).toEqual([kiro("log-subagent")]);
-    expect(kiroCliWired(aidlc, "userPromptSubmit", null)).toEqual([kiro("verb-intercept")]);
-    expect(kiroCliWired(aidlc, "stop", null)).toEqual([kiro("continue-workflow")]);
-    expect(kiroCliWired(aidlc, "preToolUse", "summary")).toEqual([]);
-    expect(kiroCliWired(agent("aidlc-developer-agent"), "preToolUse", "shell")).toContain(kiro("state-transition-guard aidlc-developer-agent"));
-  });
-
-  test("every payload carries the fields the CLI's recorded payload for that event carries, a helper's under its own session", () => {
-    const host = new KiroCliCapture(scratch());
-    const seen = playMoments(host);
-    expect(keys(find(seen, "agentSpawn"))).toEqual(keys(cli.agentSpawn));
-    expect(keys(find(seen, "userPromptSubmit"))).toEqual(keys(cli.userPromptSubmit));
-    expect(keys(find(seen, "preToolUse", "shell"))).toEqual(keys(cli.preToolUse_shell));
-    expect(keys(find(seen, "postToolUse", "shell"))).toEqual(keys(cli.postToolUse_shell));
-    expect(keys(find(seen, "preToolUse", "subagent"))).toEqual(keys(cli.preToolUse_subagent));
-    expect(keys(find(seen, "preToolUse", "subagent").tool_input as Record<string, unknown>))
-      .toEqual(keys(cli.preToolUse_subagent.tool_input as Record<string, unknown>));
-    expect(keys(find(seen, "postToolUse", "subagent"))).toEqual(keys(cli.postToolUse_subagent));
-    expect(keys(find(seen, "preToolUse", "write").tool_input as Record<string, unknown>))
-      .toEqual(keys(cli.helper_preToolUse_write.tool_input as Record<string, unknown>));
-    expect(keys(find(seen, "stop"))).toEqual(keys(cli.stop));
-    // The helper's own events: its own session, its brief as the prompt, its report.
-    const spawns = seen.filter((s) => s.event === "agentSpawn");
-    expect(spawns).toHaveLength(2);
-    expect(spawns[1].payload.session_id).not.toBe(spawns[0].payload.session_id);
-    expect(keys(find(seen, "preToolUse", "summary"))).toEqual(keys(cli.helper_preToolUse_summary));
-    expect(host.picker).toBe(false);
   });
 });
 

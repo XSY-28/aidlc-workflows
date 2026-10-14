@@ -19,7 +19,7 @@
 // `next --resume`, and the open work's stage came back with their request gone.
 //
 // Spawns the real engine and each host's own human-turn hook (the Kiro IDE
-// adapter, the Kiro CLI and Codex adapters and the Claude Code dispatcher), as
+// adapter, the Codex adapter and the Claude Code dispatcher), as
 // tests/unit/t-message-record does.
 import { NATIVE_FIXTURE_SETUP_TIMEOUT_MS } from "../harness/test-budget.ts";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -359,7 +359,7 @@ function isTheWorksStep(directive: Directive): boolean {
 }
 
 describe("with work open, the agent's first step after `/aidlc <words>` reads the line when it carries none of it", () => {
-  for (const harness of ["claude", "codex", "kiro", "kiro-ide"] as Harness[]) {
+  for (const harness of ["claude", "codex", "kiro-ide"] as Harness[]) {
     test(`${harness}: next --resume after "/aidlc <new work>" gets the reading of their words, not the open stage`, async () => {
       const proj = await workOpen();
       const said = await say(proj, harness === "codex" ? NEW_LINE.replace(/^\/aidlc/, "$aidlc") : NEW_LINE, harness);
@@ -515,7 +515,7 @@ async function stepAfter(proj: string, harness: Harness, args: string[]): Promis
 }
 
 describe("the entry word alone over work in hand picks the work back up, whichever first next the agent sends", () => {
-  for (const harness of ["claude", "codex", "kiro", "kiro-ide", "copilot"] as Harness[]) {
+  for (const harness of ["claude", "codex", "kiro-ide", "copilot"] as Harness[]) {
     test(`${harness}: "/aidlc" alone, then a bare next, picks the work up as --resume does`, async () => {
       const proj = await workOpen();
       const line = harness === "codex" ? "$aidlc" : harness === "copilot" ? copilotSkillPrompt(proj, "") : "/aidlc";

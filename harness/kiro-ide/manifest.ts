@@ -313,7 +313,7 @@ const manifest: HarnessManifest = {
       },
     },
   ],
-  // Same core projection as kiro CLI.
+  // The full core projection.
   coreDirs: [
     { src: "tools", dst: "tools" },
     { src: "aidlc-common", dst: "aidlc-common" },

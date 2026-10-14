@@ -1,9 +1,8 @@
 // covers: hook:aidlc-statusline
 //
 // t-tui-journey-orientation.serial.test.ts — the RENDER-HALF of the P10 / Stage E
-// workspace journey (the logic-half rides the SDK·ACP·exec drivers in
-// t-journey-workspace.sdk / t-acp-kiro-journey-workspace / t-exec-codex-journey-
-// workspace). It proves the vision §3 "you are here" promise PAINTS on a REAL
+// workspace journey (the logic-half rides the SDK·exec drivers in
+// t-journey-workspace.sdk / t-exec-codex-journey-workspace). It proves the vision §3 "you are here" promise PAINTS on a REAL
 // terminal: when more than one space exists, the statusline shows the active
 // `<space> · <intent> · <phase>` orientation prefix as a persistent cwd-style
 // breadcrumb, so work never lands in the wrong space.
@@ -25,18 +24,15 @@
 // HARNESS MATRIX — Claude TUI ONLY, by surface limitation (stated, not faked):
 //   The orientation prefix is the aidlc-statusline.ts hook, wired ONLY through
 //   Claude Code's `statusLine` key, in the person's own .claude/settings.local.json
-//   once they choose AI-DLC's status line (#1407; the fixture's person has). Kiro has NO statusline surface at all: dist/kiro/AGENTS.md
-//   and harness/kiro/skills/aidlc/SKILL.md both state "there is no statusline;
-//   use /aidlc --status and the progress lines at gates", and dist/kiro ships
+//   once they choose AI-DLC's status line (#1407; the fixture's person has). Kiro has NO statusline surface at all:
+//   harness/kiro-ide/skills/aidlc/SKILL.md states "there is no statusline" (use
+//   /aidlc --status and the progress lines at gates), and dist/kiro-ide ships
 //   aidlc-statusline.ts but nothing invokes it as a status row. Codex likewise
 //   has no statusline host (and no TUI surface — tui-drive.ts has zero codex
 //   awareness). So the render-half statusline-orientation matrix is Claude-only:
 //   there is no Kiro/Codex statusline pane to scrape. A Kiro-TUI sibling was NOT
 //   written because the surface it would assert against does not exist — mirror
-//   the plan's "stated, not faked" honesty rather than a hollow skip. The Kiro
-//   render path IS exercised (read-only status through the print-directive arm)
-//   by t-tui-kiro-status.serial; that surfaces the same scope/stage strings, but
-//   in the chat transcript, not a statusline.
+//   the plan's "stated, not faked" honesty rather than a hollow skip.
 //
 // COST: launches the claude TUI but submits NO prompt — it reaches the workflow
 // statusline purely from the seeded per-intent state file (state-mid-ideation),

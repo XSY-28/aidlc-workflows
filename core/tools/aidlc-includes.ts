@@ -175,7 +175,7 @@ export function kiroIdeSteering(projectDir: string, space: string): { text: stri
   };
 }
 
-// The tree Kiro IDE (and Kiro CLI v3) runs; the Kiro CLI 2.0 tree shares `.kiro`.
+// The tree Kiro IDE and Kiro CLI run, when its metadata names it.
 function kiroIdeTree(projectDir: string): boolean {
   try {
     return runtimeHarnessName(projectDir, ".kiro") === "kiro-ide";

@@ -2,7 +2,7 @@
 //
 // t-memory-seed — the ENGINE-ONLY-INSTALL self-heal (deterministic, no-LLM,
 // no-network). Pins the additive fallback that recovers a user who copies ONLY
-// the harness engine dir (e.g. dist/kiro/.kiro/) but NOT the sibling aidlc/
+// the harness engine dir (e.g. dist/kiro-ide/.kiro/) but NOT the sibling aidlc/
 // workspace shell. Normally the shell (aidlc/spaces/default/memory/) ships as a
 // SIBLING of the engine dir, so a complete dist/ copy already carries the method
 // tree. When it is absent, the first /aidlc — which routes through the engine's

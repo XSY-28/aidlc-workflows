@@ -86,7 +86,6 @@ import {
   modelAgentName,
   resolveModelPolicy,
   serializeAgentTiers,
-  writeKiroAgentSurface,
   writeKiroCliSurface,
   writeMarkdownAgentSurface,
 } from "../core/tools/aidlc-model-policy.ts";
@@ -102,7 +101,6 @@ import { AIDLC_VERSION } from "../core/tools/aidlc-version.ts";
 import { BUILD_VERSION_ENV, releaseBuildVersion } from "../core/tools/aidlc-channel.ts";
 import { copyStartsWithout, sha256Bytes, writtenRootIntegration } from "../core/tools/aidlc-distribution.ts";
 import { kiroIdeSteering } from "../core/tools/aidlc-includes.ts";
-import { SHIPPED_FORMAT_DOCS } from "../core/tools/aidlc-inline-context.ts";
 import { AIDLC_SETTINGS_SCHEMA } from "../core/tools/aidlc-settings.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -309,52 +307,6 @@ function projectTierFrontmatter(
   return writeMarkdownAgentSurface(s, effective, {
     effortKey: harness === "opencode" ? "variant" : "effort",
   });
-}
-
-// Project the `"model"` field of an authored Kiro agent .json from the tier
-// table. The JSONs stay hand-written (tools, resources, sandbox settings) but
-// the model dial is projection-owned: the authored files carry NO "model"
-// field at all (so nobody edits a value the build would overwrite), and the
-// tier comes from the same-name core/agents/<slug>.md (single source of
-// truth). A pinned tier ADDS the field; a null projected model leaves it
-// absent - the agent-v1 schema documents the fallback ("If not specified,
-// uses the default model"), which is exactly the judgment-tier inherit
-// contract. Files with no core .md counterpart (the aidlc.json orchestrator
-// config) pass through untouched: the orchestrator is not a tier-carrying
-// persona. Never writes any effort-like key - kiro-cli fail-closes on
-// unknown agent-JSON fields.
-function projectKiroAgentJson(srcPath: string, content: Buffer): Buffer {
-  const name = srcPath.split(sep).join("/").split("/").pop() ?? "";
-  if (!name.endsWith("-agent.json")) return content;
-  const coreMd = join(CORE_ROOT, "agents", name.replace(/\.json$/, ".md"));
-  if (!existsSync(coreMd)) return content;
-  const tier = agentTierFromMd(readFileSync(coreMd, "utf-8"), coreMd);
-  const effective = resolveModelPolicy(
-    null,
-    modelAgentName(name),
-    tier as Tier,
-    "kiro",
-    TIER_CAP,
-  );
-  return Buffer.from(
-    writeKiroAgentSurface(content.toString("utf-8"), effective),
-    "utf-8",
-  );
-}
-
-// The authored Kiro agent JSONs preload the shared knowledge with a glob; a
-// dispatched agent gets the shared methodology files only, as every other
-// harness's preflight names them (SHIPPED_FORMAT_DOCS is the one list).
-function projectKiroSharedKnowledge(content: Buffer): Buffer {
-  const parsed = JSON.parse(content.toString("utf-8")) as { resources?: unknown };
-  const glob = "file://.kiro/knowledge/aidlc-shared/*.md";
-  if (!Array.isArray(parsed.resources) || !parsed.resources.includes(glob)) return content;
-  const files = readdirSync(join(CORE_ROOT, "knowledge", "aidlc-shared"))
-    .filter((file) => file.endsWith(".md") && !SHIPPED_FORMAT_DOCS.has(file))
-    .sort()
-    .map((file) => `file://.kiro/knowledge/aidlc-shared/${file}`);
-  parsed.resources = parsed.resources.flatMap((entry) => (entry === glob ? files : [entry]));
-  return Buffer.from(`${JSON.stringify(parsed, null, 2)}\n`, "utf-8");
 }
 
 // Merge the tier-derived chat.modelDefaults entries into an authored Kiro
@@ -897,11 +849,10 @@ function buildTree(
     );
   }
   // 2. Copy authored harness surfaces (token substitution on .md). projectRoot
-  //    files land beside the harness dir (e.g. dist/kiro/AGENTS.md), the rest
-  //    inside <harnessDir>/. On the kiro harnesses two authored JSON surfaces
-  //    are additionally tier-projected: the agent .json "model" fields and the
-  //    settings/cli.json chat.modelDefaults entries (effort rides on the model
-  //    on Kiro - see aidlc-tiers.ts).
+  //    files land beside the harness dir (e.g. dist/kiro-ide/AGENTS.md), the rest
+  //    inside <harnessDir>/. On Kiro the authored settings/cli.json is
+  //    additionally tier-projected: its chat.modelDefaults entries (effort
+  //    rides on the model on Kiro - see aidlc-tiers.ts).
   const harnessSrcRoot = join(HARNESS_ROOT, m.name);
   for (const { src, dst, projectRoot } of m.harnessFiles) {
     const srcPath = join(harnessSrcRoot, src);
@@ -916,13 +867,7 @@ function buildTree(
       harnessKind,
       invoke,
     );
-    if (harnessKind === "kiro") {
-      if (src.startsWith("agents/") && src.endsWith(".json")) {
-        out = projectKiroSharedKnowledge(projectKiroAgentJson(srcPath, out));
-      } else if (src === "settings/cli.json") {
-        out = projectKiroCliJson(out);
-      }
-    }
+    if (harnessKind === "kiro" && src === "settings/cli.json") out = projectKiroCliJson(out);
     writeFileSync(outPath, out);
   }
 
@@ -1042,7 +987,6 @@ function buildTree(
   }
   expandCursorToolAllows(treeRoot, m);
   expandClaudeToolAllows(treeRoot, m);
-  expandKiroToolAllows(treeRoot, m);
   expandKiroIdeConductorAllows(treeRoot, m, invoke);
   writeProjectionData(outRoot, treeRoot, m);
 
@@ -1191,52 +1135,6 @@ function expandClaudeToolAllows(treeRoot: string, m: HarnessManifest): void {
       : [entry]
   );
   writeFileSync(settingsPath, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-// Kiro CLI's authored agents name AI-DLC's tool scripts with one pattern
-// (any script, any arguments). The projection lists, in its place, the
-// dispatcher's engine commands, each dispatcher command a copy channel
-// pre-approves exactly as AI-DLC runs it (copyChannelDispatcherCommands), and
-// the tool scripts it pre-approves (copyChannelToolScripts), bare or followed
-// by arguments, never a longer file name, one entry each, with the path bare
-// or in either quote spelled out: Kiro's upgrade for its 3.0 engine turns each
-// spelling into its own glob, an optional quote into a `*` that also matches
-// `/`, and drops an entry with more spellings than its limit (kiro-cli
-// 2.29.0). A script behind a machine-changing command, and any config command
-// but the read-only forms, then waits for the person in Kiro CLI. Both trees
-// get it; the native rewrite then turns every bun entry into the one trusted
-// prefix.
-function expandKiroToolAllows(treeRoot: string, m: HarnessManifest): void {
-  if (m.name !== "kiro") return;
-  const agentsDir = join(treeRoot, "agents");
-  const bun = (path: string) => `bun (run )?(${path}|"${path}"|'${path}')`;
-  let expanded = 0;
-  for (const file of walk(agentsDir).filter((path) => path.endsWith(".json"))) {
-    const value = JSON.parse(readFileSync(file, "utf-8")) as {
-      toolsSettings?: { execute_bash?: { allowedCommands?: unknown } };
-    };
-    const allowed = value.toolsSettings?.execute_bash?.allowedCommands;
-    if (!Array.isArray(allowed)) continue;
-    const next = allowed.flatMap((entry) => {
-      const match = typeof entry === "string"
-        ? /^bun \(run \)\?\["']\?(\S+)\/tools\/\[A-Za-z0-9\._-\]\+\\\.ts\["']\?\( \.\*\)\?$/.exec(entry)
-        : null;
-      if (match === null) return [entry];
-      expanded++;
-      const tools = `${match[1]}/tools`;
-      const scripts = copyChannelToolScripts().map((script) => escapeRegExp(script.slice(0, -".ts".length)));
-      return [
-        `${bun(`${tools}/aidlc\\.ts`)} engine( .*)?`,
-        ...copyChannelDispatcherCommands().map((command) =>
-          `${bun(`${tools}/aidlc\\.ts`)} ${escapeRegExp(command)}`
-        ),
-        ...scripts.map((script) => `${bun(`${tools}/${script}\\.ts`)}( .*)?`),
-      ];
-    });
-    value.toolsSettings!.execute_bash!.allowedCommands = next;
-    writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
-  }
-  if (expanded === 0) throw new Error("[kiro] no agent names the tools-folder pattern to expand");
 }
 
 // Kiro IDE's authored conductor (agents/aidlc-aidlc.md) allows AI-DLC's tool

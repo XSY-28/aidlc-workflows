@@ -72,7 +72,7 @@ const NON_READS = [
   "hooks/runtime-integrity.ts",
   "scopes/aidlc-feature.md",
   "steering/aidlc.md",
-  "settings/mcp.json",
+  "settings/cli.json",
 ];
 type GraphNode = { slug: string; phase: string; mode: string; lead_agent: string; support_agents: string[]; plugin?: string };
 const GRAPH: GraphNode[] = [
@@ -178,11 +178,10 @@ describe("t340 Kiro IDE ignore sources doctor", () => {
     expect(rows[0].label).toMatch(/none hide \.kiro\//);
   });
 
-  test("the doctor row is emitted only for the Kiro IDE conductor surface", () => {
+  test("the doctor row is emitted only once the Kiro conductor is installed", () => {
     const { project, globalFile, env } = setupProject();
     writeFileSync(globalFile, ".kiro/\n");
     mkdirSync(join(project, ".kiro", "agents"), { recursive: true });
-    writeFileSync(join(project, ".kiro", "agents", "aidlc.json"), "{}\n");
     const run = (): string => {
       const result = spawnSync(process.execPath, [UTIL, "doctor", "--project-dir", project, "--verbose"], {
         encoding: "utf-8",
@@ -192,9 +191,9 @@ describe("t340 Kiro IDE ignore sources doctor", () => {
       return `${result.stdout ?? ""}${result.stderr ?? ""}`;
     };
 
-    const cli = run();
-    expect(cli).toContain("ok    agents/aidlc.json or agents/aidlc-aidlc.md present (conductor wiring)");
-    expect(cli).not.toContain("Kiro IDE ignore sources:");
+    const bare = run();
+    expect(bare).toContain("agents/aidlc-aidlc.md present (conductor wiring)");
+    expect(bare).not.toContain("Kiro IDE ignore sources:");
 
     writeFileSync(join(project, ".kiro", "agents", "aidlc-aidlc.md"), "# AI-DLC conductor\n");
     const ide = run();

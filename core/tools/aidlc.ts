@@ -36,7 +36,6 @@ import {
   runtimeHarnessName,
   harnessArgsAsIds,
   HARNESS_IDS_ENV,
-  TYPED_HARNESS_ENV,
   quoteCommandArgument,
 } from "./aidlc-runtime-paths.ts";
 
@@ -3161,7 +3160,8 @@ export function terminalDispatcherArgv(command: {
  * work's settings). Global flags before the command stay where they are. Any
  * other `config` argv (the install sections) is returned unchanged.
  */
-export function normalizeTopLevelConfigVerbs(argv: readonly string[]): string[] {
+// Where the command word stands, after the launcher's own options.
+function commandIndex(argv: readonly string[]): number {
   for (let index = 0; index < argv.length; index++) {
     const token = argv[index];
     if (token === "--project-dir") {
@@ -3169,10 +3169,15 @@ export function normalizeTopLevelConfigVerbs(argv: readonly string[]): string[] 
       continue;
     }
     if (LAUNCHER_GLOBAL_FLAGS.has(token) || token === "--no-color") continue;
-    if (token === "config" && ["set", "get", "list"].includes(argv[index + 1] ?? "")) {
-      return [...argv.slice(0, index), "engine", ...argv.slice(index)];
-    }
-    return [...argv];
+    return index;
+  }
+  return -1;
+}
+
+export function normalizeTopLevelConfigVerbs(argv: readonly string[]): string[] {
+  const index = commandIndex(argv);
+  if (index >= 0 && argv[index] === "config" && ["set", "get", "list"].includes(argv[index + 1] ?? "")) {
+    return [...argv.slice(0, index), "engine", ...argv.slice(index)];
   }
   return [...argv];
 }
@@ -3712,7 +3717,7 @@ export async function main(rawArgv: string[]): Promise<void> {
   // `config --harness <name>`: the name a person types reads as the row id
   // here, before a pinned release or the config tool sees the line (an older
   // release reads ids as its own names); both are told it is ids.
-  if (argv[0] === "config" && process.env[HARNESS_IDS_ENV] !== "1") {
+  if (argv[commandIndex(argv)] === "config" && process.env[HARNESS_IDS_ENV] !== "1") {
     const read = harnessArgsAsIds(argv);
     if (read.retired) {
       process.exitCode = renderDispatcherFailure(
@@ -3725,7 +3730,6 @@ export async function main(rawArgv: string[]): Promise<void> {
     }
     argv = read.args;
     process.env[HARNESS_IDS_ENV] = "1";
-    process.env[TYPED_HARNESS_ENV] = read.typed ?? "";
   }
   bufferedStdin = null;
   const tracedHook = tracedHookRoute(argv);

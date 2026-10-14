@@ -3975,14 +3975,10 @@ export async function collectDoctorReport(
       const agentsDir = join(harnessRoot, "agents");
       const personaCommands: string[] = [];
       if (existsSync(agentsDir)) {
-        trustFiles.push(...readdirSync(agentsDir)
-          .filter((name) => name.endsWith(".json"))
-          .map((name) => join(agentsDir, name)));
         // Kiro's Markdown agents grant their shell commands in frontmatter
-        // permissions rules rather than in JSON. Only the conductor's grant
-        // counts toward native trust — a persona carrying the same allow must
-        // not stand in for it — while every agent's Bun-shaped allow is still
-        // a legacy entry.
+        // permissions rules. Only the conductor's grant counts toward native
+        // trust — a persona carrying the same allow must not stand in for it —
+        // while every agent's Bun-shaped allow is still a legacy entry.
         for (const name of readdirSync(agentsDir).filter((n) => n.endsWith(".md"))) {
           try {
             const allows = markdownShellAllows(readFileSync(join(agentsDir, name), "utf-8"));
@@ -3995,7 +3991,7 @@ export async function collectDoctorReport(
       const hooksDir = join(harnessRoot, "hooks");
       if (existsSync(hooksDir)) {
         trustFiles.push(...readdirSync(hooksDir)
-          .filter((name) => name.endsWith(".kiro.hook") || name.endsWith(".json"))
+          .filter((name) => name.endsWith(".json"))
           .map((name) => join(hooksDir, name)));
       }
       for (const path of trustFiles) {
@@ -4003,12 +3999,6 @@ export async function collectDoctorReport(
         try {
           const parsed = JSON.parse(readFileSync(path, "utf-8"));
           collectCommands(parsed);
-          const allowed = (parsed as {
-            toolsSettings?: { execute_bash?: { allowedCommands?: unknown } };
-          }).toolsSettings?.execute_bash?.allowedCommands;
-          if (Array.isArray(allowed)) {
-            commands.push(...allowed.filter((entry): entry is string => typeof entry === "string"));
-          }
           const permissions = (parsed as {
             permissions?: { allow?: unknown };
           }).permissions?.allow;
@@ -4525,8 +4515,8 @@ export async function collectDoctorReport(
       }
     }
   } else {
-    // Kiro / Codex: the wiring config is not settings.json (it is
-    // agents/aidlc.json / hooks.json — checked below). The core hook bodies
+    // Kiro / Codex: the wiring config is not settings.json (it is the Kiro
+    // conductor agent / hooks.json — checked below). The core hook bodies
     // ship in every tree plus an authored adapter, so probe the explicit roster.
     const tsHooks = [
       "aidlc-write-audit-log",
@@ -4589,27 +4579,17 @@ export async function collectDoctorReport(
   }
 
   // 4. Harness wiring config present. Claude Code: settings.json (hooks +
-  // permissions live there). Kiro CLI: agents/aidlc.json plus
-  // settings/cli.json; Kiro IDE: agents/aidlc-aidlc.md. Codex CLI: config.toml +
-  // hooks.json (the hook wiring) + rules/default.rules (permissions).
+  // permissions live there). Kiro: agents/aidlc-aidlc.md. Codex CLI:
+  // config.toml + hooks.json (the hook wiring) + rules/default.rules
+  // (permissions).
   if (harness === ".kiro") {
-    const jsonAgentPath = join(projectDir, harness, "agents", "aidlc.json");
     const markdownAgentPath = join(projectDir, harness, "agents", KIRO_CONDUCTOR_AGENT_FILE);
-    const hasJsonAgent = existsSync(jsonAgentPath);
     results.push({
-      pass: hasJsonAgent || existsSync(markdownAgentPath) || existsSync(join(projectDir, harness, "agents", "aidlc.md")),
-      label: "agents/aidlc.json or agents/aidlc-aidlc.md present (conductor wiring)",
-      fix: `${projectedFileRepair("kiro", ".kiro/agents/aidlc.json")} (Kiro CLI) or ${projectedFileRepair("kiro-ide", ".kiro/agents/aidlc-aidlc.md")} (Kiro IDE)`,
+      pass: existsSync(markdownAgentPath) || existsSync(join(projectDir, harness, "agents", "aidlc.md")),
+      label: "agents/aidlc-aidlc.md present (conductor wiring)",
+      fix: projectedFileRepair("kiro-ide", ".kiro/agents/aidlc-aidlc.md"),
     });
     results.push(...kiroDisabledHookChecks(projectDir, harness));
-    if (hasJsonAgent) {
-      const cliSettingsPath = join(projectDir, harness, "settings", "cli.json");
-      results.push({
-        pass: existsSync(cliSettingsPath),
-        label: "settings/cli.json present (workspace default-agent activation)",
-        fix: `${projectedFileRepair("kiro", ".kiro/settings/cli.json")} (or use \`kiro-cli chat --agent aidlc\`)`,
-      });
-    }
     if (existsSync(markdownAgentPath)) {
       // The Markdown conductor row pins Kiro CLI to the v3 engine and the aidlc
       // agent here: the default engine runs no project hooks, so a missing or

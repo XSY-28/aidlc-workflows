@@ -4,8 +4,7 @@ How Kiro IDE delivers context to a command hook, captured live on 0.12-main
 (probe `.kiro.hook` files that dumped stdin, argv, and the full environment),
 1.0.165 (probe v2 hook JSON files; upstream #543/#555), and 1.0.242
 (UserPromptSubmit and PreToolUse probes on Windows). This is the evidence base
-for the `harness/kiro-ide/` adapter; the CLI harness (`harness/kiro/`) uses a
-different, kiro-cli-shaped stdin mechanism.
+for the `harness/kiro-ide/` adapter, which Kiro CLI v3 also runs.
 
 The redacted native Windows before/after captures are retained in
 [`research/kiro-windows-output-encoding/`](research/kiro-windows-output-encoding/).
@@ -399,7 +398,7 @@ cards doing the work, and the guard notes nothing for them.
   the latch keep matching, until one of them can be changed again or the
   person opens a new chat. The terminal-command refusal still follows the
   host's or the retained session when a payload names none. The engine's own
-  guard for this (Branch 0) reads only the agent-v1 project-wide latch, not
+  guard for this (Branch 0) reads only a project-wide latch, not
   these per-chat ones: the engine could tell one chat's latch from another's
   only through process ancestry, and the chats of one Kiro IDE window share a
   process.

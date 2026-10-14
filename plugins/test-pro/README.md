@@ -52,11 +52,12 @@ codex plugin marketplace add <…>/dist/plugins/test-pro/codex
 codex plugin add aidlc-test-pro@aidlc-plugins   # approve the one-time hook trust
 ```
 
-**Kiro** (no store — folder-drop + compose):
+**Kiro** (Kiro IDE and Kiro CLI; no store — folder-drop, composed at the next session start):
 ```bash
-cp -r dist/plugins/test-pro/kiro/. <project>/     # or git pull the plugin repo
-AIDLC_PLUGIN_ROOT=<…>/kiro AIDLC_PROJECT_DIR=<project> AIDLC_HARNESS_DIR=.kiro \
-  bun <…>/kiro/hooks/compose.ts
+cp -r dist/plugins/test-pro/kiro-ide/. <project>/     # or git pull the plugin repo
+# optional, to compose now:
+AIDLC_PLUGIN_ROOT=<…>/kiro-ide AIDLC_PROJECT_DIR=<project> AIDLC_HARNESS_DIR=.kiro \
+  bun <…>/kiro-ide/hooks/compose.ts
 ```
 
 Then confirm and run:

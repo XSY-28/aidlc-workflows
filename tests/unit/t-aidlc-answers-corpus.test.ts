@@ -8,7 +8,7 @@
 // MEANING (what the person means) and EXPECTED. Every reply goes through the core human-turn hook (the one every host
 // adapter forwards to: typed in chat, typed after /aidlc, or picked in the question box), then the engine's step where
 // there is one; a fixed sample per question also goes through each host's own hook shape (Claude Code's dispatcher,
-// the Codex, Kiro CLI and Kiro IDE adapters) and through the agent's answer command. Pass, for every item:
+// the Codex and Kiro adapters) and through the agent's answer command. Pass, for every item:
 //  1. the record keeps what they typed, verbatim;
 //  2. a tool records a choice only from an exact pick as the options were shown (a number where numbers were shown,
 //     the label, "(Recommended)" stripped); anything else is left for the agent, with nothing recorded and no question
@@ -30,7 +30,7 @@ import {
 
 setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-const HARNESSES: Harness[] = ["claude", "codex", "kiro", "kiro-ide"];
+const HARNESSES: Harness[] = ["claude", "codex", "kiro-ide"];
 /** The hook every item goes through (the core hook, directly), named beside the host shapes in the results. */
 const CORE = "core" as const;
 type HookShape = typeof CORE | Harness;

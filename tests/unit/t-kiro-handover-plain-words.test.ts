@@ -7,7 +7,6 @@
 // repeated the skill's forwarding rules. The command and the rules stay; the
 // label and the repeat go.
 //
-// covers: file:harness/kiro/hooks/aidlc-kiro-adapter.ts
 // covers: file:harness/kiro-ide/hooks/aidlc-kiro-adapter.ts
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -15,7 +14,6 @@ import { join } from "node:path";
 
 const REPO = join(import.meta.dir, "..", "..");
 const SHIPPED = [
-  { tree: "kiro", adapter: "dist/kiro/.kiro/hooks/aidlc-kiro-adapter.ts", prompt: "dist/kiro/.kiro/agents/aidlc.json" },
   { tree: "kiro-ide", adapter: "dist/kiro-ide/.kiro/hooks/aidlc-kiro-adapter.ts", prompt: "dist/kiro-ide/.kiro/agents/aidlc-aidlc.md" },
 ];
 // Words the agent read back to the person from the hand-over text.
@@ -45,7 +43,7 @@ describe("the Kiro hand-over carries no label for the agent to repeat", () => {
     });
     test(`${tree}: the agent prompt does not repeat the skill's forwarding rules`, () => {
       const text = readFileSync(join(REPO, prompt), "utf-8");
-      const body = prompt.endsWith(".json") ? String((JSON.parse(text) as { prompt?: string }).prompt ?? "") : text.replace(/^---\n[\s\S]*?\n---\n/, "");
+      const body = text.replace(/^---\n[\s\S]*?\n---\n/, "");
       for (const word of PROMPT_WORDS) {
         expect(body.toLowerCase().includes(word.toLowerCase()), `${prompt} carries ${JSON.stringify(word)}`).toBe(false);
       }

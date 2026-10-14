@@ -44,11 +44,11 @@ describe("a second tool installed while a Unit is open", () => {
           checkpoint: (unit, kind) => {
             if (unit === "core" && kind === "unit" && !installed) {
               installed = true;
-              // The person adds Kiro CLI to the project before they answer.
+              // The person adds Kiro to the project before they answer.
               const res = spawnSync(process.execPath, [
                 join(REPO_ROOT, "core", "tools", "aidlc-init.ts"),
-                "config", "--project-dir", proj, "--from", join(REPO_ROOT, "dist-release", "kiro"),
-                "--harness", "kiro-cli-legacy", "--mcp", "none",
+                "config", "--project-dir", proj, "--from", join(REPO_ROOT, "dist-release", "kiro-ide"),
+                "--harness", "kiro", "--mcp", "none",
               ], { cwd: proj, env: host.env, encoding: "utf-8" });
               expect(res.status, res.stdout + res.stderr).toBe(0);
             }

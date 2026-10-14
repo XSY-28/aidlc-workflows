@@ -280,10 +280,7 @@ publication permission before the environment gate.
    select its exact merged commit on `main`. A successful preview of that
    commit, or a manual `full-suite.yml` dispatch on `main` with `ref=<sha>`,
    leaves a `full-suite-result` the release reuses. Without one, the release
-   runs the Full Suite itself and takes hours longer. On the selected commit,
-   run the Kiro CLI release journey on a machine with a signed-in Kiro CLI and
-   post its one-line result as a comment on the release-preparation PR
-   ([Testing](09-testing.md)).
+   runs the Full Suite itself and takes hours longer.
 3. Create and push the matching tag from the selected commit. The commit may no
    longer be the tip of `main`, but it must still be contained in `main`:
 
