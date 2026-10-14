@@ -811,8 +811,10 @@ describe("a quoted request that opens with a flag AI-DLC does not take", () => {
   test("the parser reads it as untaken, and the work is never named after it", () => {
     for (const args of [[`--description ${REQUEST}`], ["--scope", "classic", `--description ${REQUEST}`]]) {
       const parsed = parseNextFlags(args);
-      expect(parsed.untakenFlag ?? "", args.join(" | ")).toStartWith("--description");
+      expect(parsed.untakenFlag, args.join(" | ")).toBe("--description");
+      expect(parsed.untakenFlagValue, args.join(" | ")).toBeUndefined();
       expect(parsed.intent, args.join(" | ")).toBeUndefined();
+      expect(parsed.personWords, args.join(" | ")).toBe(`--description ${REQUEST}`);
     }
   });
 
@@ -822,7 +824,7 @@ describe("a quoted request that opens with a flag AI-DLC does not take", () => {
     expect(d.kind, out).toBe("print");
     expect(d.narration, out).toBeUndefined();
     expect(d.ask_type, out).toBeUndefined();
-    expect(String(d.message)).toContain("`next` does not take `--description");
+    expect(String(d.message)).toContain("`next` does not take `--description`.");
     expect(String(d.message)).toContain("`--` before their words");
     expect(questionCopies(proj).join(" ")).not.toContain("--description");
     expect(existsSync(join(intents(proj), "active-intent"))).toBe(false);
@@ -852,5 +854,27 @@ describe("a quoted request that opens with a flag AI-DLC does not take", () => {
     expect(parseNextFlags(["--help flag for the reverser"]).untakenFlag).toBeUndefined();
     expect(parseNextFlags(["--verbose output for the export"]).untakenFlag).toBeUndefined();
     expect(parseNextFlags(["--scope classic build a notes app"]).untakenFlag).toBeUndefined();
+  });
+
+  // A first word that only starts with dashes is no flag's name.
+  const FRONT_MATTER = "---\ntitle: Northwind\n---\nBuild the bank";
+
+  test("a request opening with front matter or a dash rule stays their words", () => {
+    for (const words of [FRONT_MATTER, "----- notes below", "---> build the bank"]) {
+      const parsed = parseNextFlags([words]);
+      expect(parsed.untakenFlag, words).toBeUndefined();
+      expect(parsed.intent, words).toBe(words);
+    }
+  });
+
+  test("next takes a request opening with front matter as before", () => {
+    const proj = emptyProject();
+    const { d, out } = next(proj, ["--scope", "classic", FRONT_MATTER]);
+    expect(String(d.message), out).not.toContain("does not take");
+    const request = /--request ([0-9a-f]{8})/.exec(String(d.message))?.[1];
+    expect(request, out).toBeDefined();
+    const made = utility(proj, ["intent-create", "--scope", "classic", "--request", String(request), "--label", "bank"]);
+    expect(made.status, made.out).toBe(0);
+    expect(createdField(proj, "Project") ?? "", made.out).toContain("Northwind");
   });
 });

@@ -4825,7 +4825,7 @@ export function parseNextFlags(argv: string[]): ParsedFlags {
   // only the tokens in front of the `--` mark, so neither the mark nor a word
   // behind it is ever a flag's value.
   const read = readNextTokens(args);
-  for (const { role, token: a, value } of read.tokens) {
+  for (const { role, token: a, value, rest } of read.tokens) {
     if (role === "word") {
       // Among the person's own words a flag-shaped token is one of their words,
       // never noise (#847), and so is a utility flag ("add a --version flag
@@ -4888,6 +4888,7 @@ export function parseNextFlags(argv: string[]): ParsedFlags {
     if (role === "untaken") {
       flags.untakenFlag ??= a;
       wordTokens.push(a);
+      if (rest !== undefined) wordTokens.push(rest);
       if (value !== undefined) {
         flags.untakenFlagValue ??= value;
         wordTokens.push(value);

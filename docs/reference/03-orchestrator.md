@@ -96,7 +96,8 @@ the exception: one that opens with a flag-shaped token AI-DLC does not take
 (`'--description Northwind Mini Bank: ...'`, #2401) is the shape of an agent's own
 flag inside the quotes, and gets the same `print` as that token on its own, so
 the work is never named after it. A quoted request that opens with a flag AI-DLC
-does take, or carries such a token later in its words, is read as before, and the
+does take, or with dashes that name no flag (`---` front matter), or carries such
+a token later in its words, is read as before, and the
 person's words behind `--` are never read this way.
 
 Three ways to read the line, decided once. `readNextLine` (`aidlc-lib.ts`) answers
