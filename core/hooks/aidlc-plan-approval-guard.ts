@@ -95,6 +95,7 @@ import {
   guardRecoveryAnswerAdmits,
   loadScopeMapping,
   loadStageGraph,
+  nextLineFlags,
   parseCheckboxes,
   parseStateStageSuffixes,
   PLAN_APPROVAL_ASK_TYPE,
@@ -1562,7 +1563,13 @@ function engineCommandAdmitted(
     !guardRecoveryAnswerAdmits(context.marker, engineArgs, projectDir)
   ) return false;
   if (args[0] === "jump" && (args[1] === "execute" || args[1] === "reopen") && !context.jumpAdmitted()) return false;
-  if (!args.some((arg) => arg === "--bypass" || arg.startsWith("--bypass="))) return true;
+  // `next` takes no `--bypass`: on its line the token is one of the person's
+  // words ("add a --bypass option"), never a check turned off, as the engine's
+  // own reading says (nextLineFlags). Every other command is read whole, as its
+  // tool reads it.
+  const nextAt = args[0] === "next" ? 0 : args[0] === "orchestrate" && args[1] === "next" ? 1 : -1;
+  const switches = nextAt >= 0 ? nextLineFlags(args.slice(nextAt + 1)).map((flag) => flag.token) : args;
+  if (!switches.some((arg) => arg === "--bypass" || arg.startsWith("--bypass="))) return true;
   if (args[0] === "config" && args[1] === "flags") return recordedSwitchChangeAdmitted(projectDir, args);
   return personAskedSinceGate(projectDir);
 }
@@ -2180,6 +2187,13 @@ async function evaluate(
         if (knownMutationTool && !mutation.engineRefused) {
           const planPaths = mutation.targets.length > 0 ? planApprovalPlanNamedPaths(projectDir) : null;
           if (mutation.targets.every((candidate) => isPlanWaitSideWrite(projectDir, candidate, planPaths))) return 0;
+        }
+        // A call to one of the person's own MCP servers, as the harness adapter
+        // marks it outside the agent's input, runs like their other requests:
+        // the host's own approval and their settings decide it. A marked
+        // write, shell or dispatch gets no such pass.
+        if (parsed.aidlc_external_tool === "mcp" && !knownMutationTool && !DISPATCH_TOOLS.has(toolName)) {
+          return 0;
         }
         authorityFailure = PLAN_APPROVAL_ASK_OPEN;
         standing = planStanding(projectDir, activeDirective);
