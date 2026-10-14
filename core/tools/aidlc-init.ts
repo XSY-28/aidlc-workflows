@@ -172,6 +172,7 @@ import {
   KIRO_AUTO_DEFINITION,
   KIRO_EFFORT_LABEL,
   KIRO_PRESET_EFFORT,
+  KIRO_SAVED_MODEL_NOTE,
   kiroAutoRecommendation,
   kiroCliPath,
   type KiroModel,
@@ -1150,7 +1151,11 @@ function modelStateData(
     harness,
     policy,
     effective,
-    notes: harnessHonestyNotes(policy, tiers, harness, cap),
+    notes: [
+      ...harnessHonestyNotes(policy, tiers, harness, cap),
+      // On Kiro CLI the session model agents inherit is the saved one.
+      ...(harness === "kiro" ? [KIRO_SAVED_MODEL_NOTE] : []),
+    ],
   };
 }
 
