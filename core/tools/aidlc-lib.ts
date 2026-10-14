@@ -2385,7 +2385,7 @@ function unescapeUnquotedShellTextForEngagement(text: string): string {
   return result;
 }
 
-function sameDirectory(left: string, right: string): boolean {
+export function sameDirectory(left: string, right: string): boolean {
   const canonical = (directory: string): string => {
     let path = resolvePath(directory);
     try {

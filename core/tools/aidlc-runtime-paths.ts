@@ -444,7 +444,8 @@ export function runtimeHarnessName(
 
 // The rows AI-DLC no longer offers a new project, each with the row new
 // projects get instead and what that row runs on. A project that has one keeps
-// it: it refreshes, switches either way, and is told once how to move.
+// it: it refreshes and switches either way, and config and doctor say how to
+// move it.
 const NEW_PROJECTS_GET: Readonly<Record<string, { row: string; runsOn: string }>> = Object.freeze({
   kiro: { row: "kiro-ide", runsOn: "Kiro IDE and in Kiro CLI on its v3 engine" },
 });
@@ -455,29 +456,17 @@ export function rowNewProjectsGet(distribution: string): string | null {
 }
 
 /**
- * What a project on a row new projects no longer get is told, or null: where it
- * stands, and the step that moves it. `invoke` is the caller's command form
- * (`aidlc`, or a copied project's `bun <dir>/tools/aidlc.ts`, which fetches the
- * release with --download); `target` follows the arguments (a --project-dir).
+ * The one line a project on a row new projects no longer get is told, or null:
+ * where it stands, and the step that moves it. `invoke` is the caller's command
+ * form (`aidlc`, or a copied project's `bun <dir>/tools/aidlc.ts`, which fetches
+ * the release with --download); `target` follows the arguments (a --project-dir).
  */
-export function retiredRow(
-  distribution: string,
-  invoke: string,
-  target = "",
-): { stands: string; move: string } | null {
+export function retiredRowLine(distribution: string, invoke: string, target = ""): string | null {
   if (!Object.hasOwn(NEW_PROJECTS_GET, distribution)) return null;
   const { row, runsOn } = NEW_PROJECTS_GET[distribution];
   const command = `${invoke} config --harness ${row}${invoke === "aidlc" ? "" : " --download"}${target}`;
-  return {
-    stands: `AI-DLC now sets new projects up on the \`${row}\` row; this project is on the legacy \`${distribution}\` row, which keeps working.`,
-    move: `To move it to \`${row}\`, which runs in ${runsOn}, run \`${command}\`.`,
-  };
-}
-
-/** The same as one line. */
-export function retiredRowLine(distribution: string, invoke: string, target = ""): string | null {
-  const told = retiredRow(distribution, invoke, target);
-  return told ? `${told.stands} ${told.move}` : null;
+  return `AI-DLC now sets new projects up on the \`${row}\` row; this project is on the legacy \`${distribution}\` row, which keeps working. ` +
+    `To move it to \`${row}\`, which runs in ${runsOn}, run \`${command}\`.`;
 }
 
 // The tools that hide a Stop-hook block's reason from the person: Kiro CLI

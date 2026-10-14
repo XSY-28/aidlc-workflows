@@ -57,7 +57,7 @@ import {
   discoverProjectHarnesses,
   kiroTreeLayout,
   quoteCommandArgument,
-  retiredRow,
+  retiredRowLine,
 } from "./aidlc-runtime-paths.ts";
 import { AIDLC_VERSION } from "./aidlc-version.ts";
 import { compareVersions, VERSION_ID } from "./aidlc-channel.ts";
@@ -269,6 +269,7 @@ export type DiagnosticDoctorCheck = {
   severity?: "warn";
   label: string;
   fix?: string;
+  shown?: true;
 };
 
 export type RuntimeProbeOptions = {
@@ -2880,11 +2881,6 @@ export function codexHookTrustStep(issueId: string): string | null {
   return CODEX_HOOK_TRUST_IDS.has(issueId) ? CODEX_HOOK_TRUST_STEP : null;
 }
 
-/** The oldest version of a harness's CLI that counts for its row, if it has one. */
-export function harnessCliMinimumVersion(harness: string): string | undefined {
-  return Object.hasOwn(HARNESS_CLI, harness) ? HARNESS_CLI[harness as ModelHarness].minimumVersion : undefined;
-}
-
 // The runtimes this shell finds that the system-wide PATH does not. A harness
 // started from this terminal hands them to its hooks, so setup lists no step
 // for them and says where to start the harness instead.
@@ -3421,18 +3417,24 @@ export function kiroIdeWorkflowsDoctorCheck(
 }
 
 // Doctor tells a project on a row new projects no longer get how to move it,
-// as config and the session start do.
-export function retiredRowDoctorCheck(projectDir: string, harnessDirHint?: string): DiagnosticDoctorCheck | null {
+// as config does: a line it always shows, not a warning, since a team may stay
+// on that row on purpose.
+export function retiredRowDoctorCheck(
+  projectDir: string,
+  harnessDirHint: string | undefined,
+  // Whether doctor runs from the project itself (aidlc-lib's sameDirectory,
+  // which the caller holds).
+  here: boolean,
+): DiagnosticDoctorCheck | null {
   const selected = selectedHarness(projectDir, harnessDirHint);
   if (!selected) return null;
   // Run from another folder, the step names this project, and a copied
   // project's tool by its path.
-  const here = resolve(process.cwd()) === resolve(projectDir);
   const invoke = aidlcInvocation() === "aidlc" || here
     ? invocationForHarness(selected.harnessDir)
     : `bun ${quoteCommandArgument(join(projectDir, selected.harnessDir, "tools", "aidlc.ts"))}`;
-  const told = retiredRow(selected.harness, invoke, here ? "" : ` --project-dir ${quoteCommandArgument(projectDir)}`);
-  return told ? { pass: false, severity: "warn", label: told.stands, fix: told.move } : null;
+  const line = retiredRowLine(selected.harness, invoke, here ? "" : ` --project-dir ${quoteCommandArgument(projectDir)}`);
+  return line ? { pass: true, shown: true, label: line } : null;
 }
 
 // Doctor reads Kiro IDE's default terminal like the trust section does, on

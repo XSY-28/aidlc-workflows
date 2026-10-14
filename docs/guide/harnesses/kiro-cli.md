@@ -12,8 +12,8 @@
 > projects no longer get it: the interactive `aidlc config` offers the
 > `kiro-ide` row for Kiro CLI, which pins Kiro's v3 engine and runs in Kiro CLI
 > 2.24.1 or later as well as Kiro IDE. A project that already has this row keeps
-> working on it, and `aidlc config`, `aidlc doctor` and the first chat in each
-> clone say how to move it: `aidlc config --harness kiro-ide` switches `.kiro/`
+> working on it, and `aidlc config` and `aidlc doctor` say how to move it:
+> `aidlc config --harness kiro-ide` switches `.kiro/`
 > to that row in place and keeps `aidlc/`. With a Kiro CLI older than 2.24.1,
 > setup says to update it; `aidlc config --harness kiro` still sets a new project
 > up on this row when you name it.
@@ -56,11 +56,11 @@ curl -fsSL \
 sh "$tmp/install.sh"
 rm -rf "$tmp"
 cd your-project
-aidlc config
+aidlc config --harness kiro
 aidlc doctor
 ```
 
-The installer verifies the release metadata, executable, and all-harness runtime archive against the published SHA-256 checksums. The installed runtime does not require Bun, Node.js, or Git. Harness selection happens in `aidlc config`.
+The installer verifies the release metadata, executable, and all-harness runtime archive against the published SHA-256 checksums. The installed runtime does not require Bun, Node.js, or Git. Harness selection happens in `aidlc config`; this page's row is set up only when you name it with `--harness kiro`, since a plain `aidlc config` sets new projects up on `kiro-ide`.
 
 On Windows, download `install.ps1` and run
 `& $installer`. See [Windows installation](../18-install-and-lifecycle.md#windows-powershell)
@@ -69,7 +69,7 @@ For an air-gapped package, use
 `install.sh --from <release-directory> --offline` on Unix or
 `& $installer -From <release-directory> -Offline` on Windows.
 
-`aidlc config` projects the Kiro shell before the first chat session. Then start
+`aidlc config --harness kiro` projects the Kiro shell before the first chat session. Then start
 Kiro from the project root:
 
 ```bash

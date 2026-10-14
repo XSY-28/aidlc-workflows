@@ -1,10 +1,10 @@
-// covers: function:retiredRowLine, function:rowNewProjectsGet, function:retiredRowDoctorCheck, tool:aidlc-doctor, hook:aidlc-session-start
+// covers: function:retiredRowLine, function:rowNewProjectsGet, function:retiredRowDoctorCheck, tool:aidlc-doctor
 //
 // New projects are no longer offered the legacy Kiro CLI row (`kiro`, agent-v1);
 // the kiro-ide row serves Kiro CLI on its 3.0 engine and Kiro IDE. A project
 // that has the legacy row keeps it: config and doctor say how to move it
-// whenever they run, and the first chat in each clone says it once. A project
-// on any other row hears nothing of it. (The first-run picker is t299.)
+// whenever they run. A project on any other row hears nothing of it. (The
+// first-run picker is t299.)
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -53,33 +53,6 @@ function install(harness: "kiro" | "kiro-ide"): { project: string; out: string }
   const out = `${result.stdout ?? ""}${result.stderr ?? ""}`;
   expect(result.status, out).toBe(0);
   return { project, out };
-}
-
-// A new chat's start, as Kiro starts it: on the legacy row through its adapter,
-// with the agentSpawn payload Kiro CLI sends (no session id; captured on
-// 2.6.1, tests/fixtures/kiro-hook-payloads/payloads.json); on kiro-ide the
-// core hook with a session id.
-function chatStart(project: string, harness: "kiro" | "kiro-ide", sessionId: string): string {
-  const legacy = harness === "kiro";
-  const result = spawnSync(
-    process.execPath,
-    legacy
-      ? [join(project, ".kiro", "tools", "aidlc.ts"), "engine", "adapter", "kiro", "session-start"]
-      : [join(project, ".kiro", "hooks", "aidlc-session-start.ts")],
-    {
-      cwd: project,
-      env: childEnv(legacy ? {} : { AIDLC_PROJECT_DIR: project }),
-      input: JSON.stringify(
-        legacy
-          ? { hook_event_name: "agentSpawn", cwd: project, prompt: "hello" }
-          : { session_id: sessionId, hook_event_name: "SessionStart", source: "startup" },
-      ),
-      encoding: "utf-8",
-    },
-  );
-  if (result.error) throw result.error;
-  expect(result.status, result.stderr).toBe(0);
-  return result.stdout ?? "";
 }
 
 describe("the legacy kiro row new projects no longer get", () => {
@@ -141,7 +114,7 @@ describe("the legacy kiro row new projects no longer get", () => {
     expect(install("kiro-ide").out).not.toContain("now sets new projects up");
   });
 
-  test("doctor warns on a legacy project with the step as its fix, and says nothing of it elsewhere", () => {
+  test("doctor shows the line on a legacy project as passing, not a warning, and says nothing of it elsewhere", () => {
     const doctor = (project: string, cwd = project): string => {
       const result = spawnSync(process.execPath, [DOCTOR, "--project-dir", project], {
         cwd,
@@ -153,13 +126,13 @@ describe("the legacy kiro row new projects no longer get", () => {
     };
     const legacyProject = install("kiro").project;
     const legacy = doctor(legacyProject);
-    expect(legacy).toContain(`warn  ${STANDS}\n`);
-    // Run from another folder, the step names the project it diagnosed.
-    expect(doctor(legacyProject, tmpdir())).toContain(` config --harness kiro-ide`);
-    expect(doctor(legacyProject, tmpdir()).replace(/\s+/g, " ")).toContain(`--project-dir ${legacyProject}\``);
+    // Shown without --verbose, and counted as passed: a team may stay on purpose.
     expect(legacy).toMatch(
-      /\n +fix: To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI on its v3 engine, run `[^`\n]* config --harness kiro-ide(?: --download)?`\.\n/,
+      /\n {2}ok {4}AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working\. To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI on its v3 engine, run `[^`\n]* config --harness kiro-ide(?: --download)?`\.\n/,
     );
+    expect(legacy).not.toContain("warn  AI-DLC now sets new projects up");
+    // Run from another folder, the step names the project it diagnosed.
+    expect(doctor(legacyProject, tmpdir()).replace(/\s+/g, " ")).toContain(`--project-dir ${legacyProject}\``);
     expect(doctor(install("kiro-ide").project)).not.toContain("now sets new projects up");
   });
 
@@ -188,19 +161,5 @@ describe("the legacy kiro row new projects no longer get", () => {
     expect(moved.stdout).toContain("switched .kiro in place from kiro to kiro-ide (aidlc/ kept)");
     expect(existsSync(join(project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
     expect(existsSync(`${agent}.bak`)).toBe(true);
-  });
-
-  test("the first chat in a clone says it once, with no session id; later chats and kiro-ide projects do not", () => {
-    const legacy = install("kiro");
-    const first = chatStart(legacy.project, "kiro", "");
-    // Kiro's agentSpawn context is the adapter's plain text.
-    expect(first).toContain(`TELL ONCE: in your first reply, tell the person this, in their language: "${STANDS} ${MOVE}"`);
-    expect(chatStart(legacy.project, "kiro", "")).not.toContain("now sets new projects up");
-
-    const current = install("kiro-ide");
-    expect(chatStart(current.project, "kiro-ide", "sess-current-one")).not.toContain("now sets new projects up");
-    // A tree whose harness.json cannot be read is not told it is on the old row.
-    rmSync(join(current.project, ".kiro", "tools", "data", "harness.json"));
-    expect(chatStart(current.project, "kiro-ide", "sess-current-two")).not.toContain("now sets new projects up");
   });
 });

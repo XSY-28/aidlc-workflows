@@ -30,8 +30,7 @@
 // With no aidlc-state.md the hook emits no workflow event or context, but still
 // bootstraps cursors/includes and records host session identity and transcript
 // metadata so the first intent created later in the turn can bind to it.
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { runAnchor } from "../tools/aidlc-attest.ts";
 import { appendAuditEntry } from "../tools/aidlc-audit.ts";
 import { stageGraphDrift } from "../tools/aidlc-graph.ts";
@@ -74,9 +73,6 @@ import {
   recordSessionPlanApprovalBypass,
   recordSessionPresenceBypass,
   recoveryFilePath,
-  sessionsDir,
-  assertNoSymlinkInChainOrThrow,
-  writeFileAtomic,
   resolveWorkflowSelection,
   resolveProjectDirFromHook,
   stateFilePathForSelection,
@@ -97,16 +93,7 @@ import {
 } from "../tools/aidlc-lib.ts";
 import { writeCurrentTranscriptPath } from "../tools/aidlc-usage.ts";
 import { recordRulesLoad } from "../tools/aidlc-rules-held.ts";
-import {
-  aidlcInvocation,
-  aidlcToolInvocation,
-  entrySkillInvocation,
-  discoverProjectHarnesses,
-  hidesStopNote,
-  retiredRowLine,
-  runtimeHarnessDir,
-  runtimeHarnessName,
-} from "../tools/aidlc-runtime-paths.ts";
+import { aidlcInvocation, aidlcToolInvocation, entrySkillInvocation, hidesStopNote, runtimeHarnessName } from "../tools/aidlc-runtime-paths.ts";
 import { switchesOffLines } from "../tools/aidlc-recorded-switches.ts";
 import { applyStatusLineDefault, statusLineHarness } from "../tools/aidlc-statusline-choice.ts";
 
@@ -371,32 +358,6 @@ if (sessionId && !rebindCheckOnly) {
   trackedSteeringAsk = asks.filter(Boolean).join("\n");
 }
 
-// A project on a row new projects no longer get is told once in this clone how
-// to move; config and doctor say it whenever they run. Kiro CLI's legacy row
-// starts a chat with no session id, so this line does not wait for one. The
-// mark lives beside the sessions (git-ignored); without it the line is said
-// once more.
-if (!rebindCheckOnly) {
-  try {
-    // The row this project's own metadata names: a tree whose harness.json
-    // cannot be read is not told it is on an old row.
-    const harness = discoverProjectHarnesses(projectDir)
-      .find((tree) => tree.harnessDir === runtimeHarnessDir(projectDir))?.distribution ?? "";
-    const line = retiredRowLine(harness, aidlcInvocation());
-    const dir = sessionsDir(projectDir);
-    const mark = join(dir, "retired-row-said");
-    if (line && (!existsSync(mark) || readFileSync(mark, "utf-8").trim() !== harness)) {
-      assertNoSymlinkInChainOrThrow(projectDir, relative(projectDir, dir));
-      mkdirSync(dir, { recursive: true });
-      writeFileAtomic(mark, `${harness}\n`);
-      const ask = `TELL ONCE: in your first reply, tell the person this, in their language: "${line}"`;
-      trackedSteeringAsk = trackedSteeringAsk ? `${trackedSteeringAsk}\n${ask}` : ask;
-    }
-  } catch {
-    // Told at a later start.
-  }
-}
-
 const stateFile = stateFilePathForSelection(projectDir, selection);
 
 // No workflow joined — retain only the session identity recorded above.
@@ -443,8 +404,6 @@ if (!existsSync(stateFile)) {
         (trackedSteeringAsk ? `\n${trackedSteeringAsk}` : "") +
         memoryHandoff,
     ));
-  } else if (trackedSteeringAsk) {
-    process.stdout.write(hookContextLine("SessionStart", trackedSteeringAsk));
   }
   return 0;
 }

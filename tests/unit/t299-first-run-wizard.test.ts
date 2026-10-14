@@ -735,7 +735,7 @@ describe("t299 first-run setup wizard", () => {
     expect(result.stdout).not.toContain("medium project agent effort for deciding");
     expect(result.stdout).not.toContain("effort dials do not apply");
     // With no kiro-ide row installed, setup has no newer row to send them to.
-    expect(result.stdout).not.toContain("new projects get AI-DLC's `kiro-ide` row");
+    expect(result.stdout).not.toContain("which AI-DLC's `kiro-ide` row needs");
     expect(JSON.parse(
       readFileSync(join(result.project, "aidlc.settings.json"), "utf-8"),
     ).models.preset).toBe("balanced");
@@ -1179,7 +1179,7 @@ describe("t299 first-run setup wizard", () => {
     });
     // It says why, and the two ways on: update Kiro CLI, or name the legacy row.
     expect(old.stdout).toContain(
-      "Kiro CLI 2.24.0 was found; new projects get AI-DLC's `kiro-ide` row, which needs Kiro CLI 2.24.1 or later. Update",
+      "Kiro CLI 2.24.0 is older than 2.24.1, which AI-DLC's `kiro-ide` row needs, so it is not counted below. Update",
     );
     expect(old.stdout.replace(/\s+/g, " ")).toMatch(
       /Update Kiro CLI, or run `[^`]* config --harness kiro` to set this project up on the legacy `kiro` row\./,
@@ -1196,7 +1196,7 @@ describe("t299 first-run setup wizard", () => {
     });
     expect(inIde.status, inIde.stdout + inIde.stderr).toBe(0);
     expect(inIde.stdout).toContain("Kiro IDE detected");
-    expect(inIde.stdout).not.toContain("new projects get AI-DLC's `kiro-ide` row");
+    expect(inIde.stdout).not.toContain("which AI-DLC's `kiro-ide` row needs");
     expect(old.status, old.stdout + old.stderr).toBe(0);
     expect(existsSync(join(old.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);

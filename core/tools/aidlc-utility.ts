@@ -2868,6 +2868,9 @@ export type DoctorCheck = {
   severity?: "warn";
   label: string;
   fix?: string;
+  // A passing check the report lists by name even without --verbose: what the
+  // person should know, counted as passed.
+  shown?: true;
 };
 
 type DoctorParkedAttempt = {

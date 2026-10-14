@@ -303,7 +303,6 @@ import {
   projectMcpNote,
   readPluginSelection,
   readConfigDiagnosticRecords,
-  harnessCliMinimumVersion,
   reconcileProviderActions,
   runtimeFixesNeeded,
   runtimeIssues,
@@ -7604,6 +7603,8 @@ type FirstRunDetection = {
     probed?: boolean;
     version?: string;
     path?: string;
+    // The oldest version that counts, when the one found is older.
+    needs?: string;
   }>;
   aws: ReturnType<typeof detectAwsCredentials>;
   runtimeIssues: ReturnType<typeof runtimeIssues>;
@@ -7874,6 +7875,7 @@ function detectFirstRun(
       probed: probe.status !== "not-applicable",
       ...(probe.version ? { version: probe.version } : {}),
       ...(probe.path ? { path: probe.path } : {}),
+      ...(probe.status === "too-old" && probe.minimumVersion ? { needs: probe.minimumVersion } : {}),
     };
   }
   const first = candidates[0];
@@ -7930,33 +7932,26 @@ function newProjectChoices(candidates: readonly InstalledSourceCandidate[]): Ins
   });
 }
 
-// When this machine's tool was found by a row new projects no longer get but
-// not by the installed row they get instead (a Kiro CLI older than the
-// kiro-ide row's floor), the one line that says what to do: update it, or
-// name the old row. Null otherwise.
+// When the tool the row new projects get needs was found too old for it (a
+// Kiro CLI below the kiro-ide row's floor), the one line that says so, and
+// what to do: update it, or name the old row. Not in that row's own editor
+// terminal (Kiro IDE), where the row is taken and its CLI is optional.
 function olderToolLine(
   projectDir: string,
   candidates: readonly InstalledSourceCandidate[],
   detection: FirstRunDetection,
 ): string | null {
-  const installed = new Set(candidates.map((candidate) => candidate.stamp.distribution));
   for (const candidate of candidates) {
     const row = candidate.stamp.distribution;
-    const instead = rowNewProjectsGet(row);
-    // In the newer row's own editor terminal (Kiro IDE) the CLI is optional
-    // and that row is taken, so there is nothing to update.
-    if (
-      !instead || !installed.has(instead) ||
-      detection.harnesses[row]?.found !== true || detection.harnesses[instead]?.found !== false ||
-      candidates.some((other) => other.stamp.distribution === instead && launchedFromCandidateEditor(other))
-    ) continue;
+    const instead = candidates.find((other) => other.stamp.distribution === rowNewProjectsGet(row));
+    const needs = instead ? detection.harnesses[instead.stamp.distribution]?.needs : undefined;
+    if (!instead || !needs || launchedFromCandidateEditor(instead)) continue;
     const product = candidate.descriptor.productName;
-    const found = detection.harnesses[row]?.version;
+    const found = detection.harnesses[instead.stamp.distribution]?.version;
     const version = found ? /\d+\.\d+\.\d+/.exec(found)?.[0] : undefined;
-    const floor = harnessCliMinimumVersion(instead);
-    return `${version ? `${product} ${version} was found; ` : ""}new projects get AI-DLC's \`${instead}\` row, which needs ${product}${
-      floor ? ` ${floor} or later` : ""
-    }. Update ${product}, or run \`${configInvocationFor(projectDir)} config --harness ${row}${projectTarget(projectDir)}\` to set this project up on the legacy \`${row}\` row.`;
+    return `${product}${version ? ` ${version}` : ""} is older than ${needs}, which AI-DLC's \`${instead.stamp.distribution}\` row ` +
+      `needs, so it is not counted below. Update ${product}, or run \`${configInvocationFor(projectDir)} config --harness ${row}` +
+      `${projectTarget(projectDir)}\` to set this project up on the legacy \`${row}\` row.`;
   }
   return null;
 }

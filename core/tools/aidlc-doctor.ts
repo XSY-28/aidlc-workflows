@@ -8,6 +8,7 @@ import {
   isoTimestamp,
   parseArgs,
   resolveProjectDir,
+  sameDirectory,
 } from "./aidlc-lib.ts";
 import {
   adaptLegacyResult,
@@ -407,12 +408,12 @@ function humanReport(
     if (verbose) {
       return `${checks.map(renderCheck).join("")}${extraAttentionRows.join("")}`;
     }
-    const passing = checks.filter((check) => status(check) === "ok");
-    const attention = checks.filter((check) => status(check) !== "ok");
+    const passing = checks.filter((check) => status(check) === "ok" && !check.shown);
+    const attention = checks.filter((check) => status(check) !== "ok" || check.shown);
     let rows = attention.map(renderCheck).join("");
     rows += extraAttentionRows.join("");
     if (passing.length > 0) {
-      const allClean = attention.length === 0 && extraAttentionRows.length === 0;
+      const allClean = attention.every((check) => status(check) === "ok") && extraAttentionRows.length === 0;
       rows += `  ${okVerdict("ok   ", out)} ${allClean ? "all " : ""}${passing.length} checks passed\n`;
     }
     return rows;
@@ -603,7 +604,11 @@ export async function main(argv: string[]): Promise<void> {
   checks.push(...settingsDoctorChecks(projectDir));
   checks.push(modelsPolicyCheck(projectDir, flags.verbose === "true"));
   checks.push(...await kiroSessionDoctorChecks(projectDir));
-  const retiredRow = retiredRowDoctorCheck(projectDir, harnessDir());
+  const retiredRow = retiredRowDoctorCheck(
+    projectDir,
+    harnessDir(),
+    sameDirectory(projectDir, process.cwd()),
+  );
   if (retiredRow) checks.push(retiredRow);
   const kiroWorkflows = kiroIdeWorkflowsDoctorCheck(projectDir, harnessDir());
   if (kiroWorkflows) checks.push(kiroWorkflows);
