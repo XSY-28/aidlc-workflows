@@ -2319,7 +2319,7 @@ describe("t265b hook lifecycle", () => {
     });
   }
 
-  // On the kiro-ide row the person's MCP servers reach the chat, and the Kiro
+  // On the Kiro harness the person's MCP servers reach the chat, and the Kiro
   // adapter marks such a call `aidlc_external_tool: "mcp"`, outside the agent's
   // input. While the plan waits it runs like their other asks (Kiro asks them
   // before it runs). Unmarked, or marked on a write, a shell or the developer,

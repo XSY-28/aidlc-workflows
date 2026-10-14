@@ -4800,8 +4800,8 @@ function generatedOverlayCandidate(rel: string, harnessDir: string): boolean {
 
 // Keys the installed source owns: a refresh takes them from the new tree, not
 // the project's copy. `name` and `kiroLayout` belong here with `distribution`:
-// they say which row the tree is, so a copy that kept an older name or layout
-// would read as another row to every reader that keys on them.
+// they say which harness the tree is, so a copy that kept an older name or layout
+// would read as another harness to every reader that keys on them.
 const HARNESS_IDENTITY_KEYS = new Set([
   "schemaVersion",
   "distribution",
@@ -7026,9 +7026,10 @@ function selectSource(
     );
   }
   // The saved default reads as a name a person types (no typed name means a
-  // retired row).
+  // retired harness).
   const savedDefault = configuredDefaultHarness();
-  const configuredDefault = savedDefault ? harnessIdFromTyped(savedDefault) : undefined;
+  const savedId = savedDefault ? harnessIdFromTyped(savedDefault) : undefined;
+  const configuredDefault = savedId && !retiredRow(savedId) ? savedId : undefined;
   if (configuredDefault) {
     const selected = versionFiltered.filter((candidate) =>
       candidate.stamp.distribution === configuredDefault
@@ -7049,13 +7050,13 @@ function selectSource(
         : "no installed harness runtime is available",
     );
   }
-  // Unnamed, a project is offered only the rows AI-DLC still ships.
+  // Unnamed, a project is offered only the harnesses AI-DLC still ships.
   const offered = newProjectChoices(versionFiltered);
   if (offered.length === 0) {
     throw new Error(
       requiredVersion
-        ? `${requiredVersion} holds only rows AI-DLC no longer ships; pin a newer release with aidlc config --pin <version>`
-        : "the installed runtimes hold only rows AI-DLC no longer ships; run aidlc update",
+        ? `${requiredVersion} holds only harnesses AI-DLC no longer ships; pin a release that ships yours (aidlc config --pin <version>; aidlc versions list shows the installed ones), or name one with --harness <name>`
+        : "the installed runtimes hold only harnesses AI-DLC no longer ships; run aidlc update",
     );
   }
   if (offered.length === 1) return offered[0];
@@ -7523,8 +7524,8 @@ function launchedFromCandidateEditor(candidate: InstalledSourceCandidate): boole
   return app !== undefined && launchedFromEditorTerminal(app);
 }
 
-// The installed rows a project is offered: every one AI-DLC still ships (an
-// older release kept for a pin may hold a retired row).
+// The installed harnesses a project is offered: every one AI-DLC still ships (an
+// older release kept for a pin may hold a retired harness).
 function newProjectChoices(candidates: readonly InstalledSourceCandidate[]): InstalledSourceCandidate[] {
   return candidates.filter((candidate) => !retiredRow(candidate.stamp.distribution));
 }
@@ -7566,8 +7567,8 @@ function renderHarnessChoices(
   writeVersionConditions(candidates);
 }
 
-// Under a harness list, the versions each listed row that also runs in an
-// editor runs in (the kiro-ide row: Kiro IDE and Kiro CLI).
+// Under a harness list, the versions each listed harness that also runs in an
+// editor runs in (the Kiro harness: Kiro IDE and Kiro CLI).
 function writeVersionConditions(candidates: readonly InstalledSourceCandidate[]): void {
   const lines = candidates.flatMap((candidate) => rowVersionCondition(candidate.stamp.distribution) ?? []);
   if (lines.length === 0) return;
@@ -7629,7 +7630,7 @@ function runConfigChild(
   // Setup writes the person's Kiro session itself, after every child: those
   // settings are outside the rollback snapshot.
   env.AIDLC_CONFIG_DEFER_KIRO_SESSION = "1";
-  // The child is handed row ids, not the names a person types.
+  // The child is handed harness ids, not the names a person types.
   env[HARNESS_IDS_ENV] = "1";
   const commandArgs = isCompiledExecutable()
     ? ["config", ...args]
@@ -8104,7 +8105,7 @@ function renderFirstRunEnding(
 // Kiro settings (see aidlc-kiro-session.ts). These prompts are shared by first-run
 // setup and `config models`; nothing here writes.
 
-// Kiro's row runs in Kiro IDE and in Kiro CLI; Kiro CLI keeps the session
+// The Kiro harness runs in Kiro IDE and in Kiro CLI; Kiro CLI keeps the session
 // model in personal Kiro settings.
 function kiroSessionRow(distribution: string): boolean {
   return distribution === "kiro-ide";
@@ -8322,7 +8323,7 @@ function customizeFirstRun(
     }
     if (step === 2) {
       const distribution = choices.candidate.stamp.distribution;
-      // Kiro IDE's row asks only when kiro-cli is there to read; without it
+      // The Kiro harness asks only when kiro-cli is there to read; without it
       // the step says model access comes with Kiro IDE, as before.
       if (distribution === "kiro-ide" && choices.kiro === undefined) choices.kiro = kiroSessionFor(distribution);
       if (distribution === "kiro-ide" && choices.kiro) {
@@ -8587,18 +8588,18 @@ async function runFirstRunWizard(projectDir: string): Promise<boolean> {
     process.stdout.write("\n  No supported harness CLI was detected. Choose one to configure:\n\n");
     candidate = chooseHarness(candidates, detection);
   }
-  // Taken without a list, a row that also runs in an editor still says which
+  // Taken without a list, a harness that also runs in an editor still says which
   // versions it runs in.
   const condition = detected.length === 1 ? rowVersionCondition(candidate.stamp.distribution) : null;
   if (condition) {
     process.stdout.write("\n");
     writeMenuRow("  ", condition);
   }
-  // A row whose CLI is here but older than it needs is set up only when the
-  // person says so; in that row's own editor terminal its CLI is optional.
+  // A harness whose CLI is here but older than it needs is set up only when the
+  // person says so; in that harness's own editor terminal its CLI is optional.
   // The setup itself runs in a child that shows no notes, so the question is
   // asked here: for the harness taken now, and again for the one the
-  // customize steps end on, once per row.
+  // customize steps end on, once per harness.
   let olderCliAccepted: string | null = null;
   const olderCliDeclined = (pick: InstalledSourceCandidate): boolean => {
     const distribution = pick.stamp.distribution;
@@ -10142,7 +10143,7 @@ function prepareModelsSection(
     return null;
   }
 
-  // Kiro's row takes a session model for Kiro CLI, the model only.
+  // The Kiro harness takes a session model for Kiro CLI, the model only.
   const sessionModel = valueAfter(argv, "--session-model");
   if (sessionModel !== undefined && !kiroSessionRow(selected.distribution)) {
     emitResult(
@@ -11329,7 +11330,7 @@ export async function main(
   if (!internal.setupWalkChild) configTargetHarnessDir = null;
   let argv = stripVerb(input);
   const options = globalOptions(argv);
-  // What the person typed after --harness reads as a row id once, here (the
+  // What the person typed after --harness reads as a harness id once, here (the
   // dispatcher hands config the line as typed). From here on `input` and `argv`
   // hold ids, and a command printed back writes them as typed names
   // (harnessArgsAsTyped).
@@ -11581,7 +11582,7 @@ export async function main(
   }
   const projectDir = projectDirFrom(argv);
   const projectHarnesses = discoverProjectHarnesses(projectDir);
-  // A run on a tree whose row AI-DLC no longer ships is told what to do, and
+  // A run on a tree whose harness AI-DLC no longer ships is told what to do, and
   // nothing is written; a run for another harness in the project goes on.
   const retiredTree = projectHarnesses.find((tree) =>
     retiredRow(tree.distribution) && retiredTreeInTheWay(tree, requestedHarness)
@@ -11983,7 +11984,7 @@ export async function main(
     // A person at a terminal (not a preview) is asked about an older CLI.
     const asking = configInputIsTty() && options.mode === "human" && !argv.includes("--yes") &&
       !argv.includes("--dry-run") && !internal.setupWalkChild;
-    // A run that puts a project on a row that also runs in an editor says which
+    // A run that puts a project on a harness that also runs in an editor says which
     // versions it runs in, and whether this machine's CLI is older than that.
     const condition = existing.distribution ? null : rowVersionCondition(stamp.distribution);
     if (condition) sourceNotes.push(condition);

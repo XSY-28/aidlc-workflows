@@ -1,4 +1,4 @@
-// harness/kiro-ide/onboarding.fills.ts — onboarding-doc fills for the Kiro row
+// harness/kiro-ide/onboarding.fills.ts — onboarding-doc fills for the Kiro harness
 // that serves both Kiro IDE 1.x and Kiro CLI v3.
 // The packager fills core/templates/onboarding-harness.md into the always-on
 // dist/kiro-ide/.kiro/steering/aidlc-onboarding.md, with .kiro token projection.

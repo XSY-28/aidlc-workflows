@@ -1214,7 +1214,7 @@ describe("t295 project section", () => {
 
   test("MCP checks use the selected harness surface", () => {
     const env = runtimeEnv();
-    // Neither the Kiro row nor Codex ships an MCP file of its own.
+    // Neither the Kiro harness nor Codex ships an MCP file of its own.
     for (const harness of ["kiro-ide", "codex"]) {
       const project = install(harness, "none");
       expect(run([

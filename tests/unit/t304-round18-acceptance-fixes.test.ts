@@ -1541,7 +1541,7 @@ describe("t304 first-run prompt and detection safety", () => {
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("Kiro recommended defaults record no provider answer", () => {
-    // 5 is the kiro-ide row: new projects are not offered the legacy kiro row.
+    // 5 is the Kiro harness (kiro-ide): new projects are not offered the legacy kiro harness.
     const result = runWizard("5\n\n");
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain(
@@ -1559,7 +1559,7 @@ describe("t304 first-run prompt and detection safety", () => {
   // access it never needed.
   test("changing the harness at the summary re-derives the provider answer", () => {
     // Claude Code first (1), customize (2), accept every step, then edit step 1
-    // to the kiro-ide row (5) and apply.
+    // to the Kiro harness (5) and apply.
     const toKiro = runWizard("1\n2\n\n\n\n\n\n\n1\n5\n\n");
     expect(toKiro.status, toKiro.stdout + toKiro.stderr).toBe(0);
     expect(toKiro.stdout).toContain("2. Provider     keep current");
@@ -1571,7 +1571,7 @@ describe("t304 first-run prompt and detection safety", () => {
     );
     expect(kiro.providers).toBeUndefined();
 
-    // The kiro-ide row first (5), customize (2), accept every step (four ask:
+    // The Kiro harness first (5), customize (2), accept every step (four ask:
     // the provider step has nothing to choose there), then edit step 1 to
     // Claude Code (1) and apply.
     // Ending on Claude Code, setup then asks the status line question (#1407).

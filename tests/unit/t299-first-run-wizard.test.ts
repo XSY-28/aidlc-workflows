@@ -408,7 +408,7 @@ function runWizard(
   executable(join(bin, "claude"), "claude 2.1.220");
   for (const [name, value] of Object.entries(options.harnesses ?? {})) {
     if (!value.found || name === "claude") continue;
-    // The Kiro row's CLI is kiro-cli, there only when a test names its version.
+    // The Kiro harness's CLI is kiro-cli, there only when a test names its version.
     if (name === "kiro-ide" && value.version === undefined) continue;
     executable(
       join(bin, name === "kiro-ide" ? "kiro-cli" : name),
@@ -754,10 +754,10 @@ describe("t299 first-run setup wizard", () => {
       : [];
   }
 
-  // Kiro IDE's row: Kiro CLI runs on it too, so with kiro-cli found setup
+  // The Kiro harness: Kiro CLI runs on it too, so with kiro-cli found setup
   // offers Kiro CLI's session model, the model only, and never recommends one
   // over Kiro auto (Kiro IDE does not read that setting).
-  test("Kiro IDE's row in Kiro IDE's terminal leaves Kiro auto unasked and says where each host chooses", () => {
+  test("the Kiro harness in Kiro IDE's terminal leaves Kiro auto unasked and says where each host chooses", () => {
     const seam = kiroSeam({});
     const result = runWizard("\n", {
       harnesses: { claude: { found: false } },
@@ -783,7 +783,7 @@ describe("t299 first-run setup wizard", () => {
     expect(kiroWrites(retired.writes)).toEqual([]);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-  test("Kiro IDE's row elsewhere asks for Kiro CLI's model with Enter keeping Kiro auto, and saves no effort", () => {
+  test("the Kiro harness elsewhere asks for Kiro CLI's model with Enter keeping Kiro auto, and saves no effort", () => {
     const kept = kiroSeam({});
     // Kiro from the harness list (5), recommended defaults, Enter at the model list.
     const keep = runWizard("5\n\n\n", {
@@ -958,16 +958,16 @@ describe("t299 first-run setup wizard", () => {
     expect(existsSync(join(result.project, ".codex"))).toBe(true);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-  // Kiro CLI leads to the Kiro row (id kiro-ide). That row counts `kiro-cli`
+  // Kiro CLI leads to the Kiro harness (id kiro-ide). That harness counts `kiro-cli`
   // only from 2.24.1, the oldest Kiro CLI it runs on. Setup says
   // which versions it runs in, under the list and when it takes it without one;
   // with an older Kiro CLI, choosing it asks first, and no answer writes
   // nothing. The real probe runs the stub `kiro-cli`, a POSIX shell script
   // Windows does not resolve as an executable; t294 covers the floor itself on
   // every platform.
-  test.skipIf(process.platform === "win32")("a Kiro CLI from the Kiro row's floor is detected as that row, and an older one asks first", () => {
+  test.skipIf(process.platform === "win32")("a Kiro CLI from the Kiro harness's floor is detected as that harness, and an older one asks first", () => {
     const condition =
-      "AI-DLC's Kiro row runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.";
+      "AI-DLC's Kiro harness runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.";
     const supported = runWizard("\n\n", {
       harnesses: { claude: { found: false }, "kiro-ide": { found: true, version: "kiro-cli 2.24.1" } },
       probed: ["kiro-ide"],
@@ -980,8 +980,8 @@ describe("t299 first-run setup wizard", () => {
     expect(existsSync(join(supported.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
 
     const older =
-      "Kiro CLI 2.24.0 is older than 2.24.1. AI-DLC's Kiro row works in Kiro CLI 2.24.1 or later (and in Kiro IDE 1.1.70 or later).";
-    // The list (no Kiro row counts it), the Kiro row (5), then "n".
+      "Kiro CLI 2.24.0 is older than 2.24.1. AI-DLC's Kiro harness works in Kiro CLI 2.24.1 or later (and in Kiro IDE 1.1.70 or later).";
+    // The list (that CLI counts for no harness), the Kiro harness (5), then "n".
     const declined = runWizard("5\nn\n", {
       harnesses: { claude: { found: false }, "kiro-ide": { found: true, version: "kiro-cli 2.24.0" } },
       probed: ["kiro-ide"],
@@ -995,7 +995,7 @@ describe("t299 first-run setup wizard", () => {
     expect(declined.stdout).toContain("Nothing written.");
     expect(existsSync(join(declined.project, ".kiro"))).toBe(false);
 
-    // "y" sets the Kiro row up.
+    // "y" sets the Kiro harness up.
     const accepted = runWizard("5\ny\n\n\n", {
       harnesses: { claude: { found: false }, "kiro-ide": { found: true, version: "kiro-cli 2.24.0" } },
       probed: ["kiro-ide"],
@@ -1003,7 +1003,7 @@ describe("t299 first-run setup wizard", () => {
     expect(accepted.status, accepted.stdout + accepted.stderr).toBe(0);
     expect(existsSync(join(accepted.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
 
-    // In Kiro IDE's terminal that row is taken and Kiro CLI is optional, so
+    // In Kiro IDE's terminal that harness is taken and Kiro CLI is optional, so
     // nothing is asked.
     const inIde = runWizard("\n", {
       harnesses: { claude: { found: false }, "kiro-ide": { found: true, version: "kiro-cli 2.24.0" } },
@@ -1016,10 +1016,10 @@ describe("t299 first-run setup wizard", () => {
     expect(existsSync(join(inIde.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-  // A detected Kiro CLI leads a new project to the Kiro row, whose
+  // A detected Kiro CLI leads a new project to the Kiro harness, whose
   // settings/cli.json pins the v3 engine. Injected detection runs on every
   // platform.
-  test("a detected Kiro CLI sets a new project up on the Kiro row, which pins the v3 engine", () => {
+  test("a detected Kiro CLI sets a new project up on the Kiro harness, which pins the v3 engine", () => {
     const result = runWizard("\n\n", {
       harnesses: {
         claude: { found: false },
@@ -1062,7 +1062,7 @@ describe("t299 first-run setup wizard", () => {
     expect(kiroWrites(saved.writes)).toEqual([]);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-  test("an earlier harness stays the default beside Kiro CLI, and the Kiro choice is the kiro-ide row", () => {
+  test("an earlier harness stays the default beside Kiro CLI, and the Kiro choice is the kiro-ide harness", () => {
     const withClaude = runWizard("\n\n", {
       harnesses: {
         claude: { found: true, version: "claude 2.1.220" },

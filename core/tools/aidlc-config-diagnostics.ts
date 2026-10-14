@@ -880,7 +880,7 @@ function binaryProbe(
   };
 }
 
-// No entry for a row AI-DLC no longer ships (the legacy `kiro` row): its CLI
+// No entry for a harness AI-DLC no longer ships (the legacy `kiro` harness): its CLI
 // is not probed, and the probe says not-applicable.
 const HARNESS_CLI: Partial<Record<
   ModelHarness,
@@ -891,8 +891,8 @@ const HARNESS_CLI: Partial<Record<
     install: string;
     // A PATH folder whose `command` is a stand-in that must never be run.
     standIn?: (directory: string) => boolean;
-    // For a row that also runs in an editor with no CLI to ask: the CLI's own
-    // name, and the editor with the oldest version the row runs in.
+    // For a harness that also runs in an editor with no CLI to ask: the CLI's own
+    // name, and the editor with the oldest version the harness runs in.
     cliName?: string;
     editor?: { name: string; minimumVersion: string };
   }
@@ -920,12 +920,12 @@ const HARNESS_CLI: Partial<Record<
     required: false,
     install: "Install the Cursor CLI and ensure `cursor --version` works; IDE-only installs may omit it.",
   },
-  // Probed so a machine with a supported Kiro CLI detects this row, the one
+  // Probed so a machine with a supported Kiro CLI detects this harness, the one
   // AI-DLC ships for Kiro CLI and Kiro IDE. 2.24.1 is the oldest Kiro CLI this
-  // row has been checked on (its v3 engine runs the hooks, and `/aidlc
+  // harness has been checked on (its v3 engine runs the hooks, and `/aidlc
   // --doctor` reports no problem), and Kiro IDE 1.1.70 the oldest Kiro IDE (it
   // has no CLI to ask, so only setup's line names it); setup asks before it
-  // sets the row up on an older Kiro CLI, and doctor warns about it here.
+  // sets the harness up on an older Kiro CLI, and doctor warns about it here.
   "kiro-ide": {
     command: "kiro-cli",
     required: false,
@@ -2823,26 +2823,26 @@ export function codexHookTrustStep(issueId: string): string | null {
   return CODEX_HOOK_TRUST_IDS.has(issueId) ? CODEX_HOOK_TRUST_STEP : null;
 }
 
-/** The oldest version of a row's CLI that counts for it, if it has one. */
+/** The oldest version of a harness's CLI that counts for it, if it has one. */
 export function rowCliFloor(row: string): string | undefined {
   return Object.hasOwn(HARNESS_CLI, row) ? HARNESS_CLI[row as ModelHarness]?.minimumVersion : undefined;
 }
 
 /**
- * For a row that also runs in an editor (the kiro-ide row): the one line that
+ * For a harness that also runs in an editor (the Kiro harness): the one line that
  * says which versions it runs in, or null. Setup shows it under the harness
- * list and when it sets the row up.
+ * list and when it sets the harness up.
  */
 export function rowVersionCondition(row: string): string | null {
   const spec = Object.hasOwn(HARNESS_CLI, row) ? HARNESS_CLI[row as ModelHarness] : undefined;
   if (!spec?.editor || !spec.cliName || !spec.minimumVersion) return null;
-  return `AI-DLC's ${HARNESS_PRODUCT_NAMES[row as ModelHarness]} row runs in ${spec.editor.name} ${spec.editor.minimumVersion} or later ` +
+  return `AI-DLC's ${HARNESS_PRODUCT_NAMES[row as ModelHarness]} harness runs in ${spec.editor.name} ${spec.editor.minimumVersion} or later ` +
     `and in ${spec.cliName} ${spec.minimumVersion} or later; older versions are not supported.`;
 }
 
 /**
- * When this machine's CLI is older than such a row needs: what was found,
- * said in one line, or null (the CLI is missing, recent enough, or the row
+ * When this machine's CLI is older than such a harness needs: what was found,
+ * said in one line, or null (the CLI is missing, recent enough, or the harness
  * has no such condition).
  */
 export function rowOlderCli(row: string, options: RuntimeProbeOptions = {}): string | null {
@@ -2852,7 +2852,7 @@ export function rowOlderCli(row: string, options: RuntimeProbeOptions = {}): str
   if (probe.status !== "too-old") return null;
   const version = probe.version ? /\d+\.\d+\.\d+/.exec(probe.version)?.[0] : undefined;
   return `${spec.cliName}${version ? ` ${version}` : ""} is older than ${spec.minimumVersion}. ` +
-    `AI-DLC's ${HARNESS_PRODUCT_NAMES[row as ModelHarness]} row works in ${spec.cliName} ${spec.minimumVersion} or later ` +
+    `AI-DLC's ${HARNESS_PRODUCT_NAMES[row as ModelHarness]} harness works in ${spec.cliName} ${spec.minimumVersion} or later ` +
     `(and in ${spec.editor.name} ${spec.editor.minimumVersion} or later).`;
 }
 
@@ -3291,7 +3291,7 @@ function selectedHarness(
   harness: ModelHarness;
   frameworkVersion?: string;
 } | null {
-  // A tree on a row AI-DLC no longer ships gets one line of its own
+  // A tree on a harness AI-DLC no longer ships gets one line of its own
   // (retiredRowDoctorCheck); no other check reads it.
   const harnesses = discoverProjectHarnesses(projectDir).filter((candidate) => !retiredRow(candidate.distribution));
   const selected = harnessDirHint
@@ -3411,7 +3411,7 @@ export function kiroIdeWorkflowsDoctorCheck(
   };
 }
 
-// Doctor fails a project on a row AI-DLC no longer ships, with the line config
+// Doctor fails a project on a harness AI-DLC no longer ships, with the line config
 // stops with: its hooks do not run on this install.
 export function retiredRowDoctorCheck(
   projectDir: string,

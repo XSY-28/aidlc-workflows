@@ -360,19 +360,19 @@ regions, and the non-interactive hook runtime. With one detected harness, the
 wizard names it and offers three choices: recommended defaults, six-step
 customization, or exit with nothing written. Multiple detected harnesses get a
 numbered harness picker first; no detected harness gets the complete picker
-without a default. The picker lists one Kiro row, **Kiro**
+without a default. The picker lists one Kiro harness, **Kiro**
 (`--harness kiro`), whose `.kiro/settings/cli.json` pins Kiro CLI's v3 engine
 and which runs in Kiro IDE too. `--harness kiro-ide`, its earlier typed name,
 is answered with "`kiro-ide` is now called `kiro`" and the fixed command;
-installed projects and `--json` output keep the row id `kiro-ide`. Under the
-list, and when it takes the Kiro row without one, setup says which versions that
-row runs in: "AI-DLC's Kiro row runs in Kiro IDE 1.1.70 or later and in Kiro CLI
+installed projects and `--json` output keep the harness id `kiro-ide`. Under the
+list, and when it takes the Kiro harness without one, setup says which versions that
+harness runs in: "AI-DLC's Kiro harness runs in Kiro IDE 1.1.70 or later and in Kiro CLI
 2.24.1 or later; older versions are not supported." An older Kiro CLI does not
-count for it; choosing the Kiro row then, setup says so and asks
+count for it; choosing the Kiro harness then, setup says so and asks
 `Set up anyway? [y/N]:` (not in Kiro IDE's own terminal, where the CLI is
 optional). No prints "Nothing written. Update Kiro CLI to 2.24.1 or later, then
 run `aidlc config` again." `aidlc config --harness kiro` says the same versions when it
-sets a project up on the Kiro row, and asks the same question at a terminal; with
+sets a project up on the Kiro harness, and asks the same question at a terminal; with
 `--yes` it says so and goes on. Other detected harnesses keep their order, and a
 harness editor's own terminal still comes first.
 
@@ -390,7 +390,7 @@ removed is named instead); see
 Recommended defaults preserve the harness's current model provider.
 Customization walks Harness, Model provider, Model effort preset, Plugins, MCP
 servers, and the model-preset settings layer. The provider step offers keeping
-the current provider first and Amazon Bedrock second. On the Kiro row, when
+the current provider first and Amazon Bedrock second. On the Kiro harness, when
 `kiro-cli` can be read, step 2 is Session model instead: it lists your Kiro
 account's models and saves the chosen model, never an effort, in your personal
 Kiro settings, last, after every AI-DLC step; see
@@ -675,7 +675,7 @@ check.
 The harness CLI check requires `claude`, `codex >= 0.145.0`, or
 `opencode` for their matching harnesses. Copilot CLI and the Cursor `agent` CLI
 are advisory because those installs may be driven only by VS Code or the IDE.
-The Kiro row requires no separate CLI; `kiro-cli` is optional there, needed only to run AI-DLC from a terminal, and is checked against 2.24.1 when present.
+The Kiro harness requires no separate CLI; `kiro-cli` is optional there, needed only to run AI-DLC from a terminal, and is checked against 2.24.1 when present.
 
 ### Provider Diagnostics
 
@@ -1174,8 +1174,8 @@ Claude Code may coexist with any other harness. Copilot's `AGENTS.md`
 stays exclusive: pairing it with another harness that ships that block is refused
 with `cannot coexist in one project`, regardless of which is installed first.
 OpenCode and Copilot share `.aidlc/`, so they cannot coexist. A project still
-set up with the retired legacy Kiro CLI row is moved by hand, once: see
-[Coming from the legacy Kiro CLI row](harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-row).
+set up with the retired legacy Kiro CLI harness is moved by hand, once: see
+[Coming from the legacy Kiro CLI harness](harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-harness).
 For an older installed harness whose root block is not shared, the `predates shared onboarding` error suggests refreshing it with
 `aidlc config --harness <name>` first. This is a hint for an older sibling, not a
 promise that refreshing enables coexistence: if it still refuses afterwards,

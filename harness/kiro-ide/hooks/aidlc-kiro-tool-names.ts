@@ -1,5 +1,5 @@
 // harness/kiro-ide/hooks/aidlc-kiro-tool-names.ts — the one table of the Kiro
-// tool names this row's hooks act on.
+// tool names this harness's hooks act on.
 //
 // Kiro IDE 1.x and Kiro CLI v3 name their tools alike at PreToolUse and
 // PostToolUse: `fs_write`, `str_replace` and `execute_bash` on both, a delegate

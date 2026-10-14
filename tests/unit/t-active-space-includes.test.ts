@@ -257,7 +257,7 @@ describe("t-active-space-includes: refreshActiveMemory writes the space's memory
   });
 });
 
-// The same through the real CLI, in a git repository, on the Kiro row, whose
+// The same through the real CLI, in a git repository, on the Kiro harness, whose
 // steering file carries the memory text itself and so changes on every switch.
 describe("t-active-space-includes: a space switch changes no tracked file", () => {
   const BUN = process.execPath;

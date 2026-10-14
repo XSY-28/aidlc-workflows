@@ -63,7 +63,7 @@ export const DELEGATED_STATE_MUTATIONS = new Set([
 // The authored engine scripts a delegated agent may not use to change stage
 // status or routing, record an authority-bearing receipt, or apply the
 // person's choice, and their verbs (state's are DELEGATED_STATE_MUTATIONS, the
-// utility's DELEGATED_UTILITY_VERBS). The kiro-ide row, whose calls carry no
+// utility's DELEGATED_UTILITY_VERBS). The Kiro harness, whose calls carry no
 // agent identity, builds each persona's shell deny from delegateAdmittedVerbs
 // below, filtered by these refusals.
 const DELEGATED_ORCHESTRATE_VERBS = ["next", "continue", "report", "park"];
@@ -130,7 +130,7 @@ export const DELEGATED_LIFECYCLE_SCRIPTS: readonly string[] = [
 // and document-input with its onboarding forms, which Intent Capture and
 // Requirements Analysis require when a project runs them as a subagent).
 // DELEGATE_ROLE_ADMITTED_VERBS adds what only one persona is dispatched to do.
-// The kiro-ide row, whose calls carry no agent
+// The Kiro harness, whose calls carry no agent
 // identity, excludes only these from each persona's deny, and only where the
 // refusals above do not refuse them; a verb not listed here (a new one, or a
 // writer no persona is given, such as knowledge sync or runtime compile)
@@ -168,7 +168,7 @@ export const DELEGATE_ADMITTED_VERBS: Readonly<Record<string, readonly string[]>
 // The work only one persona is dispatched to do, by persona: the Bolt worktree
 // create, merge and discard, and restore on the person's request, belong to
 // pipeline-deploy (agents/aidlc-pipeline-deploy-agent.md, Worktree Branch
-// Lifecycle; its branching-strategies.md). The kiro-ide row excludes these
+// Lifecycle; its branching-strategies.md). The Kiro harness excludes these
 // from that persona's deny only; the refusals above do not read this table.
 export const DELEGATE_ROLE_ADMITTED_VERBS: Readonly<
   Record<string, Readonly<Record<string, readonly string[]>>>

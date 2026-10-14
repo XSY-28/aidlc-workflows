@@ -1,4 +1,4 @@
-// harness/claude/manifest.ts — the Claude Code distribution row.
+// harness/claude/manifest.ts — the Claude Code harness distribution.
 //
 // One core, N harnesses (dist-unified). This manifest tells scripts/package.ts
 // how to project the harness-neutral core/ tree into dist/claude/.claude/:

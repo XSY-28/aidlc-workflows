@@ -10876,7 +10876,7 @@ export function installedHarnessName(projectDir: string): string | null {
 
 // The Kiro layout of the project's installed tree, null off Kiro. Same
 // precedence as installedHarnessName: the KAS adapter pins its own name, while
-// `kiro` names both the agent-v1 adapter and, once the rows merge, the KAS one,
+// `kiro` names both the agent-v1 adapter and, once the two Kiro harnesses merge, the KAS one,
 // so for `kiro` the tree decides.
 export function installedKiroLayout(projectDir: string): KiroLayout | null {
   const explicit = process.env.AIDLC_HARNESS_NAME?.trim();

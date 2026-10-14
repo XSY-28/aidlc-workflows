@@ -392,7 +392,7 @@ describe("t-carry-on-continues-the-work: work here but none selected in this cha
       test(`${host}: "/aidlc ${words}" typed in the chat: the reading print, then the bare next asks which piece to pick up`, async () => {
         const tools = host === "claude" ? CLAUDE_TOOLS : KIRO_TOOLS;
         proj = cloneWithWork(tools);
-        // The Kiro row's engine already wrote its steering file into .kiro, so
+        // The Kiro harness's engine already wrote its steering file into .kiro, so
         // put the whole tree (its adapter included) in place as an install does.
         if (host === "kiro-ide") cpSync(join(KIRO_TOOLS, ".."), join(proj, ".kiro"), { recursive: true });
         const pick = next(tools, proj, []);

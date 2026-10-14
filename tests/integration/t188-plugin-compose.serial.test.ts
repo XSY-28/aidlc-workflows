@@ -3601,7 +3601,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
   function composeSynthetic(
     name: string,
     files: Record<string, string>,
-    // ".kiro" and "kiro-ide": the Kiro tree under its row id.
+    // ".kiro" and "kiro-ide": the Kiro tree under its harness id.
     harness: ".claude" | ".kiro" | ".codex" | ".aidlc" | "kiro-ide" = ".claude",
     mutateInstall?: (proj: string, harnessDir: string) => void,
   ): { drops: string; proj: string } {

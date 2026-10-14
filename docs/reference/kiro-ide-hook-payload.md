@@ -269,7 +269,7 @@ cards doing the work, and the guard notes nothing for them.
 - **plan-approval-guard** — populated PreToolUse arguments are forwarded to the
   shared target-aware guard, a shell call judged from its own `cwd` as above. Kiro IDE 0.12 identifies the tool but supplies an
   empty argument object, so the adapter uses a mediated planned-source protocol
-  (this guard's own handling: on this row the review-freeze and
+  (this guard's own handling: on this harness the review-freeze and
   state-transition registrations above refuse such a call, so the planning
   write it admits does not run, and a write window it opened stays a recovery
   latch as described below):

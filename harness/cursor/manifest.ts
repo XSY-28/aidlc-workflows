@@ -1,4 +1,4 @@
-// harness/cursor/manifest.ts — the Cursor distribution row.
+// harness/cursor/manifest.ts — the Cursor harness distribution.
 //
 // Projects the harness-neutral core/ tree into dist/cursor/.cursor/. Cursor is
 // the most "native" port so far: unlike opencode (engine hidden in .aidlc/) or

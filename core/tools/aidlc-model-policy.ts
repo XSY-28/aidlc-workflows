@@ -135,14 +135,14 @@ export const HARNESS_HONESTY = Object.freeze({
     message:
       "opencode can express model and variant policy; xhigh effort clamps down to high.",
   }),
-  // The legacy Kiro CLI row, which AI-DLC no longer ships: a settings file may
+  // The legacy Kiro CLI harness, which AI-DLC no longer ships: a settings file may
   // still name it, and no tree on it gets a model surface any more.
   kiro: Object.freeze({
     model: false,
     effort: false,
     groupEffort: false,
     message:
-      "AI-DLC no longer ships the legacy Kiro CLI row, so a model or effort set here for it is kept for other tools and changes nothing.",
+      "AI-DLC no longer ships the legacy Kiro CLI harness, so a model or effort set here for it is kept for other tools and changes nothing.",
   }),
   "kiro-ide": Object.freeze({
     model: false,

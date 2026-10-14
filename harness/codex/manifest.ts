@@ -1,4 +1,4 @@
-// harness/codex/manifest.ts — the Codex CLI distribution row.
+// harness/codex/manifest.ts — the Codex CLI harness distribution.
 //
 // Projects core/ into dist/codex/.codex/ (rules prose -> aidlc-rules, D-10)
 // and defers native shell surfaces to emit.ts (config.toml, hooks.json,

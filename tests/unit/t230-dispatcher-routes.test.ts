@@ -2107,10 +2107,10 @@ describe("t230 dispatcher dev and compiled in-process modes", () => {
     }
   });
 
-  test("a Kiro tree's layout comes from its declaration, then its row name, then its conductor", () => {
-    // The shipped Kiro row declares its layout in harness.json.
+  test("a Kiro tree's layout comes from its declaration, then its harness name, then its conductor", () => {
+    // The shipped Kiro harness declares its layout in harness.json.
     expect(kiroTreeLayout(join(REPO_ROOT, "dist", "kiro-ide", ".kiro"))).toBe("kas");
-    // The declaration wins over the row name, so a `kiro` row can be either layout.
+    // The declaration wins over the harness name, so a `kiro` tree can be either layout.
     expect(kiroLayoutOf({ name: "kiro", kiroLayout: "kas" })).toBe("kas");
     expect(kiroLayoutOf({ name: "kiro-ide", kiroLayout: "agent-v1" })).toBe("agent-v1");
     // Trees installed before the field existed: the row name was the layout.
@@ -2144,7 +2144,7 @@ describe("t230 dispatcher dev and compiled in-process modes", () => {
     };
     try {
       process.env.AIDLC_HARNESS_DIR = ".kiro";
-      // The shipped Kiro row, and a tree the retired agent-v1 row left behind
+      // The shipped Kiro harness, and a tree the retired agent-v1 harness left behind
       // (its JSON conductor only), which config and doctor still recognise.
       for (const [row, expected] of [
         ["kiro-ide", { "kiro-ide": "kas", kiro: "kas", unset: "kas", claude: null }],

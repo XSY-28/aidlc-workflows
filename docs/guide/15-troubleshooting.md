@@ -30,7 +30,7 @@ This chapter covers common issues and their solutions, organized by symptom.
 | Kiro IDE: your reply to an approval question is not seen, or commands come back with exit code -1 | Choose **Trust Folder & Continue** when Kiro asks whether you trust this folder (or select **Manage**, then **Trust**, on the Restricted Mode banner), then run **Developer: Reload Window** from the Command Palette and say carry on; if your next message is still not recorded, `/aidlc --doctor` shows why. In Kiro CLI, quit and start `kiro-cli` again in the folder (see [Kiro IDE hooks not running](#kiro-ide-hooks-not-running)) |
 | Kiro IDE: an approval says your answer was not recorded and names `aidlc-record-human-turn` under Agent Hooks, or the next AI-DLC step says an AI-DLC hook is switched off in Kiro's Agent Hooks | You switched that hook off in the Agent Hooks panel; AI-DLC never turns it back on for you. Turn it back on there (see [A Kiro hook switched off under Agent Hooks](#a-kiro-hook-switched-off-under-agent-hooks)) |
 | Kiro CLI (or a Kiro ACP client): every approval says no human reply has arrived, and restarting does not help | The session is not on Kiro CLI's v3 engine, which AI-DLC's hooks need (see [Kiro CLI hooks not running](#kiro-cli-hooks-not-running)) |
-| `.kiro is set up for the legacy Kiro CLI row, which AI-DLC no longer ships` from `aidlc config` or `aidlc doctor` | Move `.kiro` aside (for example to `.kiro.old`), run `aidlc config --harness kiro`, then copy your own files (steering, MCP settings) back from it; `aidlc/` is kept. Until then the project's hooks do not run after `aidlc update` (see [Coming from the legacy Kiro CLI row](harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-row)) |
+| `.kiro is set up for the legacy Kiro CLI harness, which AI-DLC no longer ships` from `aidlc config` or `aidlc doctor` | Move `.kiro` aside (for example to `.kiro.old`), run `aidlc config --harness kiro`, then copy your own files (steering, MCP settings) back from it; `aidlc/` is kept. Until then the project's hooks do not run after `aidlc update` (see [Coming from the legacy Kiro CLI harness](harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-harness)) |
 | Context compacted mid-session | Run `/aidlc` to resume from checkpoint |
 | Audit log too large | Leave it where it is: a long project's audit file is large by design, and the engine reads it to know what you approved and finished (see [Audit Log Growing Too Large](#audit-log-growing-too-large)) |
 | Hooks appear to hang | Diagnose lock ownership with `/aidlc --doctor`; see [Lock Files Left Behind](#lock-files-left-behind) |
@@ -239,9 +239,9 @@ v3 runs no hooks.
 These behaviours were measured on Kiro CLI 2.21.1, and a later Kiro CLI may
 change them. After you switch, send a message and run `/aidlc --doctor`.
 
-A project still set up for the legacy Kiro CLI row runs no hooks after
+A project still set up for the legacy Kiro CLI harness runs no hooks after
 `aidlc update`; see
-[Coming from the legacy Kiro CLI row](harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-row).
+[Coming from the legacy Kiro CLI harness](harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-harness).
 
 ### GitHub Copilot hooks not running
 

@@ -523,7 +523,7 @@ On Codex and OpenCode, a Markdown persona in the engine roster is
 available only for `mode: inline`. Native dispatch also requires a per-harness
 dispatch surface — an agent config TOML (the shipped
 `aidlc-*-agent.toml` shape) on Codex, or a native `.opencode/agents/` subagent
-file on OpenCode. The Kiro row (`kiro-ide`: Kiro IDE and Kiro CLI v3) instead dispatches the installed agent Markdown
+file on OpenCode. The Kiro harness (`kiro-ide`: Kiro IDE and Kiro CLI v3) instead dispatches the installed agent Markdown
 itself, but only when `tools:` is non-empty and `permissions.rules` is a
 non-empty list of well-formed `capability`/`effect`/`match` entries whose effect
 is `allow`, `ask`, or `deny` (core's own personas carry all three); empty

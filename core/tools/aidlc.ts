@@ -31,6 +31,7 @@ import {
   packagedDistributionRoot,
   discoverableRuntimeHarnessDir,
   retiredProjectTree,
+  retiredRow,
   retiredRowLine,
   runtimeHarnessDir,
   runtimeProjectDir,
@@ -1217,7 +1218,7 @@ export type Action =
   | { type: "adapter"; harness: AdapterHarness; target: string; extraArgs: string[]; path: string; projectDir?: string }
   | { type: "sensor-script-file"; id: string; args: string[]; projectDir?: string }
   | { type: "version"; json: boolean }
-  | { type: "stub"; message: string; code: number }
+  | { type: "stub"; message: string; code: number; stdout?: true }
   | { type: "help"; scope: "human" | "engine" | "system" | "all" | "config" }
   | { type: "error"; message: string; humanMessage?: string; code: number };
 
@@ -1275,23 +1276,42 @@ const ADAPTER_HARNESS_LEAF: Record<AdapterHarness, string> = {
   "kiro-ide": ".kiro",
 };
 
-// The retired Kiro CLI row's JSON agents call `adapter kiro`, whose runtime no
-// longer ships. Each of their hooks says what to do and blocks (Kiro CLI's v2
-// engine stops a tool call on exit 2), so nothing runs without AI-DLC's checks
-// and the person sees the step.
-function retiredKiroAdapter(): Action {
-  let line = "This project's .kiro is set up for the legacy Kiro CLI row, which AI-DLC no longer ships; " +
-    "run `aidlc doctor` for the steps.";
+// The retired Kiro CLI harness's JSON agents call `adapter kiro`, whose runtime
+// no longer ships. Its tool-call checks say what to do and block (Kiro CLI's v2
+// engine stops a tool call on exit 2), so nothing changes without AI-DLC's
+// checks; the chat start and each prompt hand the agent the same line to tell
+// the person; the rest pass quietly (a blocked stop would only come back as the
+// next prompt). Once the tree is moved aside, a chat started before the move
+// is told to start again, and nothing blocks.
+const RETIRED_KIRO_BLOCKS: ReadonlySet<string> = new Set([
+  "deliver-stage-rules",
+  "guard-tool-call",
+  "plan-approval-guard",
+  "review-freeze",
+  "reviewer-scope",
+  "state-transition-guard",
+]);
+const RETIRED_KIRO_TELLS: ReadonlySet<string> = new Set(["session-start", "verb-intercept"]);
+
+function retiredKiroAdapter(target: string): Action {
+  let line = "This Kiro CLI chat still runs the legacy Kiro CLI harness's agent, which AI-DLC no longer ships; " +
+    "start kiro-cli again in this project.";
+  let blocks = false;
   try {
     const tree = retiredProjectTree(runtimeProjectDir());
     // Only the installed aidlc runs this (a copied legacy tree runs its own
     // older tool, and config never refreshes one), and the tree's tool is the
     // one moved aside.
-    if (tree) line = retiredRowLine(tree, "aidlc", "");
+    if (tree) {
+      line = retiredRowLine(tree, "aidlc", "");
+      blocks = true;
+    }
   } catch {
-    // The line above still names where the steps are.
+    // The line above still says what to do.
   }
-  return { type: "stub", message: `${line}\n`, code: 2 };
+  if (RETIRED_KIRO_BLOCKS.has(target)) return { type: "stub", message: `${line}\n`, code: blocks ? 2 : 0 };
+  if (RETIRED_KIRO_TELLS.has(target)) return { type: "stub", message: `${line}\n`, code: 0, stdout: true };
+  return { type: "stub", message: "", code: 0 };
 }
 
 function isAdapterHarness(value: string): value is AdapterHarness {
@@ -1890,7 +1910,7 @@ function handleRouteOnly(route: Route, argv: string[]): Action {
     const harness = argv[1];
     const target = argv[2];
     if (!harness) return nounError("adapter", undefined);
-    if (harness === "kiro") return retiredKiroAdapter();
+    if (retiredRow(harness)) return retiredKiroAdapter(argv[2] ?? "");
     if (!isAdapterHarness(harness)) return nounError("adapter", harness);
     if (!target) return nounError("adapter", undefined);
     if (!isSafeName(target)) return nounError("adapter", target);
@@ -3044,7 +3064,8 @@ async function execute(action: Action): Promise<number> {
     return await withProjectDir(action.projectDir, () => runSensorScriptFile(action));
   }
   if (action.type === "stub" || action.type === "error") {
-    text(2, action.type === "error" ? action.humanMessage ?? action.message : action.message);
+    const message = action.type === "error" ? action.humanMessage ?? action.message : action.message;
+    if (message) text(action.type === "stub" && action.stdout ? 1 : 2, message);
     return action.code;
   }
   return 1;

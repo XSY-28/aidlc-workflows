@@ -308,7 +308,7 @@ function check(previous: string, candidate: string, target: string, root: string
   for (const { harness, project } of projects) {
     const known = failures.length;
     const count = hooks(harness, project, `before the refresh`);
-    // This release reads the names a person types (`kiro` is the Kiro row).
+    // This release reads the names a person types (`kiro` is the Kiro harness).
     aidlc(`aidlc config --yes for ${harness}`, ["config", "--project-dir", project, "--harness", typedHarnessName(harness), "--mcp", "none", "--yes", "--quiet"]);
     hooks(harness, project, "after the refresh");
     aidlc(`aidlc doctor for ${harness}`, ["doctor", "--project-dir", project, "--quiet"]);

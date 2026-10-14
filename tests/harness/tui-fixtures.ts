@@ -66,7 +66,7 @@ import {
 const HARNESS_DIR = import.meta.dir;
 const REPO_ROOT = join(HARNESS_DIR, "..", "..");
 export const AIDLC_SRC = join(REPO_ROOT, "dist", "claude", ".claude");
-// The Kiro distributable (row id kiro-ide: Kiro IDE and Kiro CLI on the v3
+// The Kiro distributable (harness id kiro-ide: Kiro IDE and Kiro CLI on the v3
 // engine) ships the hook JSON files (hooks/aidlc-*.json) Kiro reads (the
 // human-presence mint + block). Seed this tree for Kiro-shaped tests.
 export const KIRO_IDE_SRC = join(REPO_ROOT, "dist", "kiro-ide", ".kiro");

@@ -364,13 +364,13 @@ function readHarnessName(root: string): string | null {
 /**
  * The two Kiro tree layouts. `agent-v1` is the Kiro CLI agent-JSON layout (JSON
  * agents carrying their hooks); `kas` is the one Kiro IDE 1.x and Kiro CLI v3 run
- * (Markdown agents, standalone `.kiro/hooks/*.json`). A row name says which
+ * (Markdown agents, standalone `.kiro/hooks/*.json`). A harness name says which
  * distribution shipped a tree, not its layout, so code that depends on the
  * layout asks for it here.
  */
 export type KiroLayout = "agent-v1" | "kas";
 
-/** The layout a harness.json record declares, or the one its row name implied before the field existed. */
+/** The layout a harness.json record declares, or the one its harness name implied before the field existed. */
 export function kiroLayoutOf(record: unknown): KiroLayout | null {
   if (!record || typeof record !== "object") return null;
   const { kiroLayout, name, distribution } = record as Record<string, unknown>;
@@ -451,8 +451,8 @@ export function runtimeHarnessName(
   return "claude";
 }
 
-// The name a person types after --harness for a row, where it differs from
-// the row's id. Installed projects keep the id (`kiro-ide` = the Kiro row for
+// The name a person types after --harness for a harness, where it differs from
+// the harness id. Installed projects keep the id (`kiro-ide` = the Kiro harness for
 // Kiro IDE and Kiro CLI), so only what is typed and printed changes. The
 // earlier typed name `kiro-ide` is answered with the name to type instead
 // (retiredTypedHarnessName).
@@ -460,12 +460,12 @@ const TYPED_HARNESS_NAMES: Readonly<Record<string, string>> = Object.freeze({
   "kiro-ide": "kiro",
 });
 
-/** The name to print after --harness for a row id. */
+/** The name to print after --harness for a harness id. */
 export function typedHarnessName(id: string): string {
   return Object.hasOwn(TYPED_HARNESS_NAMES, id) ? TYPED_HARNESS_NAMES[id] : id;
 }
 
-/** The row id a typed --harness name means. */
+/** The harness id a typed --harness name means. */
 export function harnessIdFromTyped(name: string): string {
   const id = Object.entries(TYPED_HARNESS_NAMES).find(([, typed]) => typed === name)?.[0];
   return id ?? name;
@@ -476,13 +476,13 @@ export function retiredTypedHarnessName(name: string): string | null {
   return name === "kiro-ide" ? typedHarnessName("kiro-ide") : null;
 }
 
-// Set by config for the config runs it starts, whose --harness values are row
+// Set by config for the config runs it starts, whose --harness values are harness
 // ids already. Config reads it once and clears it. Nothing else reads typed
 // names: a pinned older release gets the line as typed, in its own names.
 export const HARNESS_IDS_ENV = "AIDLC_CONFIG_HARNESS_IDS";
 
 /**
- * A config command line's --harness values, typed names read as row ids. A
+ * A config command line's --harness values, typed names read as harness ids. A
  * retired typed name stops the reading: `retired` says which and what to type.
  */
 export function harnessArgsAsIds(args: readonly string[]): {
@@ -503,40 +503,40 @@ export function harnessArgsAsIds(args: readonly string[]): {
   return { args: out };
 }
 
-/** The same line with its --harness row ids written as the names a person types, to print. */
+/** The same line with its --harness ids written as the names a person types, to print. */
 export function harnessArgsAsTyped(args: readonly string[]): string[] {
   return args.map((arg, index) => (index > 0 && args[index - 1] === "--harness" ? typedHarnessName(arg) : arg));
 }
 
-// The rows AI-DLC no longer ships. A project that still has one is told what
+// The harnesses AI-DLC no longer ships. A project that still has one is told what
 // to do, by config (which stops before it writes anything) and by doctor;
-// nothing moves it. Each names the row to set up instead and the files a
+// nothing moves it. Each names the harness to set up instead and the files a
 // person may have added to the tree.
 const RETIRED_ROWS: Readonly<Record<string, { title: string; row: string; ownFiles: string }>> = Object.freeze({
-  kiro: { title: "the legacy Kiro CLI row", row: "kiro-ide", ownFiles: "steering, MCP settings" },
+  kiro: { title: "the legacy Kiro CLI harness", row: "kiro-ide", ownFiles: "steering, MCP settings" },
 });
 
-/** Whether AI-DLC no longer ships the row `distribution`. */
+/** Whether AI-DLC no longer ships the harness `distribution`. */
 export function retiredRow(distribution: string): boolean {
   return Object.hasOwn(RETIRED_ROWS, distribution);
 }
 
 /**
- * Whether a config run for `requested` (a row id, or none named) would act on
- * the retired `tree`: unnamed, the retired row itself, or the row that takes
+ * Whether a config run for `requested` (a harness id, or none named) would act on
+ * the retired `tree`: unnamed, the retired harness itself, or the harness that takes
  * its directory. A run for another harness leaves it alone.
  */
 export function retiredTreeInTheWay(tree: ProjectHarness, requested: string | undefined): boolean {
   return !requested || requested === tree.distribution || requested === RETIRED_ROWS[tree.distribution]?.row;
 }
 
-/** The project's first tree on a row AI-DLC no longer ships, or null. */
+/** The project's first tree on a harness AI-DLC no longer ships, or null. */
 export function retiredProjectTree(projectDir: string): ProjectHarness | null {
   return discoverProjectHarnesses(projectDir).find((tree) => retiredRow(tree.distribution)) ?? null;
 }
 
 /**
- * The one line a project on a retired row is told: where it stands and what
+ * The one line a project on a retired harness is told: where it stands and what
  * to do. `invoke` is the caller's command form (`aidlc`, or a copied project's
  * `bun <dir>/tools/aidlc.ts`); `target` follows the arguments (a
  * --project-dir).

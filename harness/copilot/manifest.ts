@@ -1,4 +1,4 @@
-// harness/copilot/manifest.ts — the GitHub Copilot distribution row.
+// harness/copilot/manifest.ts — the GitHub Copilot harness distribution.
 //
 // ONE dist serves BOTH Copilot surfaces — Copilot CLI (1.0.74+) and VS Code
 // agent mode (1.130+) — because GitHub converged them on the same project

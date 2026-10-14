@@ -168,7 +168,7 @@ Create `harness/<name>/manifest.ts` exporting a `HarnessManifest`
 - `tierFlavor` — selects the existing Claude/Codex/Kiro/OpenCode agent
   model/effort projection shape. It is manifest data, never inferred from
   `name`.
-- `kiroLayout` (the Kiro row only) — `kas` (Markdown agents and standalone
+- `kiroLayout` (the Kiro harness only) — `kas` (Markdown agents and standalone
   `.kiro/hooks/*.json`, which Kiro IDE 1.x and Kiro CLI v3 run). It is written to `harness.json`, and runtime code
   that depends on the layout reads it from the installed tree rather than from
   `name`.
@@ -224,7 +224,7 @@ Create `harness/<name>/manifest.ts` exporting a `HarnessManifest`
   the standard runner-gen step.
 - `emit` — the optional plugin (Step 3), `null` for harnesses that need none.
 - `plugin` (optional) — the host plugin manifest directory and delivery kind.
-  Omitting it derives `<harnessDir>-plugin` plus store delivery; the Kiro row
+  Omitting it derives `<harnessDir>-plugin` plus store delivery; the Kiro harness
   sets `kind: "kiro-ide"` (a folder-drop host with a SessionStart registration),
   and Cursor sets `kind: "cursor"`.
 

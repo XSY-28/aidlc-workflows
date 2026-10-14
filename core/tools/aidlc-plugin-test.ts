@@ -346,7 +346,7 @@ function detectHarness(
   requested?: string,
 ): { name: string; target: PluginTarget } {
   if (requested) {
-    // The name a person types (`kiro` for the Kiro row), as config reads it.
+    // The name a person types (`kiro` for the Kiro harness), as config reads it.
     const instead = retiredTypedHarnessName(requested);
     if (instead) throw new PluginTestUsageError(`\`${requested}\` is now called \`${instead}\`; pass --harness ${instead}`);
     const id = harnessIdFromTyped(requested);

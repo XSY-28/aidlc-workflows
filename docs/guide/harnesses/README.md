@@ -53,7 +53,7 @@ Pick your harness:
 | Harness | Invoke | Chapter |
 |---------|--------|---------|
 | **Claude Code** | `/aidlc` | Covered throughout the [User Guide](../00-introduction.md) (its examples run on Claude Code); install in [Getting Started](../01-getting-started.md). |
-| **Kiro**: Kiro IDE (≥ 1.1.70) and Kiro CLI (≥ 2.24.1, v3 engine) | `/aidlc` | [Running AI-DLC on Kiro IDE and Kiro CLI](kiro-ide.md) — one tree for both surfaces: prerequisites (Opus 4.8), install, hooks, what's different on Kiro, and moving a project off the retired legacy Kiro CLI row. |
+| **Kiro**: Kiro IDE (≥ 1.1.70) and Kiro CLI (≥ 2.24.1, v3 engine) | `/aidlc` | [Running AI-DLC on Kiro IDE and Kiro CLI](kiro-ide.md) — one tree for both surfaces: prerequisites (Opus 4.8), install, hooks, what's different on Kiro, and moving a project off the retired legacy Kiro CLI harness. |
 | **Codex CLI** (≥ 0.145.0) | `$aidlc` | [AI-DLC on Codex CLI](codex-cli.md) — prerequisites, trust pre-seed, Bedrock config, the git-repo requirement. |
 | **Cursor** | `/aidlc` | [AI-DLC on Cursor](cursor.md) — one tree for the Cursor IDE and CLI, native subagents and skills, the hooks.json adapter, what's different on Cursor. |
 | **opencode** (≥ 1.17) | `/aidlc` | [AI-DLC on opencode](opencode.md) — the split `.aidlc/` + `.opencode/` layout, the adapter plugin, what's different on opencode. |

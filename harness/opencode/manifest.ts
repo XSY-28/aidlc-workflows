@@ -1,4 +1,4 @@
-// harness/opencode/manifest.ts — the opencode distribution row.
+// harness/opencode/manifest.ts — the opencode harness distribution.
 //
 // Projects the harness-neutral core/ tree into dist/opencode/.aidlc/ and defers
 // every opencode-native surface to emit.ts (the .opencode/ shell: subagent .md

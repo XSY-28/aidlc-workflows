@@ -95,7 +95,7 @@ function documentedDistNames(text: string): string[] {
       ...[...text.matchAll(/(?:dist|runtime)\/([a-z][a-z-]+)\//g)].map(
         (match) => match[1],
       ),
-      // A typed --harness name reads as the row id it means (kiro → kiro-ide).
+      // A typed --harness name reads as the harness id it means (kiro → kiro-ide).
       ...[...text.matchAll(/--harness\s+([a-z][a-z-]+)/g)].map(
         (match) => harnessIdFromTyped(match[1]),
       ),

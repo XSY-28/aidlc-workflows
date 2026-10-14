@@ -3,7 +3,7 @@
 // t-ide-kiro-checkpoint.serial.test.ts - the FIRST live test that drives the Kiro
 // IDE (the Electron desktop app), not the Kiro CLI. The live Kiro tests before it
 // drove the CLI over ACP or over a tmux TUI (those files left with the retired
-// legacy Kiro CLI row); none drove the GUI app. This is the enforcement surface for the
+// legacy Kiro CLI harness); none drove the GUI app. This is the enforcement surface for the
 // human-presence gate (a HUMAN_TURN event recorded on each human chat turn + a
 // preToolUse hard-block that refuses a model-fabricated approval while a checkpoint
 // gate is open with no HUMAN_TURN since the last gate resolution).

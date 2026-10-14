@@ -235,10 +235,10 @@ export type HarnessManifest = {
    */
   tierFlavor: "claude" | "codex" | "kiro" | "opencode" | "copilot" | "cursor";
   /**
-   * Kiro row only: which tree layout this row ships. `kas` is the layout Kiro
+   * Kiro harness only: which tree layout this harness ships. `kas` is the layout Kiro
    * IDE 1.x and Kiro CLI v3 run (Markdown agents and standalone
    * `.kiro/hooks/*.json`). Written to harness.json so code that depends on the
-   * layout reads it from the installed tree instead of from the row name (an
+   * layout reads it from the installed tree instead of from the harness name (an
    * older tree may still record the retired `agent-v1` layout; see
    * core/tools/aidlc-runtime-paths.ts KiroLayout).
    */
@@ -357,7 +357,7 @@ export type HarnessManifest = {
    * `harnessDir` (manifestDir = "<harnessDir>-plugin", kind = "store"), so a
    * NEW harness added per the one-core-many-harnesses promise automatically
    * gets a plugin projection instead of being silently skipped. A harness with
-   * no host plugin store uses a folder-drop projection: the Kiro row sets kind
+   * no host plugin store uses a folder-drop projection: the Kiro harness sets kind
    * "kiro-ide" for its v2 SessionStart registration. Cursor sets kind "cursor"
    * for its flat camelCase hook schema.
    */

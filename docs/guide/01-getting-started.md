@@ -199,7 +199,7 @@ every default except the provider, where it chose Amazon Bedrock:
     5. Kiro
     6. opencode
 
-  AI-DLC's Kiro row runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.
+  AI-DLC's Kiro harness runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.
   Harness [1]:
   Using Claude Code.
 
@@ -327,7 +327,7 @@ up, with no default:
     5. Kiro
     6. opencode
 
-  AI-DLC's Kiro row runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.
+  AI-DLC's Kiro harness runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.
   Harness [1-6]:
 
   That's not one of the choices - enter 1, 2, ... or 6.
@@ -663,9 +663,9 @@ After config, complete the one step config names for your tool:
 
 The welcome message is Claude Code's alone. AI-DLC draws its own status line
 on Claude Code; on Codex, setup offers Codex's built-in status line, with the
-task progress AI-DLC keeps current. The Kiro row pins Kiro CLI's v3 engine;
-AI-DLC no longer ships the legacy Kiro CLI row, and
-[Coming from the legacy Kiro CLI row](harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-row)
+task progress AI-DLC keeps current. The Kiro harness pins Kiro CLI's v3 engine;
+AI-DLC no longer ships the legacy Kiro CLI harness, and
+[Coming from the legacy Kiro CLI harness](harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-harness)
 says how a project set up with it moves.
 
 In Kiro IDE, the **aidlc** agent appears in the agent picker only after you

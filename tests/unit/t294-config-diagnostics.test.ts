@@ -756,8 +756,8 @@ describe("t294 runtime diagnostics", () => {
       status: "missing",
     }));
 
-    // Kiro CLI is optional for this row, but it is probed: with only kiro-cli on
-    // PATH, first-run setup must see this row too.
+    // Kiro CLI is optional for this harness, but it is probed: with only kiro-cli on
+    // PATH, first-run setup must see this harness too.
     expect(probeHarnessCli("kiro-ide", { which: () => null })).toEqual(expect.objectContaining({
       command: "kiro-cli",
       required: false,
@@ -770,7 +770,7 @@ describe("t294 runtime diagnostics", () => {
       command: "kiro-cli",
       status: "found",
     }));
-    // 2.24.1 is the oldest Kiro CLI this row runs on.
+    // 2.24.1 is the oldest Kiro CLI this harness runs on.
     expect(probeHarnessCli("kiro-ide", {
       which: () => "/opt/kiro/bin/kiro-cli",
       run: () => ({ status: 0, stdout: "kiro-cli 2.24.0\n" }),
@@ -1087,7 +1087,7 @@ describe("t294 runtime diagnostics", () => {
       label: `Harness CLI: copilot 1.0.80 at ${NO_VERSION.which()}`,
     }));
 
-    // Kiro CLI is optional on the Kiro row: absent passes, older than the floor
+    // Kiro CLI is optional on the Kiro harness: absent passes, older than the floor
     // warns.
     const kiroIde = temp("aidlc-t294-doctor-kiro-ide-cli-");
     cpSync(join(DIST, "kiro-ide"), kiroIde, { recursive: true });

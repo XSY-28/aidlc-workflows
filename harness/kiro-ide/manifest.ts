@@ -1,4 +1,4 @@
-// harness/kiro-ide/manifest.ts — the Kiro distribution row for Kiro's unified
+// harness/kiro-ide/manifest.ts — the Kiro harness distribution for Kiro's unified
 // agent harness, which Kiro IDE 1.x and Kiro CLI v3 both run and both read
 // from the same .kiro/ tree.
 //
@@ -279,7 +279,7 @@ const manifest: HarnessManifest = {
           // The variant shipped before the block ignored aidlc/.aidlc-request-text/
           // (a request the engine has not read yet).
           "sha256:6c6ff7641c17829d77fdd023f340b938db11dcc26c734a0c452d5213f9bd19cf",
-          // The retired Kiro CLI row's own variants: a project moved off that row
+          // The retired Kiro CLI harness's own variants: a project moved off that harness
           // keeps the root parts it wrote, which are AI-DLC's.
           "sha256:6df8b41c1c9011d8b6d386d389f96bbfa27812386f434103c260bf58641d6b5d",
           "sha256:83449fdda4644b319cbea5dcbde11919722b5dd6761f4edb4caf0e0e53dc9c6b",
@@ -318,7 +318,7 @@ const manifest: HarnessManifest = {
           "sha256:5f6f076a5a9d8a11e1078f568c9dee091f399d9999fae89e9dffa62d8697b797",
           // The variant shipped before the onboarding waited for the person to invoke AI-DLC.
           "sha256:6de1298dfa4c2b6916f66d372b844faf23481c8f258eedd595c1423dab8e106d",
-          // The retired Kiro CLI row's own variants: a project moved off that row
+          // The retired Kiro CLI harness's own variants: a project moved off that harness
           // keeps the root parts it wrote, which are AI-DLC's.
           "sha256:4f7133cc1a9bb1243245c25c28fad57c3660b35e251ea36cea3aa2db431bf55f",
           "sha256:992307cc3fac05d81958851b2ca51db3723fea604c8d2636814ef9b2e9f7a848",

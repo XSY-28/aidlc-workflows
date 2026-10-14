@@ -4227,13 +4227,13 @@ export async function collectDoctorReport(
   // The Kiro and Codex trees also carry the authored host adapter.
   const harness = harnessDir();
   const harnessName = runtimeHarnessName(projectDir, harness);
-  // A tree on a row AI-DLC no longer ships gets none of a shipped row's file
+  // A tree on a harness AI-DLC no longer ships gets none of a shipped harness's file
   // and wiring rows: their repairs are for a tree it is told to move aside, and
   // its own doctor row says what to do.
   const retiredHere = retiredProjectTree(projectDir)?.harnessDir === harness;
   const isCopilot = harnessName === "copilot";
   if (retiredHere) {
-    // Nothing of the shipped rows' hook presence applies.
+    // Nothing of the shipped harnesses' hook presence applies.
   } else if (harness === ".claude") {
     // Claude Code: the EXPECTED roster is the set of aidlc-*.ts hooks that
     // settings.json actually wires (its `hooks` event blocks + the `statusLine`
@@ -4597,8 +4597,8 @@ export async function collectDoctorReport(
     });
     results.push(...kiroDisabledHookChecks(projectDir, harness));
     if (existsSync(markdownAgentPath)) {
-      // The Markdown conductor row pins Kiro CLI to the v3 engine and the aidlc
-      // agent here: the default engine runs no project hooks, so a missing or
+      // The harness with the Markdown conductor pins Kiro CLI to the v3 engine
+      // and the aidlc agent here: the default engine runs no project hooks, so a missing or
       // altered pin leaves gates and audit silently off on Kiro CLI.
       const cliSettingsPath = join(projectDir, harness, "settings", "cli.json");
       let pinned = false;
@@ -5260,7 +5260,7 @@ export async function collectDoctorReport(
   // files under the legacy name until the next hook fires.
   const healthDir = hooksHealthReadDir(projectDir);
   if (retiredHere) {
-    // Its hooks stopped with its row; its own doctor row says what to do.
+    // Its hooks stopped with its harness; its own doctor row says what to do.
   } else if (heartbeatEntries.length > 0) {
     if (liveness.stale) {
       results.push({
@@ -5328,6 +5328,7 @@ export async function collectDoctorReport(
   }
 
   if (
+    !retiredHere &&
     stageOrGateEvents.length > 0 &&
     !auditShardEvents.some((event) => event.event === "HUMAN_TURN") &&
     !hasStoredMessages(projectDir)

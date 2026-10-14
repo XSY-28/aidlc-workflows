@@ -255,7 +255,7 @@ function productName(distribution: string): string {
 }
 
 export function modelsPolicyCheck(projectDir: string, verbose: boolean): DoctorCheck {
-  // A tree on a row AI-DLC no longer ships has its own line (the retired-row
+  // A tree on a harness AI-DLC no longer ships has its own line (the retired-harness
   // check), and no model surface to check here.
   const harnesses = discoverProjectHarnesses(projectDir).filter((harness) => !retiredRow(harness.distribution));
   if (harnesses.length === 0) {

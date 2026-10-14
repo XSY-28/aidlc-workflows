@@ -96,9 +96,9 @@ Model-provider setup belongs to the harness. Shipped project configuration
 keeps the provider and model already selected by the user. `aidlc config
 providers` can apply Amazon Bedrock settings on supported project surfaces or
 record manual setup for other harnesses. Kiro CLI and Kiro IDE need no provider
-answer because model access comes with Kiro. The `kiro` row pins Kiro CLI's v3
+answer because model access comes with Kiro. The `kiro` harness pins Kiro CLI's v3
 engine (2.24.1 or later) and runs in Kiro IDE too. AI-DLC no longer ships the
-legacy Kiro CLI row; [Kiro](docs/guide/harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-row)
+legacy Kiro CLI harness; [Kiro](docs/guide/harnesses/kiro-ide.md#coming-from-the-legacy-kiro-cli-harness)
 says how a project set up with it moves. The methodology itself is
 provider-independent.
 

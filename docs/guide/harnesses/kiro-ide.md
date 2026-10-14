@@ -10,9 +10,9 @@ hook wiring, activation) differs.
 Harness-specific onboarding lives in `.kiro/steering/aidlc-onboarding.md`,
 whose `inclusion: always` frontmatter loads it automatically. The root
 `AGENTS.md` block is harness-neutral and shared with other installed harnesses.
-This is AI-DLC's one Kiro row: you set it up with `aidlc config --harness kiro`.
-A project set up with the earlier, retired Kiro CLI row moves to it once (see
-[Coming from the legacy Kiro CLI row](#coming-from-the-legacy-kiro-cli-row)).
+This is AI-DLC's one Kiro harness: you set it up with `aidlc config --harness kiro`.
+A project set up with the earlier, retired Kiro CLI harness moves to it once (see
+[Coming from the legacy Kiro CLI harness](#coming-from-the-legacy-kiro-cli-harness)).
 
 > [!IMPORTANT]
 > **Run AI-DLC on Kiro with Claude Opus 4.8.** The conductor drives a
@@ -225,26 +225,29 @@ The install ships:
   turns a hook back on for you. The IDE 0.x `.kiro.hook` format is no longer
   shipped: Kiro IDE 1.x never executes it.
 
-### Coming from the legacy Kiro CLI row
+### Coming from the legacy Kiro CLI harness
 
-Earlier releases also shipped a second Kiro row for Kiro CLI, with JSON agents
+Earlier releases also shipped a second Kiro harness for Kiro CLI, with JSON agents
 on Kiro CLI's v2 engine. AI-DLC no longer ships it. In a project still set up
 for it, `aidlc config` stops before writing anything and `aidlc doctor` fails
 one row, both with this line:
 
 ```text
-.kiro is set up for the legacy Kiro CLI row, which AI-DLC no longer ships. Move .kiro aside (for example to .kiro.old), run `aidlc config --harness kiro`, then copy your own files (steering, MCP settings) back from it. aidlc/ is kept.
+.kiro is set up for the legacy Kiro CLI harness, which AI-DLC no longer ships. Move .kiro aside (for example to .kiro.old), run `aidlc config --harness kiro`, then copy your own files (steering, MCP settings) back from it. aidlc/ is kept.
 ```
 
-After `aidlc update`, the project's Kiro CLI hooks answer every file write and
-shell command the agent tries with the same line, so the agent stops and tells
-you, until you do this. A project pinned to an older release keeps running that
-release until its pin changes. Config for another harness in the same project
-still runs. To move the project:
+After `aidlc update`, the project's Kiro CLI chat hands the agent the same line
+when a chat starts and with each message, and blocks every file write and shell
+command the agent tries with it, until you do this. A project pinned to an older
+release keeps running that release until its pin changes. Config for another
+harness in the same project still runs. To move the project, in a terminal
+outside Kiro CLI (the agent's own shell commands are blocked):
 
 1. Move `.kiro` aside, for example `mv .kiro .kiro.old`.
 2. Run `aidlc config --harness kiro`.
 3. Copy your own files (steering, MCP settings) back from `.kiro.old`.
+4. Start `kiro-cli` again; a chat started before the move still runs the old
+   agent.
 
 Your `aidlc/` folder (state, audit trail, artifacts, memory) is kept as it is.
 
@@ -283,7 +286,7 @@ On Kiro CLI, start `kiro-cli` in `your-project/`, then go to step 4.
 When `kiro-cli` is on your PATH, setup also offers Kiro CLI's session model,
 saved in your personal Kiro settings (`~/.kiro/settings/cli.json`). It is a
 Kiro CLI setting: Kiro IDE uses the model you choose in its own model picker.
-On this row setup saves the model only, never an effort, and recommends no
+On this harness setup saves the model only, never an effort, and recommends no
 model over Kiro auto: Enter keeps Kiro auto, and in Kiro IDE's own terminal
 the recommended setup does not ask, and under Kiro auto it says where each
 host chooses its model (Customize still asks in its step 2).

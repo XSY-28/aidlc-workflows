@@ -1162,7 +1162,7 @@ describe("t293 config models CLI", () => {
     expect(refused.stdout + refused.stderr).toContain("--session-model applies to Kiro projects only");
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-  // Kiro IDE runs every agent on its own model picker, so the Kiro row's --show
+  // Kiro IDE runs every agent on its own model picker, so the Kiro harness's --show
   // has no session-model line.
   test("on Kiro --show adds no session-model line", () => {
     const ide = install("kiro-ide");
@@ -1171,7 +1171,7 @@ describe("t293 config models CLI", () => {
     expect(shown.stdout).not.toContain("set-current-as-default");
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-  test("Kiro IDE's row saves Kiro CLI's session model and no effort, whatever preset is recorded", () => {
+  test("the Kiro harness saves Kiro CLI's session model and no effort, whatever preset is recorded", () => {
     const project = install("kiro-ide");
     writeFileSync(projectSettingsPath(project), `${JSON.stringify({ schemaVersion: 1, models: { schemaVersion: 1, preset: "balanced" } })}\n`);
     const seam = kiroSeam({});
@@ -1189,7 +1189,7 @@ describe("t293 config models CLI", () => {
     expect(unknown.stdout + unknown.stderr).toContain("config models --session-model <id>");
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-  test("Kiro IDE's row says the session model is Kiro CLI's, in a preview, a save, and a retry", () => {
+  test("the Kiro harness says the session model is Kiro CLI's, in a preview, a save, and a retry", () => {
     const project = install("kiro-ide");
     const seam = kiroSeam({});
     const args = ["config", "models", "--project-dir", project, "--session-model", "claude-sonnet-4.6"];
