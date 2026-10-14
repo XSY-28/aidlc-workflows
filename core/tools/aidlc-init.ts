@@ -171,6 +171,7 @@ import {
   HARNESS_IDS_ENV,
   retiredRowLine,
   retiredRow,
+  retiredSourceLine,
   retiredTreeInTheWay,
   runtimeHarnessDir,
   typedHarnessName,
@@ -11970,6 +11971,11 @@ export async function main(
       }
     }
     const { stamp, descriptor } = selected;
+    // An older release's files of a harness AI-DLC no longer ships are not
+    // set up, whichever way they were named.
+    if (retiredRow(stamp.distribution)) {
+      throw new Error(retiredSourceLine(stamp.distribution, configInvocationFor(projectDir), projectTarget(projectDir)));
+    }
     configTargetHarnessDir = descriptor.harnessDir;
     if (existing.distribution && existing.distribution !== stamp.distribution) {
       throw new Error(`project uses ${existing.distribution}; refusing ${stamp.distribution}`);

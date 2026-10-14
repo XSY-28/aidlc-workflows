@@ -206,6 +206,26 @@ describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
     );
   });
 
+  // An older release's files of the legacy harness, handed to config as its
+  // source, are not set up: no typed name can ask for them, and --from cannot either.
+  test("config refuses a source of the legacy harness and writes nothing", () => {
+    const source = join(realpathSync(mkdtempSync(join(tmpdir(), "aidlc-t-legacy-kiro-source-"))), "kiro");
+    temporary.push(join(source, ".."));
+    cpSync(join(RELEASE, "kiro-ide"), source, { recursive: true });
+    for (const file of ["aidlc-stamp.json", "harness.json", "aidlc-projection.json"]) {
+      const path = join(source, ".kiro", "tools", "data", file);
+      if (!existsSync(path)) continue;
+      const data = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+      for (const key of ["distribution", "name"]) if (data[key] === "kiro-ide") data[key] = "kiro";
+      writeFileSync(path, JSON.stringify(data, null, 2));
+    }
+    const project = fresh();
+    const result = run(INIT, ["config", "--from", source, "--mcp", "none", "--yes"], project);
+    expect(result.status, result.out).not.toBe(0);
+    expect(result.out.replace(/\s+/g, " ")).toContain("this source holds the legacy Kiro CLI harness, which AI-DLC no longer ships; set up `");
+    expect(existsSync(join(project, ".kiro"))).toBe(false);
+  });
+
   // The names a person types: `kiro` is the Kiro harness (id kiro-ide); the earlier
   // `kiro-ide` says what to type instead and writes nothing.
   test("--harness kiro sets up the Kiro harness and says the versions it runs in; kiro-ide says to type kiro", () => {

@@ -546,6 +546,13 @@ export function retiredRowLine(tree: ProjectHarness, invoke: string, target: str
   return `${state}. ${steps}`;
 }
 
+/** What config says to a source (an older release's files) of a harness AI-DLC no longer ships. */
+export function retiredSourceLine(distribution: string, invoke: string, target: string): string {
+  const { title, row } = RETIRED_ROWS[distribution];
+  return `this source holds ${title}, which AI-DLC no longer ships; set up ` +
+    `\`${invoke} config --harness ${typedHarnessName(row)}${target}\` instead`;
+}
+
 /** The same line in two parts, where it stands and what to do, as doctor shows a row and its fix. */
 export function retiredRowParts(tree: ProjectHarness, invoke: string, target: string): { state: string; steps: string } {
   const { title, row, ownFiles } = RETIRED_ROWS[tree.distribution];
