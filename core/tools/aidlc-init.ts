@@ -4760,7 +4760,7 @@ function replaceGeneratedRegion(
     const beginLineEnd = content.indexOf("-->", begin);
     const endAt = content.indexOf(end, beginLineEnd);
     if (begin < 0 || beginLineEnd < 0 || endAt < 0) {
-      throw new Error(`SKILL.md is missing the compiled ${noun} region`);
+      throw new Error(`tables.md is missing the compiled ${noun} region`);
     }
     return {
       begin,
@@ -6598,8 +6598,10 @@ function prepareRefreshSource(
     const skillsDirs = [join(stagedHarness, "skills"), ...SHARED_SURFACE_DIRS.map((dir) => join(root, dir, "skills"))];
     const skillPath = skillsDirs.map((dir) => join(dir, "aidlc", "SKILL.md")).find((path) => existsSync(path)) ??
       join(stagedHarness, "skills", "aidlc", "SKILL.md");
-    if (existsSync(skillPath)) {
-      let generated = readFileSync(skillPath, "utf-8");
+    // The generated tables live beside the skill, out of its body.
+    const tablesPath = join(dirname(skillPath), "tables.md");
+    if (existsSync(tablesPath)) {
+      let generated = readFileSync(tablesPath, "utf-8");
       generated = replaceGeneratedRegion(
         generated,
         canonicalStageTableRegion(renderStageTable()),
@@ -6610,7 +6612,7 @@ function prepareRefreshSource(
         canonicalScopeTableRegion(renderScopeTable()),
         "scope",
       );
-      writeFileSync(skillPath, generated);
+      writeFileSync(tablesPath, generated);
     }
     regenerated.add(`${descriptor.harnessDir}/tools/data/stage-graph.json`);
     for (const directory of skillsDirs) {
