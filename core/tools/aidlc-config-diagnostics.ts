@@ -1,8 +1,11 @@
 import { DEFAULT_SUBPROCESS_TIMEOUT_MS } from "./aidlc-runtime-budget.ts";
 import {
   KIRO_WORKFLOWS_ISSUE_ID,
+  KIRO_WORKFLOWS_UNREADABLE_ISSUE_ID,
   kiroWorkflowsFix,
   kiroWorkflowsIssueMessage,
+  kiroWorkflowsUnreadableFix,
+  kiroWorkflowsUnreadableMessage,
   readKiroIdeWorkflows,
   readKiroWorkflowsAnswer,
   type KiroWorkflowsAnswer,
@@ -262,7 +265,7 @@ export type TrustStatus = {
   files: string[];
   issues: DiagnosticIssue[];
   /** Kiro IDE only: its Workflows switch and the person's answer on this machine. */
-  kiroWorkflows?: { enabled: boolean; settingsPath: string; answer: KiroWorkflowsAnswer | null };
+  kiroWorkflows?: { enabled: boolean; readable: boolean; settingsPath: string; answer: KiroWorkflowsAnswer | null };
   /** Kiro IDE on Windows only: whether its terminal is Command Prompt, and the person's answer on this machine. */
   kiroTerminal?: { commandPrompt: boolean; profile: string | null; settingsPath: string; answer: KiroTerminalAnswer | null };
 };
@@ -2828,7 +2831,22 @@ export function trustStatus(
   let kiroWorkflows: TrustStatus["kiroWorkflows"];
   if (harness === "kiro-ide") {
     const state = readKiroIdeWorkflows(env);
-    kiroWorkflows = { enabled: state.enabled, settingsPath: state.settingsPath, answer: readKiroWorkflowsAnswer() };
+    kiroWorkflows = {
+      enabled: state.enabled,
+      readable: state.readable,
+      settingsPath: state.settingsPath,
+      answer: readKiroWorkflowsAnswer(),
+    };
+    // A file AI-DLC cannot read may hold Workflows on whatever the person
+    // answered before, so it is named while the file stays that way, as doctor does.
+    if (!state.readable) {
+      issues.push({
+        id: KIRO_WORKFLOWS_UNREADABLE_ISSUE_ID,
+        message: kiroWorkflowsUnreadableMessage(),
+        remediation: kiroWorkflowsUnreadableFix(state.settingsPath),
+        severity: "warn",
+      });
+    }
     if (state.enabled && kiroWorkflows.answer === null) {
       issues.push({
         id: KIRO_WORKFLOWS_ISSUE_ID,
@@ -2987,6 +3005,17 @@ export function postApplyOutstandingActions(
           id: issue.id,
           message: issue.message,
           command: `${invoke} config trust --kiro-workflows off`,
+        };
+      }
+      // No AI-DLC command repairs the file: the step is the person's, and the
+      // command only checks the result.
+      if (issue.id === KIRO_WORKFLOWS_UNREADABLE_ISSUE_ID) {
+        return {
+          section: "trust" as const,
+          id: issue.id,
+          message: issue.message,
+          command: `${invoke} config trust --check`,
+          step: issue.remediation,
         };
       }
       if (issue.id === KIRO_TERMINAL_ISSUE_ID) {
@@ -3446,8 +3475,8 @@ export function kiroIdeWorkflowsDoctorCheck(
     return {
       pass: false,
       severity: "warn",
-      label: `Kiro Workflows: ${state.settingsPath} could not be read as JSONC`,
-      fix: "correct the file, or in Kiro run Disable Workflows from the Command Palette",
+      label: kiroWorkflowsUnreadableMessage(),
+      fix: kiroWorkflowsUnreadableFix(state.settingsPath),
     };
   }
   if (!state.enabled) return { pass: true, label: "Kiro Workflows is off" };

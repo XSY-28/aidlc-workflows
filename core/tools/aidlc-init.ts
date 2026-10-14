@@ -202,6 +202,7 @@ import {
 import {
   KIRO_WORKFLOWS_ISSUE_ID,
   KIRO_WORKFLOWS_QUESTION,
+  KIRO_WORKFLOWS_UNREADABLE_ISSUE_ID,
   kiroWorkflowsKeptLine,
   kiroWorkflowsOffLine,
   kiroWorkflowsOnLine,
@@ -1894,7 +1895,12 @@ function showDiagnosticSection(
     };
     output += `  Allowlist reviewed: ${status.record?.reviewed === true ? "yes" : "not recorded"}\n`;
     if (status.kiroWorkflows?.settingsPath) {
-      output += `  Kiro Workflows: ${status.kiroWorkflows.enabled ? "on" : "off"} (${status.kiroWorkflows.settingsPath})\n`;
+      const workflows = status.kiroWorkflows.readable === false
+        ? "could not be read"
+        : status.kiroWorkflows.enabled
+        ? "on"
+        : "off";
+      output += `  Kiro Workflows: ${workflows} (${status.kiroWorkflows.settingsPath})\n`;
     }
     if (status.kiroTerminal?.commandPrompt) {
       output += `  Kiro terminal: Command Prompt (${status.kiroTerminal.settingsPath})\n`;
@@ -2277,13 +2283,19 @@ function diagnosticWizard(
   if (selected.harness === "kiro-ide") askKiroTerminal(projectDir);
   // Codex's own hook trust comes first, so the review question below never
   // reads as that step.
-  const codexStep = selected.harness === "codex"
+  const issues = selected.harness === "codex" || selected.harness === "kiro-ide"
     ? trustStatus(projectDir, selected.harnessDir, selected.harness).issues
-      .map((issue) => codexHookTrustStep(issue.id)).find((step) => step !== null)
+    : [];
+  const codexStep = selected.harness === "codex"
+    ? issues.map((issue) => codexHookTrustStep(issue.id)).find((step) => step !== null)
     : undefined;
   if (codexStep) writeMenuRow("  ", `${CODEX_HOOK_TRUST_UNMET}: ${codexStep}.`);
+  // A Kiro settings file with an error is the person's to fix; the review
+  // question below does not clear it.
+  const kiroUnreadable = issues.find((issue) => issue.id === KIRO_WORKFLOWS_UNREADABLE_ISSUE_ID);
+  if (kiroUnreadable) writeMenuRow("  ", `${kiroUnreadable.message}: ${kiroUnreadable.remediation}.`);
   const answer = promptYesDefault(
-    codexStep
+    codexStep || kiroUnreadable
       ? "  Separately, record that you reviewed AI-DLC's trust and allowlist files?"
       : "  Record that you reviewed the trust and allowlist files?",
     false,
@@ -2366,7 +2378,7 @@ function kiroWorkflowsSwitch(
   if (!state.settingsPath) return failure("Kiro IDE's settings are not in reach here", EXIT.failure);
   const enabled = value === "on";
   const data = (answer: KiroWorkflowsAnswer | null) => ({
-    kiroWorkflows: { enabled, settingsPath: state.settingsPath, answer },
+    kiroWorkflows: { enabled, readable: state.readable, settingsPath: state.settingsPath, answer },
   });
   if (argv.includes("--dry-run")) {
     return success(`would turn Kiro's Workflows feature ${value} in ${state.settingsPath}`, data(readKiroWorkflowsAnswer()));

@@ -800,7 +800,8 @@ When a workflow has issues, `--doctor` also lists the structured findings in its
 | Keyword overlap | A hint more than one plan has is a warning, naming the plans (the plan proposal lists it under each) |
 | Rule drift | Surfaces live team/project headings that overlap populated org policy for contradiction review, and reports lifecycle-stale overlaps in a separate stale-suppressed row (advisory — never fails) |
 | Paired sensor coverage | Confirms every rule that names a paired Sensor resolves to a Sensor some stage actually fires (advisory — never fails) |
-| Workspace records | Reports uncommitted changes under `aidlc/` so shared records are not left only in one checkout (advisory - never fails) |
+| Workspace records | Reports uncommitted changes under `aidlc/` so shared records are not left only in one checkout, leaving out `aidlc/.aidlc-request-text/`; while git tracks or shows a request file, or holds a removed one the folder does not ignore, it gives no commit command, since `git add aidlc/` would take your request in (advisory - never fails) |
+| Request folder | Only when git can see files in `aidlc/.aidlc-request-text/`: they hold your own requests, so it names the steps, never running them: add the line `aidlc/.aidlc-request-text/` to the project folder's `.gitignore` when the folder is not ignored yet (and check no later rule of yours un-ignores it), and, in the project folder, `git rm --cached -r -f -- aidlc/.aidlc-request-text/` (the files stay) when git tracks them, then commit and push the removal and the `.gitignore` change (a refresh may have left it uncommitted) so teammates' clones drop it too; a removal not committed yet keeps the row (advisory - never fails) |
 | Declared workspace repos | When `repos.json` exists, compares its declared set with the sibling repos runtime discovery sees on disk (advisory - never fails) |
 | Workspace gitignore | When `repos.json` exists, checks that the managed `.gitignore` block matches the declared repo set (advisory - never fails) |
 
@@ -2175,7 +2176,7 @@ Verification Command in each prepared Unit worktree, with or without Constructio
 Checkpoints:
 
 ```bash
-aidlc engine swarm check <Unit> [--test-file <protected spec>]
+aidlc engine swarm check <Unit> [--test-file <protected spec>] [--show-output]
 aidlc engine swarm finalize --batch <N> --units "<all Units>" --claimed "<converged Units>"
 ```
 
@@ -2183,7 +2184,12 @@ aidlc engine swarm finalize --batch <N> --units "<all Units>" --claimed "<conver
 canonical digest must match the authorized command. A missing authorization
 refuses execution: complete the [recorded-command flow](#construction-verification-command-record-human-authorization)
 and `set-construction-verification-command`, rather than substituting a passing
-command. With no workflow, both commands refuse. `check` is advisory; `finalize` reruns the command and validates
+command. With no workflow, both commands refuse. `check --show-output` sends the
+command's own output to stderr as it runs; stdout keeps the one verdict line. In a
+side-by-side build each worker's brief and each reviewer's review request
+(`test_command`) name `check <Unit> --show-output`, run from the project's main
+folder, so the tests you approved run through AI-DLC's own
+command. `check` is advisory; `finalize` reruns the command and validates
 review evidence before merging each claimed Unit. Re-running `finalize` withdraws
 every open checkpoint question and captured checkpoint response for this intent,
 in any session; ask again only after fresh verification, source landing, and a

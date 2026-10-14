@@ -343,10 +343,12 @@ sweep. It checks only the non-interactive hook PATH, host trust files, and
 recorded provider actions; it does not spawn the harness CLI or contact a
 provider. The transaction still exits 0. Non-TTY human output names every
 outstanding item and the exact `aidlc config runtime`, `aidlc config trust`, or
-`aidlc config providers --check` follow-up. Codex's own hook trust is the one
-item no AI-DLC command gives: its line names the step in Codex instead (type
-`/hooks`, press `t` to trust all, then press Esc). JSON includes
-`data.outstandingActions`, where such an item also carries that `step`. Quiet output stays one line when clean and appends
+`aidlc config providers --check` follow-up. Two items have no AI-DLC command
+that does them, so their line names the person's own step instead: Codex's own
+hook trust (in Codex, type `/hooks`, press `t` to trust all, then press Esc),
+and on Kiro IDE a settings file with an error (fix the error in the file it
+names; its `command`, `config trust --check`, only checks the result). JSON
+includes `data.outstandingActions`, where such an item also carries that `step`. Quiet output stays one line when clean and appends
 one outstanding-actions line when follow-up is required, plus one `Warning:`
 line for each ignore rule that hides committed records.
 
@@ -815,7 +817,10 @@ projects; while it is on, AI-DLC's reviews and helpers do not run).
 the file. While Workflows is on and you have not answered on this computer,
 setup asks once and `aidlc config --yes` turns it off; your answer is kept in
 `kiro-ide-workflows` in the AI-DLC install folder, so no other project asks
-again. See [Kiro's Workflows feature](harnesses/kiro-ide.md#kiros-workflows-feature-stops-ai-dlcs-reviews-and-helpers).
+again. When that settings file has an error AI-DLC cannot read past, Kiro may
+still read Workflows as on, so `--show` says it could not be read, `--check`
+and setup warn until the file reads again (whatever you answered before), and
+the next Kiro IDE chat tells you once; fix the error in that file. See [Kiro's Workflows feature](harnesses/kiro-ide.md#kiros-workflows-feature-stops-ai-dlcs-reviews-and-helpers).
 
 On Windows, Kiro IDE runs its agent's commands in your default terminal profile
 (`terminal.integrated.defaultProfile.windows` in Kiro's user settings). While
