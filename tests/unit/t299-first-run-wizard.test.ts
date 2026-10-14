@@ -1279,16 +1279,14 @@ describe("t299 first-run setup wizard", () => {
     expect(existsSync(join(withClaude.project, ".kiro"))).toBe(false);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-  // Named, the legacy row still installs: an explicit choice is the person's.
-  // Config says once that new projects get the kiro-ide row, and how to move.
-  test("an explicit --harness kiro still installs the legacy row and says how to move it", () => {
+  // Named, the legacy row still installs: an explicit choice is the person's,
+  // and the run that made it does not argue with it.
+  test("an explicit --harness kiro still installs the legacy row", () => {
     // "n" leaves the setup check that follows for later.
     const result = runWizard("n\n", { configArgs: ["--harness", "kiro", "--yes"] });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(existsSync(join(result.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
-    expect(result.stdout).toMatch(
-      /Note: AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working\. To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI 2\.24\.1 or later on its v3 engine, run `bun \.kiro\/tools\/aidlc\.ts config --harness kiro-ide`\./,
-    );
+    expect(result.stdout + result.stderr).not.toContain("now sets new projects up");
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("Kiro IDE's terminal selects Kiro IDE and ends with trust, reload, and agent steps", () => {
@@ -1653,13 +1651,10 @@ describe("t299 first-run setup wizard", () => {
     // The completion line stays one line, as scripts and tests read it.
     for (const [screen, harness] of [["harness-kiro-ide", "kiro-ide"], ["harness-kiro", "kiro"]] as const) {
       const { productName, configNextStep } = kiroProjection(harness);
-      const lines = walks[screen].stdout.split("\n");
-      // The legacy kiro row's run first notes how to move the project.
-      const at = harness === "kiro" ? lines.findIndex((line) => line.startsWith("configured ")) : 0;
-      expect(lines[at]).toBe(
+      // The run that names the legacy row adds no note about moving it.
+      expect(walks[screen].stdout.split("\n")[0]).toBe(
         `configured ${walks[screen].project} for ${productName} ${AIDLC_VERSION}; next: ${configNextStep}`,
       );
-      if (harness === "kiro") expect(lines.slice(0, at).join(" ")).toContain("AI-DLC now sets new projects up on the `kiro-ide` row");
     }
     const ideWalk = walks["harness-kiro-ide"].stdout;
     expect(ideWalk).toContain("\n  Full diagnostics: bun .kiro/tools/aidlc.ts config runtime --show\n");

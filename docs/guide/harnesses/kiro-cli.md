@@ -60,7 +60,7 @@ aidlc config --harness kiro
 aidlc doctor
 ```
 
-The installer verifies the release metadata, executable, and all-harness runtime archive against the published SHA-256 checksums. The installed runtime does not require Bun, Node.js, or Git. Harness selection happens in `aidlc config`; name this page's row with `--harness kiro`, since a plain `aidlc config` sets a new project up on `kiro-ide` when that row is installed, as it is in every release.
+The installer verifies the release metadata, executable, and all-harness runtime archive against the published SHA-256 checksums. The installed runtime does not require Bun, Node.js, or Git. Harness selection happens in `aidlc config`; name this page's row with `--harness kiro`, since a plain `aidlc config` does not offer it to a new project while `kiro-ide` is installed, as it is in every release.
 
 On Windows, download `install.ps1` and run
 `& $installer`. See [Windows installation](../18-install-and-lifecycle.md#windows-powershell)

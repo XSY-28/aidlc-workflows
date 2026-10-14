@@ -12607,10 +12607,11 @@ export async function main(
     }
     const { stamp, descriptor } = selected;
     configTargetHarnessDir = descriptor.harnessDir;
-    // Said in the command form of the tree this run writes; a preview of a
-    // new install has no project on that row yet.
-    const retired = retiredRowNote(projectDir, stamp.distribution);
-    if (retired && (existing.distribution || !dryRun)) sourceNotes.push(retired);
+    // Said on a refresh of a tree already on that row, in the command form of
+    // that tree, never to a run that just chose the row by name; a preview
+    // says what the run says.
+    const retired = existing.distribution === stamp.distribution ? retiredRowNote(projectDir, stamp.distribution) : null;
+    if (retired) sourceNotes.push(retired);
     if (existing.distribution && existing.distribution !== stamp.distribution) {
       throw new Error(`project uses ${existing.distribution}; refusing ${stamp.distribution}`);
     }

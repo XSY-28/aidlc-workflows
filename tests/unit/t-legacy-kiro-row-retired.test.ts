@@ -96,34 +96,27 @@ describe("the legacy kiro row new projects no longer get", () => {
     expect(configIn(runtimeOf(["claude", "kiro"]))).toContain("multiple harnesses are installed; pass --harness <claude|kiro>");
   });
 
-  test("config on a legacy project says how to move it; on kiro-ide it says nothing of it", () => {
+  test("config tells a legacy project how to move it on a refresh, not the run that chose the row, and nothing on kiro-ide", () => {
     const legacy = install("kiro");
-    expect(legacy.out).toContain(`Note: ${STANDS} To move it to \`kiro-ide\``);
+    // Naming the row is the person's choice: that run does not argue with it.
+    expect(legacy.out).not.toContain("now sets new projects up");
     expect(existsSync(join(legacy.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
-    // A refresh of the installed row says it again; the row stays.
-    const refresh = spawnSync(process.execPath, [INIT, "config", "--from", join(RELEASE, "kiro"), "--yes"], {
-      cwd: legacy.project,
-      env: childEnv(),
-      encoding: "utf-8",
-    });
-    const refreshed = `${refresh.stdout ?? ""}${refresh.stderr ?? ""}`;
-    expect(refresh.status, refreshed).toBe(0);
-    expect(refreshed).toContain(`Note: ${STANDS}`);
+    const refresh = (extra: string[]) => {
+      const result = spawnSync(process.execPath, [INIT, "config", "--from", join(RELEASE, "kiro"), "--yes", ...extra], {
+        cwd: legacy.project,
+        env: childEnv(),
+        encoding: "utf-8",
+      });
+      const out = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+      expect(result.status, out).toBe(0);
+      return out;
+    };
+    // A preview says what the run says; the row stays.
+    expect(refresh(["--dry-run"])).toContain(`Note: ${STANDS} To move it to \`kiro-ide\``);
+    expect(refresh([])).toContain(`Note: ${STANDS} To move it to \`kiro-ide\``);
     expect(existsSync(join(legacy.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
 
     expect(install("kiro-ide").out).not.toContain("now sets new projects up");
-
-    // A preview of a new install has no project on the row yet.
-    const fresh = realpathSync(mkdtempSync(join(tmpdir(), "aidlc-t-legacy-kiro-")));
-    temporary.push(fresh);
-    mkdirSync(join(fresh, ".git"));
-    const preview = spawnSync(
-      process.execPath,
-      [INIT, "config", "--from", join(RELEASE, "kiro"), "--harness", "kiro", "--mcp", "none", "--dry-run"],
-      { cwd: fresh, env: childEnv(), encoding: "utf-8" },
-    );
-    expect(preview.status, `${preview.stdout ?? ""}${preview.stderr ?? ""}`).toBe(0);
-    expect(`${preview.stdout ?? ""}${preview.stderr ?? ""}`).not.toContain("this project is on the legacy");
   });
 
   test("doctor shows the line on a legacy project as passing, not a warning, and says nothing of it elsewhere", () => {
