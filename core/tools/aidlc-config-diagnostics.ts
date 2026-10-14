@@ -733,7 +733,6 @@ function pathAssignments(
   return entries;
 }
 
-// systemd environment.d: every *.conf in the directory, sorted, PATH= lines.
 function environmentDirectoryPaths(directory: string, home: string): string[] {
   let files: string[];
   try {
@@ -1477,9 +1476,8 @@ export function hasLegacyCodexProviderConfig(
   return true;
 }
 
-// A staged opencode.json as plain JSON, or null when it is the team's own file
-// with comments (a copy's own tree), which holds no provider block AI-DLC
-// writes or clears here.
+// A staged opencode.json as plain JSON, or null when it cannot be read as an
+// object, including the team's own file with comments (a copy's own tree).
 function openCodeJsonOrNull(path: string): Record<string, unknown> | null {
   try {
     const value = readJsonFile(path);
@@ -2354,11 +2352,11 @@ export function copilotConfigPath(
 }
 
 // The global opencode config files that merge before a project opencode.json,
-// in opencode's own order (v1.18.18 config/config.ts:258-260 and :401-403):
-// config.json, opencode.json and opencode.jsonc under its config directory,
-// then the file OPENCODE_CONFIG names. The directory is xdg-basedir's
-// (XDG_CONFIG_HOME, else os.homedir()/.config, on every platform; the home is
-// USERPROFILE on Windows, never APPDATA) plus "opencode" (core/global.ts:13).
+// in opencode's own order (v1.18.18 config/config.ts): config.json,
+// opencode.json and opencode.jsonc under its config directory, then the file
+// OPENCODE_CONFIG names. The directory is xdg-basedir's (XDG_CONFIG_HOME, else
+// os.homedir()/.config, on every platform; the home is USERPROFILE on Windows,
+// never APPDATA) plus "opencode" (core/global.ts).
 export function openCodeGlobalConfigFiles(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = hostPlatform(),
@@ -2596,10 +2594,10 @@ export function codexTrustIssues(
 }
 
 // A missing sibling is repaired by the same `--harness` refresh as a missing
-// shell. The old remediation was a bare `aidlc config`, which on a project that
-// already has a harness directory takes the interactive walk and rebuilds
-// nothing. `harnessDir` selects the channel-correct command; callers without one
-// (tests) get the native spelling.
+// shell. A bare `aidlc config` on a project that already has a harness
+// directory takes the interactive walk and rebuilds nothing. `harnessDir`
+// selects the channel-correct command; callers without one (tests) get the
+// native spelling.
 export function workspaceSiblingIssues(
   projectDir: string,
   harness: ModelHarness,
@@ -3549,7 +3547,6 @@ export function vscodeWorkspaceRequestCapDoctorCheck(
 
 const REQUEST_CAP_PAUSES = 'below 100, VS Code stops a long stage to ask "Continue to iterate?" and the chat waits until someone answers';
 
-// The install's added-once record for .vscode/settings.json.
 function requestCapAddedBefore(harnessRoot: string): boolean {
   try {
     const baseline = readJsonFile(join(harnessRoot, "tools", "data", "aidlc-manifest.json")) as {
