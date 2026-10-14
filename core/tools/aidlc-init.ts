@@ -12607,14 +12607,14 @@ export async function main(
     }
     const { stamp, descriptor } = selected;
     configTargetHarnessDir = descriptor.harnessDir;
-    // Said on a refresh of a tree already on that row, in the command form of
-    // that tree, never to a run that just chose the row by name; a preview
-    // says what the run says.
-    const retired = existing.distribution === stamp.distribution ? retiredRowNote(projectDir, stamp.distribution) : null;
-    if (retired) sourceNotes.push(retired);
     if (existing.distribution && existing.distribution !== stamp.distribution) {
       throw new Error(`project uses ${existing.distribution}; refusing ${stamp.distribution}`);
     }
+    // Said only when the project was already on that row before this run (a
+    // refresh), in that tree's command form; a run that puts a project on the
+    // row says nothing of it, and a preview says what its run says.
+    const retired = existing.distribution ? retiredRowNote(projectDir, stamp.distribution) : null;
+    if (retired) sourceNotes.push(retired);
     const installed = discoverProjectHarnesses(projectDir);
     // The harness this run replaces in its own directory, if any. A switch is
     // a refresh of that directory: it plans from the occupant's ownership

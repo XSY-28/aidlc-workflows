@@ -2,9 +2,9 @@
 //
 // New projects are no longer offered the legacy Kiro CLI row (`kiro`, agent-v1);
 // the kiro-ide row serves Kiro CLI on its 3.0 engine and Kiro IDE. A project
-// that has the legacy row keeps it: config and doctor say how to move it
-// whenever they run. A project on any other row hears nothing of it. (The
-// first-run picker is t299.)
+// that has the legacy row keeps it: a config refresh and doctor say how to
+// move it. A run that puts a project on that row, and a project on any other
+// row, hear nothing of it. (The first-run picker is t299.)
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -111,12 +111,28 @@ describe("the legacy kiro row new projects no longer get", () => {
       expect(result.status, out).toBe(0);
       return out;
     };
-    // A preview says what the run says; the row stays.
+    // A preview says what the run says, and naming the row, as the Kiro CLI
+    // guide does, refreshes it like any run; the row stays.
     expect(refresh(["--dry-run"])).toContain(`Note: ${STANDS} To move it to \`kiro-ide\``);
+    expect(refresh(["--harness", "kiro"])).toContain(`Note: ${STANDS} To move it to \`kiro-ide\``);
     expect(refresh([])).toContain(`Note: ${STANDS} To move it to \`kiro-ide\``);
     expect(existsSync(join(legacy.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
 
     expect(install("kiro-ide").out).not.toContain("now sets new projects up");
+
+    // Nor does a preview of a new install.
+    const fresh = realpathSync(mkdtempSync(join(tmpdir(), "aidlc-t-legacy-kiro-")));
+    temporary.push(fresh);
+    mkdirSync(join(fresh, ".git"));
+    const preview = spawnSync(
+      process.execPath,
+      [INIT, "config", "--from", join(RELEASE, "kiro"), "--harness", "kiro", "--mcp", "none", "--dry-run"],
+      { cwd: fresh, env: childEnv(), encoding: "utf-8" },
+    );
+    const previewed = `${preview.stdout ?? ""}${preview.stderr ?? ""}`;
+    expect(preview.status, previewed).toBe(0);
+    expect(previewed).toContain("plan for");
+    expect(previewed).not.toContain("now sets new projects up");
   });
 
   test("doctor shows the line on a legacy project as passing, not a warning, and says nothing of it elsewhere", () => {
