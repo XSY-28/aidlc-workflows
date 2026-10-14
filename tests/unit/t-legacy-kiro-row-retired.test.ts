@@ -7,7 +7,7 @@
 // on any other row hears nothing of it. (The first-run picker is t299.)
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO_ROOT } from "../harness/fixtures.ts";
@@ -87,9 +87,40 @@ describe("the legacy kiro row new projects no longer get", () => {
     expect(rowNewProjectsGet("kiro")).toBe("kiro-ide");
     for (const row of ["kiro-ide", "claude", "codex", "copilot", "cursor", "opencode"]) {
       expect(rowNewProjectsGet(row)).toBeNull();
-      expect(retiredRowLine(row, (args) => `aidlc config ${args}`)).toBeNull();
+      expect(retiredRowLine(row, "aidlc")).toBeNull();
     }
-    expect(retiredRowLine("kiro", (args) => `aidlc config ${args}`)).toBe(`${STANDS} ${MOVE}`);
+    expect(retiredRowLine("kiro", "aidlc")).toBe(`${STANDS} ${MOVE}`);
+    // A copied project's tool fetches the release it switches to.
+    expect(retiredRowLine("kiro", "bun .kiro/tools/aidlc.ts", " --project-dir /p")).toContain(
+      "run `bun .kiro/tools/aidlc.ts config --harness kiro-ide --download --project-dir /p`.",
+    );
+  });
+
+  // A runtime root holding some rows only, as an explicit AIDLC_RUNTIME_ROOT can.
+  function runtimeOf(rows: readonly string[]): string {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "aidlc-t-legacy-kiro-runtime-")));
+    temporary.push(root);
+    // A junction on Windows needs no symbolic-link privilege.
+    for (const row of rows) symlinkSync(join(RELEASE, row), join(root, row), process.platform === "win32" ? "junction" : "dir");
+    return root;
+  }
+
+  test("unnamed, config still refuses to choose between two installed rows, and offers the legacy row only without kiro-ide", () => {
+    const configIn = (root: string): string => {
+      const project = realpathSync(mkdtempSync(join(tmpdir(), "aidlc-t-legacy-kiro-")));
+      temporary.push(project);
+      mkdirSync(join(project, ".git"));
+      const result = spawnSync(process.execPath, [INIT, "config", "--yes"], {
+        cwd: project,
+        // An empty install root: only the runtime root's rows are installed.
+        env: childEnv({ AIDLC_RUNTIME_ROOT: root, AIDLC_INSTALL_ROOT: join(project, ".no-install") }),
+        encoding: "utf-8",
+      });
+      expect(result.status).not.toBe(0);
+      return `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    };
+    expect(configIn(runtimeOf(["kiro", "kiro-ide"]))).toContain("multiple harnesses are installed; pass --harness <kiro-ide>");
+    expect(configIn(runtimeOf(["claude", "kiro"]))).toContain("multiple harnesses are installed; pass --harness <claude|kiro>");
   });
 
   test("config on a legacy project says how to move it; on kiro-ide it says nothing of it", () => {
@@ -111,19 +142,23 @@ describe("the legacy kiro row new projects no longer get", () => {
   });
 
   test("doctor warns on a legacy project with the step as its fix, and says nothing of it elsewhere", () => {
-    const doctor = (project: string): string => {
+    const doctor = (project: string, cwd = project): string => {
       const result = spawnSync(process.execPath, [DOCTOR, "--project-dir", project], {
-        cwd: project,
+        cwd,
         env: childEnv(),
         encoding: "utf-8",
       });
       if (result.error) throw result.error;
       return `${result.stdout ?? ""}${result.stderr ?? ""}`;
     };
-    const legacy = doctor(install("kiro").project);
+    const legacyProject = install("kiro").project;
+    const legacy = doctor(legacyProject);
     expect(legacy).toContain(`warn  ${STANDS}\n`);
+    // Run from another folder, the step names the project it diagnosed.
+    expect(doctor(legacyProject, tmpdir())).toContain(` config --harness kiro-ide`);
+    expect(doctor(legacyProject, tmpdir()).replace(/\s+/g, " ")).toContain(`--project-dir ${legacyProject}\``);
     expect(legacy).toMatch(
-      /\n +fix: To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI on its v3 engine, run `[^`\n]* config --harness kiro-ide`\.\n/,
+      /\n +fix: To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI on its v3 engine, run `[^`\n]* config --harness kiro-ide(?: --download)?`\.\n/,
     );
     expect(doctor(install("kiro-ide").project)).not.toContain("now sets new projects up");
   });
@@ -164,5 +199,8 @@ describe("the legacy kiro row new projects no longer get", () => {
 
     const current = install("kiro-ide");
     expect(chatStart(current.project, "kiro-ide", "sess-current-one")).not.toContain("now sets new projects up");
+    // A tree whose harness.json cannot be read is not told it is on the old row.
+    rmSync(join(current.project, ".kiro", "tools", "data", "harness.json"));
+    expect(chatStart(current.project, "kiro-ide", "sess-current-two")).not.toContain("now sets new projects up");
   });
 });

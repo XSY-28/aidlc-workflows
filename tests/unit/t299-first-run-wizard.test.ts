@@ -734,6 +734,8 @@ describe("t299 first-run setup wizard", () => {
     );
     expect(result.stdout).not.toContain("medium project agent effort for deciding");
     expect(result.stdout).not.toContain("effort dials do not apply");
+    // With no kiro-ide row installed, setup has no newer row to send them to.
+    expect(result.stdout).not.toContain("new projects get AI-DLC's `kiro-ide` row");
     expect(JSON.parse(
       readFileSync(join(result.project, "aidlc.settings.json"), "utf-8"),
     ).models.preset).toBe("balanced");
@@ -1184,6 +1186,17 @@ describe("t299 first-run setup wizard", () => {
     );
     expect(old.stdout).toContain("No supported harness CLI was detected. Choose one to configure:");
     expect(old.stdout).not.toMatch(/\d\. Kiro CLI /);
+
+    // In Kiro IDE's terminal that row is taken and Kiro CLI is optional, so
+    // there is nothing to update.
+    const inIde = runWizard("\n", {
+      harnesses: { claude: { found: false }, kiro: { found: true, version: "kiro-cli 2.24.0" } },
+      probed: ["kiro", "kiro-ide"],
+      env: { TERM_PROGRAM: "kiro" },
+    });
+    expect(inIde.status, inIde.stdout + inIde.stderr).toBe(0);
+    expect(inIde.stdout).toContain("Kiro IDE detected");
+    expect(inIde.stdout).not.toContain("new projects get AI-DLC's `kiro-ide` row");
     expect(old.status, old.stdout + old.stderr).toBe(0);
     expect(existsSync(join(old.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
@@ -1261,7 +1274,7 @@ describe("t299 first-run setup wizard", () => {
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(existsSync(join(result.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
     expect(result.stdout).toMatch(
-      /Note: AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working\. To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI on its v3 engine, run `bun \.kiro\/tools\/aidlc\.ts config --harness kiro-ide`\./,
+      /Note: AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working\. To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI on its v3 engine, run `bun \.kiro\/tools\/aidlc\.ts config --harness kiro-ide --download`\./,
     );
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 

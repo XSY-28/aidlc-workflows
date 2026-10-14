@@ -2617,7 +2617,7 @@ let configTargetHarnessDir: string | null = null;
 // What config tells a project on a row new projects no longer get, in this
 // run's command form, or null.
 function retiredRowNote(projectDir: string, distribution: string): string | null {
-  return retiredRowLine(distribution, (args) => `${configInvocationFor(projectDir)} config ${args}${projectTarget(projectDir)}`);
+  return retiredRowLine(distribution, configInvocationFor(projectDir), projectTarget(projectDir));
 }
 
 // How a printed command starts so it runs from where the user is: `aidlc`, or
@@ -7450,10 +7450,10 @@ function selectSource(
         : "no installed harness runtime is available",
     );
   }
+  if (versionFiltered.length === 1) return versionFiltered[0];
   // Unnamed, a new project is offered only the rows new projects get; naming
   // one with --harness, or a saved default, still installs it.
   const offered = newProjectChoices(versionFiltered);
-  if (offered.length === 1) return offered[0];
   if (configInputIsTty()) {
     process.stdout.write("Select a harness for this project:\n\n");
     for (const [index, candidate] of offered.entries()) {
@@ -7920,32 +7920,43 @@ function launchedFromCandidateEditor(candidate: InstalledSourceCandidate): boole
 }
 
 // The installed rows a new project is offered: every one except a row new
-// projects no longer get (rowNewProjectsGet). With nothing else installed
-// (an explicit runtime root holding only that row) it stays offered.
+// projects no longer get (rowNewProjectsGet) when the row they get instead is
+// installed beside it.
 function newProjectChoices(candidates: readonly InstalledSourceCandidate[]): InstalledSourceCandidate[] {
-  const offered = candidates.filter((candidate) => rowNewProjectsGet(candidate.stamp.distribution) === null);
-  return offered.length > 0 ? offered : [...candidates];
+  const installed = new Set(candidates.map((candidate) => candidate.stamp.distribution));
+  return candidates.filter((candidate) => {
+    const instead = rowNewProjectsGet(candidate.stamp.distribution);
+    return instead === null || !installed.has(instead);
+  });
 }
 
-// When a tool on this machine was detected only by a row new projects no
-// longer get (a Kiro CLI older than the kiro-ide row's floor), the one line
-// that says what to do: update it, or name the old row. Null otherwise.
+// When this machine's tool was found by a row new projects no longer get but
+// not by the installed row they get instead (a Kiro CLI older than the
+// kiro-ide row's floor), the one line that says what to do: update it, or
+// name the old row. Null otherwise.
 function olderToolLine(
   projectDir: string,
   candidates: readonly InstalledSourceCandidate[],
   detection: FirstRunDetection,
 ): string | null {
+  const installed = new Set(candidates.map((candidate) => candidate.stamp.distribution));
   for (const candidate of candidates) {
     const row = candidate.stamp.distribution;
     const instead = rowNewProjectsGet(row);
-    if (!instead || detection.harnesses[row]?.found !== true || detection.harnesses[instead]?.found === true) continue;
+    // In the newer row's own editor terminal (Kiro IDE) the CLI is optional
+    // and that row is taken, so there is nothing to update.
+    if (
+      !instead || !installed.has(instead) ||
+      detection.harnesses[row]?.found !== true || detection.harnesses[instead]?.found !== false ||
+      candidates.some((other) => other.stamp.distribution === instead && launchedFromCandidateEditor(other))
+    ) continue;
     const product = candidate.descriptor.productName;
     const found = detection.harnesses[row]?.version;
     const version = found ? /\d+\.\d+\.\d+/.exec(found)?.[0] : undefined;
     const floor = harnessCliMinimumVersion(instead);
     return `${version ? `${product} ${version} was found; ` : ""}new projects get AI-DLC's \`${instead}\` row, which needs ${product}${
       floor ? ` ${floor} or later` : ""
-    }. Update ${product}, or run \`${configCommand(`--harness ${row}`)}${projectTarget(projectDir)}\` to set this project up on the legacy \`${row}\` row.`;
+    }. Update ${product}, or run \`${configInvocationFor(projectDir)} config --harness ${row}${projectTarget(projectDir)}\` to set this project up on the legacy \`${row}\` row.`;
   }
   return null;
 }

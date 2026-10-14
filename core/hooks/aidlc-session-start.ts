@@ -101,8 +101,10 @@ import {
   aidlcInvocation,
   aidlcToolInvocation,
   entrySkillInvocation,
+  discoverProjectHarnesses,
   hidesStopNote,
   retiredRowLine,
+  runtimeHarnessDir,
   runtimeHarnessName,
 } from "../tools/aidlc-runtime-paths.ts";
 import { switchesOffLines } from "../tools/aidlc-recorded-switches.ts";
@@ -376,8 +378,11 @@ if (sessionId && !rebindCheckOnly) {
 // once more.
 if (!rebindCheckOnly) {
   try {
-    const harness = runtimeHarnessName(projectDir);
-    const line = retiredRowLine(harness, (args) => `${aidlcInvocation()} config ${args}`);
+    // The row this project's own metadata names: a tree whose harness.json
+    // cannot be read is not told it is on an old row.
+    const harness = discoverProjectHarnesses(projectDir)
+      .find((tree) => tree.harnessDir === runtimeHarnessDir(projectDir))?.distribution ?? "";
+    const line = retiredRowLine(harness, aidlcInvocation());
     const dir = sessionsDir(projectDir);
     const mark = join(dir, "retired-row-said");
     if (line && (!existsSync(mark) || readFileSync(mark, "utf-8").trim() !== harness)) {

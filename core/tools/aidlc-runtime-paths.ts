@@ -456,24 +456,27 @@ export function rowNewProjectsGet(distribution: string): string | null {
 
 /**
  * What a project on a row new projects no longer get is told, or null: where it
- * stands, and the step that moves it. `configCommand` renders `config <args>`
- * in the caller's command form.
+ * stands, and the step that moves it. `invoke` is the caller's command form
+ * (`aidlc`, or a copied project's `bun <dir>/tools/aidlc.ts`, which fetches the
+ * release with --download); `target` follows the arguments (a --project-dir).
  */
 export function retiredRow(
   distribution: string,
-  configCommand: (args: string) => string,
+  invoke: string,
+  target = "",
 ): { stands: string; move: string } | null {
   if (!Object.hasOwn(NEW_PROJECTS_GET, distribution)) return null;
   const { row, runsOn } = NEW_PROJECTS_GET[distribution];
+  const command = `${invoke} config --harness ${row}${invoke === "aidlc" ? "" : " --download"}${target}`;
   return {
     stands: `AI-DLC now sets new projects up on the \`${row}\` row; this project is on the legacy \`${distribution}\` row, which keeps working.`,
-    move: `To move it to \`${row}\`, which runs in ${runsOn}, run \`${configCommand(`--harness ${row}`)}\`.`,
+    move: `To move it to \`${row}\`, which runs in ${runsOn}, run \`${command}\`.`,
   };
 }
 
 /** The same as one line. */
-export function retiredRowLine(distribution: string, configCommand: (args: string) => string): string | null {
-  const told = retiredRow(distribution, configCommand);
+export function retiredRowLine(distribution: string, invoke: string, target = ""): string | null {
+  const told = retiredRow(distribution, invoke, target);
   return told ? `${told.stands} ${told.move}` : null;
 }
 
