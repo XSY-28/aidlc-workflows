@@ -2882,6 +2882,11 @@ export function codexHookTrustStep(issueId: string): string | null {
   return CODEX_HOOK_TRUST_IDS.has(issueId) ? CODEX_HOOK_TRUST_STEP : null;
 }
 
+/** The oldest version of a row's CLI that counts for it, if it has one. */
+export function rowCliFloor(row: string): string | undefined {
+  return Object.hasOwn(HARNESS_CLI, row) ? HARNESS_CLI[row as ModelHarness].minimumVersion : undefined;
+}
+
 // The runtimes this shell finds that the system-wide PATH does not. A harness
 // started from this terminal hands them to its hooks, so setup lists no step
 // for them and says where to start the harness instead.
@@ -3422,24 +3427,26 @@ export function kiroIdeWorkflowsDoctorCheck(
 // on that row on purpose.
 export function retiredRowDoctorCheck(
   projectDir: string,
-  harnessDirHint: string | undefined,
   // Whether doctor runs from the project itself (aidlc-lib's sameDirectory,
   // which the caller holds).
   here: boolean,
 ): DiagnosticDoctorCheck | null {
   // Any tree on such a row, not only the one doctor reports on: a project can
   // hold another harness beside it.
-  const trees = discoverProjectHarnesses(projectDir);
-  const selected = trees.find((tree) => tree.harnessDir === harnessDirHint && rowNewProjectsGet(tree.distribution)) ??
-    trees.find((tree) => rowNewProjectsGet(tree.distribution));
-  if (!selected) return null;
+  const selected = discoverProjectHarnesses(projectDir).find((tree) => rowNewProjectsGet(tree.distribution));
+  const instead = selected ? rowNewProjectsGet(selected.distribution) : null;
+  if (!selected || !instead) return null;
   // Run from another folder, the step names this project, and a copied
   // project's tool by its path.
   const invoke = aidlcInvocation() === "aidlc" || here
     ? invocationForHarness(selected.harnessDir)
     : `bun ${quoteCommandArgument(join(projectDir, selected.harnessDir, "tools", "aidlc.ts"))}`;
-  const line = retiredRowLine(selected.distribution, invoke, here ? "" : ` --project-dir ${quoteCommandArgument(projectDir)}`);
-  return line ? { pass: true, shown: true, label: line } : null;
+  const target = here ? "" : ` --project-dir ${quoteCommandArgument(projectDir)}`;
+  return {
+    pass: true,
+    shown: true,
+    label: retiredRowLine(selected.distribution, invoke, target, rowCliFloor(instead)) ?? "",
+  };
 }
 
 // Doctor reads Kiro IDE's default terminal like the trust section does, on

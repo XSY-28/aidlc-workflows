@@ -25,7 +25,7 @@ const HOST_ENV = [
   "AIDLC_RUNTIME_HARNESS_ROOT", "AIDLC_COMPILED_EXECUTABLE", "AIDLC_TEST_CONFIG_DETECTION_JSON",
 ];
 const STANDS = "AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working.";
-const MOVE = "To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI on its v3 engine, run `aidlc config --harness kiro-ide`.";
+const MOVE = "To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI 2.24.1 or later, run `aidlc config --harness kiro-ide`.";
 
 const temporary: string[] = [];
 afterAll(() => {
@@ -62,7 +62,7 @@ describe("the legacy kiro row new projects no longer get", () => {
       expect(rowNewProjectsGet(row)).toBeNull();
       expect(retiredRowLine(row, "aidlc")).toBeNull();
     }
-    expect(retiredRowLine("kiro", "aidlc")).toBe(`${STANDS} ${MOVE}`);
+    expect(retiredRowLine("kiro", "aidlc", "", "2.24.1")).toBe(`${STANDS} ${MOVE}`);
     // A copied project's tool, named for a run from another folder.
     expect(retiredRowLine("kiro", "bun .kiro/tools/aidlc.ts", " --project-dir /p")).toContain(
       "run `bun .kiro/tools/aidlc.ts config --harness kiro-ide --project-dir /p`.",
@@ -128,7 +128,7 @@ describe("the legacy kiro row new projects no longer get", () => {
     const legacy = doctor(legacyProject);
     // Shown without --verbose, and counted as passed: a team may stay on purpose.
     expect(legacy).toMatch(
-      /\n {2}ok {4}AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working\. To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI on its v3 engine, run `[^`\n]* config --harness kiro-ide(?: --download)?`\.\n/,
+      /\n {2}ok {4}AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working\. To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI 2\.24\.1 or later, run `[^`\n]* config --harness kiro-ide`\.\n/,
     );
     expect(legacy).not.toContain("warn  AI-DLC now sets new projects up");
     // Run from another folder, the step names the project it diagnosed.

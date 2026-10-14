@@ -447,7 +447,7 @@ export function runtimeHarnessName(
 // it: it refreshes and switches either way, and config and doctor say how to
 // move it.
 const NEW_PROJECTS_GET: Readonly<Record<string, { row: string; runsOn: string }>> = Object.freeze({
-  kiro: { row: "kiro-ide", runsOn: "Kiro IDE and in Kiro CLI on its v3 engine" },
+  kiro: { row: "kiro-ide", runsOn: "Kiro IDE and in Kiro CLI" },
 });
 
 /** The row a new project gets in place of `distribution`, or null when that row is still offered. */
@@ -459,15 +459,22 @@ export function rowNewProjectsGet(distribution: string): string | null {
  * The one line a project on a row new projects no longer get is told, or null:
  * where it stands, and the step that moves it. `invoke` is the caller's command
  * form (`aidlc`, or a copied project's `bun <dir>/tools/aidlc.ts`); `target`
- * follows the arguments (a --project-dir). A copied project without the release
- * files is told by that config run how to get them, as any refresh is.
+ * follows the arguments (a --project-dir); `floor` is that row's oldest CLI. A
+ * copied project without the release files is told by that config run how to
+ * get them, as any refresh is.
  */
-export function retiredRowLine(distribution: string, invoke: string, target = ""): string | null {
+export function retiredRowLine(
+  distribution: string,
+  invoke: string,
+  target = "",
+  // The oldest CLI that counts for the row they get (rowCliFloor), when it has one.
+  floor?: string,
+): string | null {
   if (!Object.hasOwn(NEW_PROJECTS_GET, distribution)) return null;
   const { row, runsOn } = NEW_PROJECTS_GET[distribution];
   const command = `${invoke} config --harness ${row}${target}`;
   return `AI-DLC now sets new projects up on the \`${row}\` row; this project is on the legacy \`${distribution}\` row, which keeps working. ` +
-    `To move it to \`${row}\`, which runs in ${runsOn}, run \`${command}\`.`;
+    `To move it to \`${row}\`, which runs in ${runsOn}${floor ? ` ${floor} or later` : ""}, run \`${command}\`.`;
 }
 
 // The tools that hide a Stop-hook block's reason from the person: Kiro CLI

@@ -304,6 +304,7 @@ import {
   projectMcpNote,
   readPluginSelection,
   readConfigDiagnosticRecords,
+  rowCliFloor,
   reconcileProviderActions,
   runtimeFixesNeeded,
   runtimeIssues,
@@ -2621,7 +2622,13 @@ let configTargetHarnessDir: string | null = null;
 // What config tells a project on a row new projects no longer get, in this
 // run's command form, or null.
 function retiredRowNote(projectDir: string, distribution: string): string | null {
-  return retiredRowLine(distribution, configInvocationFor(projectDir), projectTarget(projectDir));
+  const instead = rowNewProjectsGet(distribution);
+  return retiredRowLine(
+    distribution,
+    configInvocationFor(projectDir),
+    projectTarget(projectDir),
+    instead ? rowCliFloor(instead) : undefined,
+  );
 }
 
 // How a printed command starts so it runs from where the user is: `aidlc`, or

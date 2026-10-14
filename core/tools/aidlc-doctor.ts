@@ -606,11 +606,7 @@ export async function main(argv: string[]): Promise<void> {
   checks.push(...settingsDoctorChecks(projectDir));
   checks.push(modelsPolicyCheck(projectDir, flags.verbose === "true"));
   checks.push(...await kiroSessionDoctorChecks(projectDir));
-  const retiredRow = retiredRowDoctorCheck(
-    projectDir,
-    harnessDir(),
-    sameDirectory(projectDir, process.cwd()),
-  );
+  const retiredRow = retiredRowDoctorCheck(projectDir, sameDirectory(projectDir, process.cwd()));
   if (retiredRow) checks.push(retiredRow);
   const kiroWorkflows = kiroIdeWorkflowsDoctorCheck(projectDir, harnessDir());
   if (kiroWorkflows) checks.push(kiroWorkflows);
