@@ -4881,7 +4881,8 @@ export function parseNextFlags(argv: string[]): ParsedFlags {
     // agent sees it gets the same answer. After the `--` delimiter nothing
     // reaches here (the words behind it are theirs), and one quoted argument
     // holding a sentence is not flag-shaped, so `--help flag for the reverser`
-    // is still what they asked for. Each flag below comes with the value the
+    // is still what they asked for, unless its first word is a flag-shaped
+    // token AI-DLC does not take (#2401, nextTokenKind). Each flag below comes with the value the
     // table says it takes: `value` is undefined when nothing it can take
     // follows it.
     if (role === "untaken") {

@@ -799,3 +799,58 @@ describe("a misspelt setting after the person's words is not swallowed by the wo
     expect(String(ask.d.question)).toContain("add a --verbose flag to the CLI");
   });
 });
+
+// #2401: on Kiro IDE an agent put a flag of its own invention at the front of
+// the one quoted argument holding the request, and `--description Northwind
+// Mini Bank: ...` became the work's name. A quoted argument whose first word is
+// a flag-shaped token AI-DLC does not take gets the same print as the token on
+// its own; one later in the sentence, or behind `--`, is still their words.
+describe("a quoted request that opens with a flag AI-DLC does not take", () => {
+  const REQUEST = "Northwind Mini Bank: a small demo of a bank's core money handling";
+
+  test("the parser reads it as untaken, and the work is never named after it", () => {
+    for (const args of [[`--description ${REQUEST}`], ["--scope", "classic", `--description ${REQUEST}`]]) {
+      const parsed = parseNextFlags(args);
+      expect(parsed.untakenFlag ?? "", args.join(" | ")).toStartWith("--description");
+      expect(parsed.intent, args.join(" | ")).toBeUndefined();
+    }
+  });
+
+  test("next names the token to the agent alone and creates nothing", () => {
+    const proj = emptyProject();
+    const { d, out } = next(proj, ["--scope", "classic", `--description ${REQUEST}`]);
+    expect(d.kind, out).toBe("print");
+    expect(d.narration, out).toBeUndefined();
+    expect(d.ask_type, out).toBeUndefined();
+    expect(String(d.message)).toContain("`next` does not take `--description");
+    expect(String(d.message)).toContain("`--` before their words");
+    expect(questionCopies(proj).join(" ")).not.toContain("--description");
+    expect(existsSync(join(intents(proj), "active-intent"))).toBe(false);
+    expect(events(proj).join(" ")).not.toContain("WORKFLOW_STARTED");
+  });
+
+  test("the same words behind the delimiter start the work with the request whole", () => {
+    const proj = emptyProject();
+    const words = `--description ${REQUEST}`;
+    say(proj, `/aidlc -- ${words}`);
+    const { d, out } = next(proj, ["--scope", "classic", "--", words]);
+    expect(String(d.message), out).not.toContain("does not take");
+    const request = /--request ([0-9a-f]{8})/.exec(String(d.message))?.[1];
+    expect(request, out).toBeDefined();
+    const made = utility(proj, ["intent-create", "--scope", "classic", "--request", String(request), "--label", "mini-bank"]);
+    expect(made.status, made.out).toBe(0);
+    expect(createdField(proj, "Project"), made.out).toBe(words);
+  });
+
+  test("a flag-shaped word later in the quoted request stays their words", () => {
+    const parsed = parseNextFlags(["build the reverser, and add a --description flag to it"]);
+    expect(parsed.untakenFlag).toBeUndefined();
+    expect(parsed.intent).toBe("build the reverser, and add a --description flag to it");
+  });
+
+  test("a quoted request that opens with a flag AI-DLC knows is read as today", () => {
+    expect(parseNextFlags(["--help flag for the reverser"]).untakenFlag).toBeUndefined();
+    expect(parseNextFlags(["--verbose output for the export"]).untakenFlag).toBeUndefined();
+    expect(parseNextFlags(["--scope classic build a notes app"]).untakenFlag).toBeUndefined();
+  });
+});

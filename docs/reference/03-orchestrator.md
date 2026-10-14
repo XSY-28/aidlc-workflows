@@ -91,7 +91,13 @@ code-generation --checkpoint plan-approval --details '<their choice>'` then bare
 `next`, is named as one more reading, never as the only one; the existing answer
 owner still requires the person's reply. Two things mark a token as the person's
 and keep it whole: the `--` delimiter, and one quoted argument that holds a whole
-request (`--help flag for the reverser`).
+request (`--help flag for the reverser`). The front of that quoted argument is
+the exception: one that opens with a flag-shaped token AI-DLC does not take
+(`'--description Northwind Mini Bank: ...'`, #2401) is the shape of an agent's own
+flag inside the quotes, and gets the same `print` as that token on its own, so
+the work is never named after it. A quoted request that opens with a flag AI-DLC
+does take, or carries such a token later in its words, is read as before, and the
+person's words behind `--` are never read this way.
 
 Three ways to read the line, decided once. `readNextLine` (`aidlc-lib.ts`) answers
 which, and every seam that runs before an agent sees the line reads the same

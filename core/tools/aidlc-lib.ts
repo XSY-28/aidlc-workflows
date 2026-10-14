@@ -40416,11 +40416,31 @@ export function argumentIsFlagShaped(arg: string): boolean {
  *
  * `following` is the token after it, which is what settles the four flags this
  * engine takes only when something follows them.
+ *
+ * One quoted argument holding a sentence is the person's words, a flag-shaped
+ * word in it included, except at its front: an argument that opens with a
+ * flag-shaped token AI-DLC does not take (`'--description Northwind Mini Bank:
+ * ...'`) is the shape of an agent putting a flag of its own inside the quotes,
+ * and taken as words it named the work after that flag (#2401). It is untaken
+ * like the token on its own. A sentence that opens with a flag AI-DLC does take
+ * ("--help flag for the reverser") stays their words, and so does every word
+ * behind `--`, which never reaches here.
  */
 export function nextTokenKind(token: string, following: string | undefined): "flag" | "untaken" | "words" {
   const shape = nextFlagShape(token);
   if (shape !== null && (shape.needsFollowing !== true || following !== undefined)) return "flag";
-  return argumentIsFlagShaped(token) ? "untaken" : "words";
+  if (argumentIsFlagShaped(token)) return "untaken";
+  const opening = token.trimStart().split(/\s/, 1)[0];
+  return opening !== token && opening !== "--" && opening.startsWith("--") && !aidlcTakesFlag(opening)
+    ? "untaken"
+    : "words";
+}
+
+/** Whether `next`, or a command it reads off the same line, takes this flag at all. */
+function aidlcTakesFlag(token: string): boolean {
+  return nextFlagShape(token) !== null || READ_ONLY_FLAGS.has(token) || DOCTOR_EXPORT_FLAGS.has(token) ||
+    (ORCHESTRATOR_LAUNCHER_OPTIONS as readonly string[]).includes(token) ||
+    ["--config", "--statusline", "--pick", "--request-file"].includes(token);
 }
 
 /**
