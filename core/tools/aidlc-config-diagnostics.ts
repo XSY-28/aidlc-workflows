@@ -56,6 +56,7 @@ import {
   aidlcInvocation,
   discoverProjectHarnesses,
   kiroTreeLayout,
+  retiredRow,
 } from "./aidlc-runtime-paths.ts";
 import { AIDLC_VERSION } from "./aidlc-version.ts";
 import { compareVersions, VERSION_ID } from "./aidlc-channel.ts";
@@ -3406,6 +3407,15 @@ export function kiroIdeWorkflowsDoctorCheck(
     label: "Kiro Workflows is on, so AI-DLC's reviews and helpers do not run in your Kiro IDE chats",
     fix: kiroWorkflowsFix(invocationForHarness(selected.harnessDir)),
   };
+}
+
+// Doctor tells a project on a row new projects no longer get how to move it,
+// as config and the session start do.
+export function retiredRowDoctorCheck(projectDir: string, harnessDirHint?: string): DiagnosticDoctorCheck | null {
+  const selected = selectedHarness(projectDir, harnessDirHint);
+  if (!selected) return null;
+  const told = retiredRow(selected.harness, (args) => `${invocationForHarness(selected.harnessDir)} config ${args}`);
+  return told ? { pass: false, severity: "warn", label: told.stands, fix: told.move } : null;
 }
 
 // Doctor reads Kiro IDE's default terminal like the trust section does, on

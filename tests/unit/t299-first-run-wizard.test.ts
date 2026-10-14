@@ -38,6 +38,9 @@ setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 const BUN = process.execPath;
 const INIT = join(REPO_ROOT, "core", "tools", "aidlc-init.ts");
 const RUNTIME = join(REPO_ROOT, "dist-release");
+// New projects are no longer offered the legacy `kiro` row; its first-run steps
+// still run where it is the only row installed.
+const LEGACY_KIRO_RUNTIME = join(RUNTIME, "kiro");
 const temporary: string[] = [];
 // Complete overrides keep PTY tests independent of shell startup PATH additions.
 const HARNESS_NAMES = [
@@ -688,6 +691,7 @@ describe("t299 first-run setup wizard", () => {
   test("recommended defaults on Kiro CLI describe one effort for the whole interactive session", () => {
     const result = runWizard("\n", {
       harnesses: { kiro: { found: true, version: "kiro-cli 1.0.0" } },
+      env: { AIDLC_RUNTIME_ROOT: LEGACY_KIRO_RUNTIME },
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain(
@@ -742,7 +746,7 @@ describe("t299 first-run setup wizard", () => {
     const seam = kiroSeam({});
     const result = runWizard("\n\n", {
       harnesses: { kiro: { found: true, version: "kiro-cli 1.0.0" } },
-      env: seam.env,
+      env: { AIDLC_RUNTIME_ROOT: LEGACY_KIRO_RUNTIME, ...seam.env },
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain(
@@ -772,7 +776,7 @@ describe("t299 first-run setup wizard", () => {
     const seam = kiroSeam({ "chat.defaultModel": "claude-sonnet-4.6" });
     const result = runWizard("\n", {
       harnesses: { kiro: { found: true, version: "kiro-cli 1.0.0" } },
-      env: seam.env,
+      env: { AIDLC_RUNTIME_ROOT: LEGACY_KIRO_RUNTIME, ...seam.env },
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).not.toContain("Model [");
@@ -787,7 +791,7 @@ describe("t299 first-run setup wizard", () => {
     const seam = kiroSeam({ "chat.defaultModel": "claude-retired-1" });
     const result = runWizard("\n\n", {
       harnesses: { kiro: { found: true, version: "kiro-cli 1.0.0" } },
-      env: seam.env,
+      env: { AIDLC_RUNTIME_ROOT: LEGACY_KIRO_RUNTIME, ...seam.env },
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain(
@@ -805,7 +809,7 @@ describe("t299 first-run setup wizard", () => {
     });
     const result = runWizard("\n", {
       harnesses: { kiro: { found: true, version: "kiro-cli 1.0.0" } },
-      env: seam.env,
+      env: { AIDLC_RUNTIME_ROOT: LEGACY_KIRO_RUNTIME, ...seam.env },
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).not.toContain("Model [");
@@ -823,7 +827,7 @@ describe("t299 first-run setup wizard", () => {
     const seam = kiroSeam({ "chat.modelDefaults": { "claude-opus-5": { output_config: { effort: "xhigh" } } } });
     const result = runWizard("\n\n", {
       harnesses: { kiro: { found: true, version: "kiro-cli 1.0.0" } },
-      env: seam.env,
+      env: { AIDLC_RUNTIME_ROOT: LEGACY_KIRO_RUNTIME, ...seam.env },
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain("Using claude-opus-5 (2.2x).");
@@ -861,8 +865,9 @@ describe("t299 first-run setup wizard", () => {
 
   test("Kiro IDE's row elsewhere asks for Kiro CLI's model with Enter keeping Kiro auto, and saves no effort", () => {
     const kept = kiroSeam({});
-    // Kiro IDE from the harness list, recommended defaults, Enter at the model list.
-    const keep = runWizard("6\n\n\n", {
+    // Kiro IDE from the harness list (5: new projects are not offered the legacy
+    // kiro row), recommended defaults, Enter at the model list.
+    const keep = runWizard("5\n\n\n", {
       harnesses: { claude: { found: false } },
       env: kept.env,
       probed: ["kiro", "kiro-ide"],
@@ -877,7 +882,7 @@ describe("t299 first-run setup wizard", () => {
     expect(kiroWrites(kept.writes)).toEqual([]);
 
     const chosen = kiroSeam({});
-    const choose = runWizard("6\n\n2\n", {
+    const choose = runWizard("5\n\n2\n", {
       harnesses: { claude: { found: false } },
       env: chosen.env,
       probed: ["kiro", "kiro-ide"],
@@ -889,7 +894,7 @@ describe("t299 first-run setup wizard", () => {
 
     // A write Kiro refuses names the command that saves the chosen model again.
     const refused = kiroSeam({}, { failWrite: "chat.defaultModel" });
-    const failed = runWizard("6\n\n2\n", {
+    const failed = runWizard("5\n\n2\n", {
       harnesses: { claude: { found: false } },
       env: refused.env,
       probed: ["kiro", "kiro-ide"],
@@ -904,6 +909,7 @@ describe("t299 first-run setup wizard", () => {
     const result = runWizard("\n", {
       harnesses: { kiro: { found: true, version: "kiro-cli 1.0.0" } },
       env: {
+        AIDLC_RUNTIME_ROOT: LEGACY_KIRO_RUNTIME,
         AIDLC_TEST_KIRO_SESSION_JSON: JSON.stringify({
           models: KIRO_MODELS,
           current: { "chat.defaultModel": "claude-sonnet-4.6" },
@@ -928,7 +934,7 @@ describe("t299 first-run setup wizard", () => {
     previews.models = KIRO_MODELS.filter((model) => model.model_id === "auto" || model.model_id === "claude-opus-5.5");
     const result = runWizard("\n\n", {
       harnesses: { kiro: { found: true, version: "kiro-cli 1.0.0" } },
-      env: { AIDLC_TEST_KIRO_SESSION_JSON: JSON.stringify(previews) },
+      env: { AIDLC_RUNTIME_ROOT: LEGACY_KIRO_RUNTIME, AIDLC_TEST_KIRO_SESSION_JSON: JSON.stringify(previews) },
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toMatch(/1\. claude-opus-5\.5\s+2\.0x\s+preview\s+\(recommended\)/);
@@ -941,7 +947,7 @@ describe("t299 first-run setup wizard", () => {
     // customize, harness, choose a model, claude-sonnet-4.6, thorough, plugins, MCP, record layer, apply
     const result = runWizard("2\n\n1\n3\n2\n\n\n\n\n", {
       harnesses: { kiro: { found: true, version: "kiro-cli 1.0.0" } },
-      env: seam.env,
+      env: { AIDLC_RUNTIME_ROOT: LEGACY_KIRO_RUNTIME, ...seam.env },
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain("Step 2 of 6 - Session model");
@@ -966,7 +972,7 @@ describe("t299 first-run setup wizard", () => {
     // customize, harness, keep Kiro auto, then defaults to the end
     const result = runWizard("2\n\n2\n\n\n\n\n\n", {
       harnesses: { kiro: { found: true, version: "kiro-cli 1.0.0" } },
-      env: seam.env,
+      env: { AIDLC_RUNTIME_ROOT: LEGACY_KIRO_RUNTIME, ...seam.env },
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain("Keeping Kiro auto.");
@@ -1112,43 +1118,37 @@ describe("t299 first-run setup wizard", () => {
     expect(existsSync(join(result.project, ".codex"))).toBe(true);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-  // Both Kiro rows probe `kiro-cli`. The kiro-ide row counts it only from
-  // 2.24.1, the oldest Kiro CLI it has been checked on; below that, down to the
-  // kiro row's 2.6, the kiro row is the one detected, so setup takes it
-  // without asking. The real probe runs the stub `kiro-cli`, a POSIX shell
-  // script Windows does not resolve as an executable; t294 covers the floor
-  // itself on every platform.
-  test.skipIf(process.platform === "win32")("a Kiro CLI below the kiro-ide floor detects only the kiro row", () => {
-    const old = runWizard("\n", {
-      harnesses: { claude: { found: false }, kiro: { found: true, version: "kiro-cli 2.24.0" } },
-      probed: ["kiro", "kiro-ide"],
-    });
-    expect(old.stdout).not.toContain("Choose the harness for this project first.");
-    expect(old.status, old.stdout + old.stderr).toBe(0);
-    expect(existsSync(join(old.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
-
+  // A new project is not offered the legacy kiro row (rowNewProjectsGet), so
+  // Kiro CLI leads to the kiro-ide row. That row counts `kiro-cli` only from
+  // 2.24.1, the oldest Kiro CLI it has been checked on; below that no Kiro row
+  // is detected, and setup asks. The real probe runs the stub `kiro-cli`, a
+  // POSIX shell script Windows does not resolve as an executable; t294 covers
+  // the floor itself on every platform.
+  test.skipIf(process.platform === "win32")("a Kiro CLI from the kiro-ide floor is detected as that row, and an older one is not", () => {
     const supported = runWizard("\n\n", {
       harnesses: { claude: { found: false }, kiro: { found: true, version: "kiro-cli 2.24.1" } },
       probed: ["kiro", "kiro-ide"],
     });
     expect(supported.status, supported.stdout + supported.stderr).toBe(0);
-    expect(supported.stdout).toContain("Choose the harness for this project first.");
+    expect(supported.stdout).not.toContain("Choose the harness for this project first.");
+    expect(supported.stdout).toContain("Kiro IDE detected");
+    expect(existsSync(join(supported.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
+    expect(existsSync(join(supported.project, ".kiro", "agents", "aidlc.json"))).toBe(false);
 
-    // Below the kiro row's own 2.6 floor neither Kiro row is detected, so
-    // setup asks instead of taking one; the person still can choose Kiro CLI.
-    const unsupported = runWizard("5\n\n", {
-      harnesses: { claude: { found: false }, kiro: { found: true, version: "kiro-cli 2.5.9" } },
+    const old = runWizard("5\n\n\n", {
+      harnesses: { claude: { found: false }, kiro: { found: true, version: "kiro-cli 2.24.0" } },
       probed: ["kiro", "kiro-ide"],
     });
-    expect(unsupported.stdout).toContain("No supported harness CLI was detected. Choose one to configure:");
-    expect(unsupported.status, unsupported.stdout + unsupported.stderr).toBe(0);
-    expect(existsSync(join(unsupported.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
+    expect(old.stdout).toContain("No supported harness CLI was detected. Choose one to configure:");
+    expect(old.stdout).not.toMatch(/\d\. Kiro CLI /);
+    expect(old.status, old.stdout + old.stderr).toBe(0);
+    expect(existsSync(join(old.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-  // A supported Kiro CLI is detected by both Kiro rows. Enter takes the
-  // kiro-ide row, whose settings/cli.json pins the v3 engine; the kiro row
-  // stays one number away. Injected detection runs on every platform.
-  test("a Kiro CLI both Kiro rows detect defaults to the row that pins the v3 engine", () => {
+  // A Kiro CLI both Kiro rows detect leads a new project to the kiro-ide row,
+  // whose settings/cli.json pins the v3 engine; the legacy kiro row is not
+  // offered. Injected detection runs on every platform.
+  test("a Kiro CLI both Kiro rows detect sets a new project up on the row that pins the v3 engine", () => {
     const result = runWizard("\n\n", {
       harnesses: {
         claude: { found: false },
@@ -1157,15 +1157,15 @@ describe("t299 first-run setup wizard", () => {
       },
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stdout).toContain("Choose the harness for this project first.");
-    expect(result.stdout).toContain(`    5. Kiro CLI${" ".repeat(8)}(detected)\n`);
-    expect(result.stdout).toContain(`    6. Kiro IDE${" ".repeat(8)}(detected, default)\n`);
-    expect(result.stdout).toContain("Using Kiro IDE.");
+    expect(result.stdout).not.toContain("Choose the harness for this project first.");
+    expect(result.stdout).not.toMatch(/\d\. Kiro CLI /);
+    expect(result.stdout).toContain("Kiro IDE detected");
     const kiroDir = join(result.project, ".kiro");
     expect(existsSync(join(kiroDir, "agents", "aidlc-aidlc.md"))).toBe(true);
     expect(existsSync(join(kiroDir, "agents", "aidlc.json"))).toBe(false);
     const cli = JSON.parse(readFileSync(join(kiroDir, "settings", "cli.json"), "utf-8"));
     expect(cli["chat.agentEngine"]).toBe("v3");
+    expect(result.stdout).not.toContain("New projects no longer get");
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("Enter with both Kiro rows detected keeps Kiro auto, and writes no effort for a saved model", () => {
@@ -1174,27 +1174,27 @@ describe("t299 first-run setup wizard", () => {
       kiro: { found: true, version: "kiro-cli 2.28.0" },
       "kiro-ide": { found: true, version: "kiro-cli 2.28.0" },
     };
-    // Kiro auto: Enter at the picker, the defaults and the model list keeps it.
+    // Kiro auto: Enter at the defaults and the model list keeps it.
     const auto = kiroSeam({});
-    const onAuto = runWizard("\n\n\n", { harnesses: bothKiro, env: auto.env });
+    const onAuto = runWizard("\n\n", { harnesses: bothKiro, env: auto.env });
     expect(onAuto.status, onAuto.stdout + onAuto.stderr).toBe(0);
-    expect(onAuto.stdout).toContain(`    6. Kiro IDE${" ".repeat(8)}(detected, default)\n`);
+    expect(onAuto.stdout).toContain("Kiro IDE detected");
     expect(onAuto.stdout).toContain("Choose the Kiro CLI session model (Enter keeps Kiro auto):");
     expect(onAuto.stdout).toContain("Model [4]:");
     expect(kiroWrites(auto.writes)).toEqual([]);
 
     // A saved model is kept, and no preset effort is written for it.
     const saved = kiroSeam({ "chat.defaultModel": "claude-opus-5" });
-    const kept = runWizard("\n\n", { harnesses: bothKiro, env: saved.env });
+    const kept = runWizard("\n", { harnesses: bothKiro, env: saved.env });
     expect(kept.status, kept.stdout + kept.stderr).toBe(0);
-    expect(kept.stdout).toContain("Using Kiro IDE.");
+    expect(kept.stdout).toContain("Kiro IDE detected");
     // Neither the keep-or-choose question nor the model list.
     expect(kept.stdout).not.toContain("Kiro CLI runs each AI-DLC session on one model.");
     expect(kept.stdout).not.toMatch(/model \[/i);
     expect(kiroWrites(saved.writes)).toEqual([]);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-  test("the Kiro row preference leaves an earlier harness the default and the kiro row one number away", () => {
+  test("an earlier harness stays the default beside Kiro CLI, and the Kiro choice is the kiro-ide row", () => {
     const bothKiro = {
       kiro: { found: true, version: "kiro-cli 2.28.0" },
       "kiro-ide": { found: true, version: "kiro-cli 2.28.0" },
@@ -1204,16 +1204,22 @@ describe("t299 first-run setup wizard", () => {
     });
     expect(withClaude.status, withClaude.stdout + withClaude.stderr).toBe(0);
     expect(withClaude.stdout).toContain(`    1. Claude Code     (detected, default)\n`);
-    expect(withClaude.stdout).toContain(`    5. Kiro CLI${" ".repeat(8)}(detected)\n`);
-    expect(withClaude.stdout).toContain(`    6. Kiro IDE${" ".repeat(8)}(detected)\n`);
+    expect(withClaude.stdout).toContain(`    5. Kiro IDE${" ".repeat(8)}(detected)\n`);
+    expect(withClaude.stdout).not.toMatch(/\d\. Kiro CLI /);
     expect(withClaude.stdout).toContain("Using Claude Code.");
     expect(existsSync(join(withClaude.project, ".kiro"))).toBe(false);
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
-    const legacy = runWizard("5\n\n", { harnesses: { claude: { found: false }, ...bothKiro } });
-    expect(legacy.status, legacy.stdout + legacy.stderr).toBe(0);
-    expect(legacy.stdout).toContain(`    6. Kiro IDE${" ".repeat(8)}(detected, default)\n`);
-    expect(legacy.stdout).toContain("Using Kiro CLI.");
-    expect(existsSync(join(legacy.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
+  // Named, the legacy row still installs: an explicit choice is the person's.
+  // Config says once that new projects get the kiro-ide row, and how to move.
+  test("an explicit --harness kiro still installs the legacy row and says how to move it", () => {
+    // "n" leaves the setup check that follows for later.
+    const result = runWizard("n\n", { configArgs: ["--harness", "kiro", "--yes"] });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(existsSync(join(result.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
+    expect(result.stdout).toMatch(
+      /Note: New projects no longer get AI-DLC's `kiro` row, and this project keeps working on it\. To move it to the `kiro-ide` row, which runs on Kiro CLI 3\.0 and Kiro IDE, run `bun \.kiro\/tools\/aidlc\.ts config --harness kiro-ide`\./,
+    );
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("Kiro IDE's terminal selects Kiro IDE and ends with trust, reload, and agent steps", () => {
@@ -1578,9 +1584,13 @@ describe("t299 first-run setup wizard", () => {
     // The completion line stays one line, as scripts and tests read it.
     for (const [screen, harness] of [["harness-kiro-ide", "kiro-ide"], ["harness-kiro", "kiro"]] as const) {
       const { productName, configNextStep } = kiroProjection(harness);
-      expect(walks[screen].stdout.split("\n")[0]).toBe(
+      const lines = walks[screen].stdout.split("\n");
+      // The legacy kiro row's run first notes how to move the project.
+      const at = harness === "kiro" ? lines.findIndex((line) => line.startsWith("configured ")) : 0;
+      expect(lines[at]).toBe(
         `configured ${walks[screen].project} for ${productName} ${AIDLC_VERSION}; next: ${configNextStep}`,
       );
+      if (harness === "kiro") expect(lines.slice(0, at).join(" ")).toContain("New projects no longer get AI-DLC's `kiro` row");
     }
     const ideWalk = walks["harness-kiro-ide"].stdout;
     expect(ideWalk).toContain("\n  Full diagnostics: bun .kiro/tools/aidlc.ts config runtime --show\n");
@@ -1761,6 +1771,7 @@ describe("t299 first-run setup wizard", () => {
           claude: { found: harness === "claude" },
           [harness]: { found: true },
         },
+        ...(harness === "kiro" ? { env: { AIDLC_RUNTIME_ROOT: LEGACY_KIRO_RUNTIME } } : {}),
       });
       expect(result.status, result.stdout + result.stderr).toBe(0);
       const invoke = harness === "codex" ? "$aidlc" : "/aidlc";

@@ -8,13 +8,21 @@
 > [Running AI-DLC on Kiro IDE](kiro-ide.md).
 
 > [!IMPORTANT]
-> This page covers the legacy `kiro` row, which pins no Kiro engine. On Kiro
-> CLI 2.24.1 or later, use the `kiro-ide` row instead: it pins Kiro's v3
-> engine and runs in Kiro CLI as well as Kiro IDE, and the interactive
-> `aidlc config` prefers it to this row when both are detected. This row stays for
-> older Kiro CLI versions and existing projects. In an existing `kiro`
-> project, `aidlc config --harness kiro-ide` switches `.kiro/` to it in place
-> and keeps `aidlc/`.
+> This page covers the legacy `kiro` row, which pins no Kiro engine. New
+> projects no longer get it: the interactive `aidlc config` offers the
+> `kiro-ide` row for Kiro CLI, which pins Kiro's v3 engine and runs in Kiro CLI
+> 2.24.1 or later as well as Kiro IDE. A project that already has this row keeps
+> working on it, and `aidlc config`, `aidlc doctor` and the first chat in each
+> clone say how to move it: `aidlc config --harness kiro-ide` switches `.kiro/`
+> to that row in place and keeps `aidlc/`. `aidlc config --harness kiro` still
+> sets a new project up on this row when you name it.
+>
+> If Kiro CLI 3.0 already upgraded this project's agents (it keeps each
+> original beside it as a `.json.bak`), the switch stops on those agent files,
+> because they no longer match what AI-DLC shipped. Move the agent files it
+> names aside (the `.json.bak` files can stay), then run the switch again; or
+> rerun it with `--force` after reading the whole list it prints, which also
+> replaces every other file on that list.
 
 One of the framework's harnesses: the Kiro runtime runs the same AI-DLC
 methodology on [Kiro CLI](https://kiro.dev/docs/cli/). One deterministic core

@@ -356,11 +356,12 @@ regions, and the non-interactive hook runtime. With one detected harness, the
 wizard names it and offers three choices: recommended defaults, six-step
 customization, or exit with nothing written. Multiple detected harnesses get a
 numbered harness picker first; no detected harness gets the complete picker
-without a default. A Kiro CLI at 2.24.1 or later counts for both Kiro rows; the
-wizard then prefers Kiro IDE (`kiro-ide`), whose `.kiro/settings/cli.json` pins
-Kiro's v3 engine, to Kiro CLI (`kiro`). Other detected harnesses keep their
-order, a harness editor's own terminal still comes first, and the picker's list
-and numbers stay the same.
+without a default. The picker leaves out a row new projects no longer get:
+the legacy Kiro CLI row (`kiro`), so a Kiro CLI at 2.24.1 or later is detected
+as Kiro IDE (`kiro-ide`), whose `.kiro/settings/cli.json` pins Kiro's v3 engine
+and which runs in Kiro CLI too. `aidlc config --harness kiro` still sets a
+project up on the legacy row when you name it. Other detected harnesses keep
+their order, and a harness editor's own terminal still comes first.
 
 Before any setup choices, the wizard probes the project filesystem using
 temporary files and directories, then removes them. It checks transaction

@@ -161,6 +161,8 @@ import {
   type ProjectHarness,
   hasControlCharacters,
   quoteCommandArgument,
+  retiredRowLine,
+  rowNewProjectsGet,
   runtimeHarnessDir,
 } from "./aidlc-runtime-paths.ts";
 import {
@@ -2618,6 +2620,12 @@ let configTargetHarnessDir: string | null = null;
 // working directory. In the source tree the project's own tool of the harness
 // being set up stands in. A newer release's config that an older copied tool
 // handed its refresh to names the tool the person ran.
+// What config tells a project on a row new projects no longer get, in this
+// run's command form, or null.
+function retiredRowNote(projectDir: string, distribution: string): string | null {
+  return retiredRowLine(distribution, (args) => `${configInvocationFor(projectDir)} config ${args}${projectTarget(projectDir)}`);
+}
+
 function configInvocationFor(projectDir = process.cwd()): string {
   const invocation = aidlcInvocation();
   if (invocation === "aidlc") return invocation;
@@ -7433,7 +7441,6 @@ function selectSource(
       );
     }
   }
-  if (versionFiltered.length === 1) return versionFiltered[0];
   if (versionFiltered.length === 0) {
     throw new Error(
       requiredVersion
@@ -7441,22 +7448,26 @@ function selectSource(
         : "no installed harness runtime is available",
     );
   }
+  // Unnamed, a new project is offered only the rows new projects get; naming
+  // one with --harness, or a saved default, still installs it.
+  const offered = newProjectChoices(versionFiltered);
+  if (offered.length === 1) return offered[0];
   if (configInputIsTty()) {
     process.stdout.write("Select a harness for this project:\n\n");
-    for (const [index, candidate] of versionFiltered.entries()) {
+    for (const [index, candidate] of offered.entries()) {
       process.stdout.write(
         `  ${index + 1}. ${candidate.descriptor.productName}\n`,
       );
     }
-    const selected = versionFiltered[
-      promptChoice("Harness", versionFiltered.length) - 1
+    const selected = offered[
+      promptChoice("Harness", offered.length) - 1
     ];
     process.stdout.write(`Using ${selected.descriptor.productName}.\n`);
     return selected;
   }
   throw new Error(
     `multiple harnesses are installed; pass --harness <${
-      versionFiltered.map((item) => item.stamp.distribution).join("|")
+      offered.map((item) => item.stamp.distribution).join("|")
     }>`,
   );
 }
@@ -7900,6 +7911,14 @@ function launchedFromCandidateEditor(candidate: InstalledSourceCandidate): boole
   return app !== undefined && launchedFromEditorTerminal(app);
 }
 
+// The installed rows a new project is offered: every one except a row new
+// projects no longer get (rowNewProjectsGet). With nothing else installed
+// (an explicit runtime root holding only that row) it stays offered.
+function newProjectChoices(candidates: readonly InstalledSourceCandidate[]): InstalledSourceCandidate[] {
+  const offered = candidates.filter((candidate) => rowNewProjectsGet(candidate.stamp.distribution) === null);
+  return offered.length > 0 ? offered : [...candidates];
+}
+
 function detectedCandidateChoices(
   candidates: readonly InstalledSourceCandidate[],
   detection: FirstRunDetection,
@@ -7907,17 +7926,6 @@ function detectedCandidateChoices(
   const detected = candidates.filter((candidate) =>
     detection.harnesses[candidate.stamp.distribution]?.found
   );
-  // Both Kiro rows count a supported `kiro-cli`. The kiro-ide row pins Kiro's
-  // v3 engine in its settings/cli.json and the kiro row pins none, so Kiro
-  // picks that row's engine; when both are found, kiro-ide comes first of the
-  // two. Every other harness keeps its order, and the editor lead below still
-  // comes first.
-  const kiro = detected.findIndex((candidate) => candidate.stamp.distribution === "kiro");
-  const kiroIde = detected.findIndex((candidate) => candidate.stamp.distribution === "kiro-ide");
-  if (kiro !== -1 && kiroIde > kiro) {
-    const [preferred] = detected.splice(kiroIde, 1);
-    detected.splice(kiro, 0, preferred);
-  }
   // In the terminal of a harness's own editor, that harness leads: it is
   // chosen outright when no other harness CLI is found, and is the default
   // when one is.
@@ -9015,7 +9023,7 @@ async function runFirstRunWizard(projectDir: string): Promise<boolean> {
   const pinPath = join(projectDir, ".aidlc-version");
   const pinned = regularFile(pinPath) ? readFileSync(pinPath, "utf-8").trim() : undefined;
   if (pathPresent(pinPath) && (pinned === undefined || !VERSION_ID.test(pinned))) return false;
-  const candidates = installedSourceCandidates(pinned);
+  const candidates = newProjectChoices(installedSourceCandidates(pinned));
   if (candidates.length === 0) return false;
   // Storage that cannot hold the transaction lock would fail at apply, after
   // every question; find out before asking any. Whatever the check hits (a
@@ -12205,6 +12213,8 @@ export async function main(
       "  ",
       `Found ${installed.distribution} in ${installed.harnessDir}/; using the existing copied projection.`,
     );
+    const retired = retiredRowNote(projectDir, installed.distribution);
+    if (retired) writeMenuRow("  ", retired);
     const outstanding = existingProjectionOutstanding(projectDir, installed);
     await runSetupWalk(
       projectDir,
@@ -12527,6 +12537,9 @@ export async function main(
     }
     const { stamp, descriptor } = selected;
     configTargetHarnessDir = descriptor.harnessDir;
+    // Said in the command form of the tree this run writes.
+    const retired = retiredRowNote(projectDir, stamp.distribution);
+    if (retired) sourceNotes.push(retired);
     if (existing.distribution && existing.distribution !== stamp.distribution) {
       throw new Error(`project uses ${existing.distribution}; refusing ${stamp.distribution}`);
     }

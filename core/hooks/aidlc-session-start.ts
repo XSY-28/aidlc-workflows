@@ -30,7 +30,8 @@
 // With no aidlc-state.md the hook emits no workflow event or context, but still
 // bootstraps cursors/includes and records host session identity and transcript
 // metadata so the first intent created later in the turn can bind to it.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { runAnchor } from "../tools/aidlc-attest.ts";
 import { appendAuditEntry } from "../tools/aidlc-audit.ts";
 import { stageGraphDrift } from "../tools/aidlc-graph.ts";
@@ -73,6 +74,7 @@ import {
   recordSessionPlanApprovalBypass,
   recordSessionPresenceBypass,
   recoveryFilePath,
+  sessionsDir,
   resolveWorkflowSelection,
   resolveProjectDirFromHook,
   stateFilePathForSelection,
@@ -93,7 +95,14 @@ import {
 } from "../tools/aidlc-lib.ts";
 import { writeCurrentTranscriptPath } from "../tools/aidlc-usage.ts";
 import { recordRulesLoad } from "../tools/aidlc-rules-held.ts";
-import { aidlcInvocation, aidlcToolInvocation, entrySkillInvocation, hidesStopNote, runtimeHarnessName } from "../tools/aidlc-runtime-paths.ts";
+import {
+  aidlcInvocation,
+  aidlcToolInvocation,
+  entrySkillInvocation,
+  hidesStopNote,
+  retiredRowLine,
+  runtimeHarnessName,
+} from "../tools/aidlc-runtime-paths.ts";
 import { switchesOffLines } from "../tools/aidlc-recorded-switches.ts";
 import { applyStatusLineDefault, statusLineHarness } from "../tools/aidlc-statusline-choice.ts";
 
@@ -342,6 +351,21 @@ if (sessionId && !rebindCheckOnly) {
     }
   } catch {
     // Asked at a later start.
+  }
+  // A project on a row new projects no longer get is told once in this clone
+  // how to move; config and doctor say it whenever they run. The mark lives
+  // beside the sessions (git-ignored); without it the line is said once more.
+  try {
+    const harness = runtimeHarnessName(projectDir);
+    const line = retiredRowLine(harness, (args) => `${aidlcInvocation()} config ${args}`);
+    const mark = join(sessionsDir(projectDir), "retired-row-said");
+    if (line && (!existsSync(mark) || readFileSync(mark, "utf-8").trim() !== harness)) {
+      asks.push(`TELL ONCE: in your first reply, tell the person this, in their language: "${line}"`);
+      mkdirSync(sessionsDir(projectDir), { recursive: true });
+      writeFileSync(mark, `${harness}\n`);
+    }
+  } catch {
+    // Told at a later start.
   }
   // AI-DLC's status line asks nothing here: a project that already had it
   // keeps it for this clone, and the person whose own status line it covers is

@@ -442,6 +442,41 @@ export function runtimeHarnessName(
   return "claude";
 }
 
+// The rows AI-DLC no longer offers a new project, each with the row new
+// projects get instead and what that row runs on. A project that has one keeps
+// it: it refreshes, switches either way, and is told once how to move.
+const NEW_PROJECTS_GET: Readonly<Record<string, { row: string; runsOn: string }>> = Object.freeze({
+  kiro: { row: "kiro-ide", runsOn: "Kiro CLI 3.0 and Kiro IDE" },
+});
+
+/** The row a new project gets in place of `distribution`, or null when that row is still offered. */
+export function rowNewProjectsGet(distribution: string): string | null {
+  return Object.hasOwn(NEW_PROJECTS_GET, distribution) ? NEW_PROJECTS_GET[distribution].row : null;
+}
+
+/**
+ * What a project on a row new projects no longer get is told, or null: where it
+ * stands, and the step that moves it. `configCommand` renders `config <args>`
+ * in the caller's command form.
+ */
+export function retiredRow(
+  distribution: string,
+  configCommand: (args: string) => string,
+): { stands: string; move: string } | null {
+  if (!Object.hasOwn(NEW_PROJECTS_GET, distribution)) return null;
+  const { row, runsOn } = NEW_PROJECTS_GET[distribution];
+  return {
+    stands: `New projects no longer get AI-DLC's \`${distribution}\` row, and this project keeps working on it.`,
+    move: `To move it to the \`${row}\` row, which runs on ${runsOn}, run \`${configCommand(`--harness ${row}`)}\`.`,
+  };
+}
+
+/** The same as one line. */
+export function retiredRowLine(distribution: string, configCommand: (args: string) => string): string | null {
+  const told = retiredRow(distribution, configCommand);
+  return told ? `${told.stands} ${told.move}` : null;
+}
+
 // The tools that hide a Stop-hook block's reason from the person: Kiro CLI
 // shows none of it, opencode hands it to the agent as a hidden synthetic part,
 // and Kiro IDE (whose tree Kiro CLI v3 also runs) drops Stop output. There the

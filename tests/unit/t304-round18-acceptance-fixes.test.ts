@@ -1541,10 +1541,11 @@ describe("t304 first-run prompt and detection safety", () => {
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("Kiro recommended defaults record no provider answer", () => {
+    // 5 is the kiro-ide row: new projects are not offered the legacy kiro row.
     const result = runWizard("5\n\n");
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain(
-      "no provider settings; model access comes with Kiro CLI",
+      "no provider settings; model access comes with Kiro IDE",
     );
     const harness = JSON.parse(
       readFileSync(join(result.project, ".kiro", "tools", "data", "harness.json"), "utf-8"),
@@ -1558,26 +1559,23 @@ describe("t304 first-run prompt and detection safety", () => {
   // access it never needed.
   test("changing the harness at the summary re-derives the provider answer", () => {
     // Claude Code first (1), customize (2), accept every step, then edit step 1
-    // to Kiro CLI (5) and apply.
+    // to the kiro-ide row (5) and apply.
     const toKiro = runWizard("1\n2\n\n\n\n\n\n\n1\n5\n\n");
     expect(toKiro.status, toKiro.stdout + toKiro.stderr).toBe(0);
     expect(toKiro.stdout).toContain("2. Provider     keep current");
-    // On Kiro CLI the row is the session model (personal Kiro settings); Kiro
-    // is not readable in this test, so nothing is chosen or written for it.
-    expect(toKiro.stdout).toContain(
-      "2. Model        unchanged (Kiro settings not read)",
-    );
+    // Kiro brings its own model access, so the row says so and records nothing.
+    expect(toKiro.stdout).toContain("2. Provider     comes with Kiro IDE");
     expect(toKiro.stdout).not.toContain("Verify Amazon Bedrock model access");
     const kiro = JSON.parse(
       readFileSync(join(toKiro.project, ".kiro", "tools", "data", "harness.json"), "utf-8"),
     );
     expect(kiro.providers).toBeUndefined();
 
-    // Kiro CLI first (5), customize (2), accept every step (step 2 asks nothing
-    // when Kiro's settings cannot be read), then edit step 1 to Claude Code (1)
-    // and apply.
+    // The kiro-ide row first (5), customize (2), accept every step (four ask:
+    // the provider step has nothing to choose there), then edit step 1 to
+    // Claude Code (1) and apply.
     // Ending on Claude Code, setup then asks the status line question (#1407).
-    const toClaude = runWizard("5\n2\n\n\n\n\n\n1\n1\n\n\n");
+    const toClaude = runWizard("5\n2\n\n\n\n\n1\n1\n\n\n");
     expect(toClaude.status, toClaude.stdout + toClaude.stderr).toBe(0);
     expect(toClaude.stdout).not.toContain("Claude Code provides its own model access");
     expect(toClaude.stdout).toContain("2. Provider     keep current");
