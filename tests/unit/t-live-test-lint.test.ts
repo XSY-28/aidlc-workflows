@@ -159,18 +159,6 @@ const KNOWN: ReadonlyArray<{ file: string; check: Check; subject: string; instea
     subject: "approvedIndex",
     instead: "the record: STAGE_AWAITING_APPROVAL before GATE_APPROVED for user-stories",
   },
-  {
-    file: "tests/e2e/t-acp-kiro-compose-inflight.serial.test.ts",
-    check: "the order or count of the agent's tool calls",
-    subject: "composerIndex",
-    instead: "the record: the composer's dispatch after the engine's compose directive",
-  },
-  {
-    file: "tests/e2e/t-acp-kiro-rule-preload.serial.test.ts",
-    check: "the order or count of the agent's tool calls",
-    subject: "result.toolCalls",
-    instead: "the native crew run's own record of its stages",
-  },
 ];
 
 const known = (finding: Finding) =>

@@ -32,7 +32,7 @@ const UTILITY = join(REPO_ROOT, "core", "tools", "aidlc-utility.ts");
 const HARNESS_DIRS = {
   claude: ".claude",
   copilot: ".aidlc",
-  kiro: ".kiro",
+  "kiro-ide": ".kiro",
   cursor: ".cursor",
   opencode: ".aidlc",
   codex: ".codex",
@@ -84,6 +84,8 @@ function pointing(project: string, at: string): string[] {
   return walkFiles(project)
     .map((rel) => rel.replaceAll("\\", "/"))
     .filter((rel) => !rel.startsWith("aidlc/") && !rel.startsWith(".git/") && !rel.includes("/tools/") && !rel.endsWith(".ts"))
+    // The Kiro harness rewrites its steering for the active space; its .gitignore keeps that file out.
+    .filter((rel) => rel !== ".kiro/steering/aidlc-active-memory.md")
     .filter((rel) => readFileSync(join(project, rel), "utf-8").includes(at))
     .sort();
 }
@@ -155,8 +157,9 @@ describe("a space switch changes no tracked file, and a refresh after it is no c
   for (const [harness, harnessDir] of Object.entries(HARNESS_DIRS) as Array<[keyof typeof HARNESS_DIRS, string]>) {
     test(`${harness}: the switch writes the copy and no include; a refresh plans no conflict and changes nothing`, () => {
       const { project, includes } = switched(harness, release(harness));
-      // Codex has no include; every other harness reads the copy from at least one file.
-      if (harness !== "codex") expect(includes.size, harness).toBeGreaterThan(0);
+      // Codex has no include, and the Kiro harness's steering carries the memory
+      // text itself; every other harness reads the copy from at least one file.
+      if (harness !== "codex" && harness !== "kiro-ide") expect(includes.size, harness).toBeGreaterThan(0);
       expect(pointing(project, TEAM)).toEqual([]);
       for (const [rel, text] of includes) expect(readFileSync(join(project, rel), "utf-8"), rel).toBe(text);
       expect(readFileSync(join(project, COPY, "team.md"), "utf-8")).toContain("dead-letter alarm");

@@ -364,7 +364,7 @@ describe("config trust and doctor", () => {
     expect(check.out).toContain(unknown);
     // The trust walk says the person's step before its own review question.
     const walk = runInit(
-      ["config", "trust", "--project-dir", project, "--harness", "kiro-ide"],
+      ["config", "trust", "--project-dir", project, "--harness", "kiro"],
       project,
       { ...m.env, AIDLC_TEST_CONFIG_TTY: "1", AIDLC_TEST_CONFIG_INPUT: "n\n" },
     );

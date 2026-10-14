@@ -1,6 +1,6 @@
 // covers: function:resolveInvokingSessionId, function:resolveChat
 //
-// Claude Code and Kiro CLI name the chat in the agent's own shell
+// Claude Code and Kiro name the chat in the agent's own shell
 // (CLAUDE_CODE_SESSION_ID, KIRO_SESSION_ID; both measured live on this box),
 // but the engine read only Codex's CODEX_THREAD_ID, so on those hosts every
 // command of the agent spent the process-ancestry walk and fell to the shared
@@ -38,7 +38,8 @@ afterEach(() => {
 function project(harnessDir: string): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "t-host-var-")));
   projects.push(dir);
-  cpSync(join(REPO_ROOT, "dist", harnessDir.slice(1), harnessDir), join(dir, harnessDir), { recursive: true });
+  // `.kiro` is the Kiro harness, whose dist folder keeps its id `kiro-ide`.
+  cpSync(join(REPO_ROOT, "dist", harnessDir === ".kiro" ? "kiro-ide" : harnessDir.slice(1), harnessDir), join(dir, harnessDir), { recursive: true });
   seedAidlcMemory(dir);
   const intents = intentsDirOf(dir, DEFAULT_SPACE);
   mkdirSync(join(dir, "aidlc", "spaces", DEFAULT_SPACE, "memory"), { recursive: true });
@@ -117,7 +118,7 @@ describe("the host names this chat in the agent's own shell", () => {
     })).toBe(CURSOR_RECORD);
   });
 
-  test("Kiro CLI: the chat's id is followed; another harness's variable is not read", () => {
+  test("Kiro: the chat's id is followed; another harness's variable is not read", () => {
     const dir = project(".kiro");
     expect(activeRecordSeenBy(dir, ".kiro", { KIRO_SESSION_ID: CHAT })).toBe(CHAT_RECORD);
     expect(activeRecordSeenBy(dir, ".kiro", {

@@ -1446,7 +1446,7 @@ describe("t299 first-run setup wizard", () => {
       "",
     ].join("\n"));
     expect(check.stdout).toContain(
-      "\n  Found kiro-ide in .kiro/; using the existing copied projection.\n",
+      "\n  Found Kiro in .kiro/; using the existing copied projection.\n",
     );
     // Kiro IDE cannot pin an agent's model or effort, so the Models row names
     // the session instead of asking for a policy, and the walk never offers it.

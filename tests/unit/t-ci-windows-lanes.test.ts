@@ -138,7 +138,7 @@ describe("t-ci-windows-lanes", () => {
     const selected = files.filter((file) => aliases(file).some((alias) => filter.test(alias)));
     // Every alternative names an existing deterministic test; nothing silently drops out.
     const alternatives = contracts.env!.TEST_FILTER.slice(2, -2).split("|");
-    expect(alternatives.length).toBeGreaterThanOrEqual(30);
+    expect(alternatives.length).toBeGreaterThanOrEqual(29);
     for (const alternative of alternatives) {
       expect(selected.map((file) => basename(file, ".test.ts")), alternative).toContain(alternative);
     }
@@ -147,7 +147,6 @@ describe("t-ci-windows-lanes", () => {
     for (const required of [
       "tests/smoke/t02-hook-executability.test.ts",
       "tests/unit/t07-hook-audit-logger.test.ts",
-      "tests/unit/t147-kiro-hook-adapter.test.ts",
       "tests/unit/t149-codex-hook-adapter.test.ts",
       "tests/unit/t218-kiro-ide-hook-adapter.test.ts",
       "tests/unit/t241-opencode-adapter.test.ts",

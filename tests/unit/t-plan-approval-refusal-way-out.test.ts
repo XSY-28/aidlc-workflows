@@ -635,7 +635,7 @@ describe("no refusal names a step the install cannot run", () => {
   ];
 
   test("every shipped plan-approval guard is free of the old spellings", () => {
-    expect(shipped.length).toBeGreaterThanOrEqual(8);
+    expect(shipped.length).toBeGreaterThanOrEqual(7);
     for (const path of shipped) {
       const source = readFileSync(path, "utf-8");
       for (const stale of STALE) expect({ path, stale, found: source.includes(stale) }).toEqual({ path, stale, found: false });

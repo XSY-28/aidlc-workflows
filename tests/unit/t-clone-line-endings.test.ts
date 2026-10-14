@@ -34,7 +34,6 @@ const BUN = process.execPath;
 const INIT = join(REPO_ROOT, "core", "tools", "aidlc-init.ts");
 const HARNESS_DIRS = {
   claude: ".claude",
-  kiro: ".kiro",
   "kiro-ide": ".kiro",
   codex: ".codex",
   cursor: ".cursor",
