@@ -3435,18 +3435,15 @@ export function retiredRowDoctorCheck(
   // hold another harness beside it.
   const selected = discoverProjectHarnesses(projectDir).find((tree) => rowNewProjectsGet(tree.distribution));
   const instead = selected ? rowNewProjectsGet(selected.distribution) : null;
-  if (!selected || !instead) return null;
+  if (!selected || instead === null) return null;
   // Run from another folder, the step names this project, and a copied
   // project's tool by its path.
   const invoke = aidlcInvocation() === "aidlc" || here
     ? invocationForHarness(selected.harnessDir)
     : `bun ${quoteCommandArgument(join(projectDir, selected.harnessDir, "tools", "aidlc.ts"))}`;
   const target = here ? "" : ` --project-dir ${quoteCommandArgument(projectDir)}`;
-  return {
-    pass: true,
-    shown: true,
-    label: retiredRowLine(selected.distribution, invoke, target, rowCliFloor(instead)) ?? "",
-  };
+  const line = retiredRowLine(selected.distribution, invoke, target, rowCliFloor(instead));
+  return line ? { pass: true, shown: true, label: line } : null;
 }
 
 // Doctor reads Kiro IDE's default terminal like the trust section does, on

@@ -1157,9 +1157,9 @@ describe("t299 first-run setup wizard", () => {
 
   // A new project is not offered the legacy kiro row (rowNewProjectsGet), so
   // Kiro CLI leads to the kiro-ide row. That row counts `kiro-cli` only from
-  // 2.24.1, the oldest Kiro CLI it has been checked on; below that no Kiro row
-  // is detected, setup says to update Kiro CLI or name the legacy row, and
-  // asks. The real probe runs the stub `kiro-cli`, a
+  // 2.24.1, the oldest Kiro CLI it has been checked on; an older one does not
+  // count for it, so setup says to update Kiro CLI (and, from the legacy row's
+  // 2.6, how to name that row), and asks. The real probe runs the stub `kiro-cli`, a
   // POSIX shell script Windows does not resolve as an executable; t294 covers
   // the floor itself on every platform.
   test.skipIf(process.platform === "win32")("a Kiro CLI from the kiro-ide floor is detected as that row, and an older one is not", () => {
@@ -1209,7 +1209,7 @@ describe("t299 first-run setup wizard", () => {
     expect(inIde.stdout).toContain("Kiro detected");
     expect(inIde.stdout).not.toContain("which AI-DLC's `kiro-ide` row needs");
     expect(existsSync(join(inIde.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
-    // The older Kiro CLI's run above set its project up on the kiro-ide row it picked.
+    // The older Kiro CLI's run above chose 5, the kiro-ide row ("Kiro").
     expect(old.status, old.stdout + old.stderr).toBe(0);
     expect(existsSync(join(old.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
@@ -1287,7 +1287,7 @@ describe("t299 first-run setup wizard", () => {
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(existsSync(join(result.project, ".kiro", "agents", "aidlc.json"))).toBe(true);
     expect(result.stdout).toMatch(
-      /Note: AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working\. To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI 2\.24\.1 or later, run `bun \.kiro\/tools\/aidlc\.ts config --harness kiro-ide`\./,
+      /Note: AI-DLC now sets new projects up on the `kiro-ide` row; this project is on the legacy `kiro` row, which keeps working\. To move it to `kiro-ide`, which runs in Kiro IDE and in Kiro CLI 2\.24\.1 or later on its v3 engine, run `bun \.kiro\/tools\/aidlc\.ts config --harness kiro-ide`\./,
     );
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 

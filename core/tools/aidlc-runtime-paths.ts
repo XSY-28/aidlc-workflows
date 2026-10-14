@@ -446,8 +446,11 @@ export function runtimeHarnessName(
 // projects get instead and what that row runs on. A project that has one keeps
 // it: it refreshes and switches either way, and config and doctor say how to
 // move it.
-const NEW_PROJECTS_GET: Readonly<Record<string, { row: string; runsOn: string }>> = Object.freeze({
-  kiro: { row: "kiro-ide", runsOn: "Kiro IDE and in Kiro CLI" },
+const NEW_PROJECTS_GET: Readonly<Record<string, { row: string; runsOn: (floor: string | undefined) => string }>> = Object.freeze({
+  kiro: {
+    row: "kiro-ide",
+    runsOn: (floor: string | undefined) => `Kiro IDE and in Kiro CLI${floor ? ` ${floor} or later` : ""} on its v3 engine`,
+  },
 });
 
 /** The row a new project gets in place of `distribution`, or null when that row is still offered. */
@@ -466,15 +469,15 @@ export function rowNewProjectsGet(distribution: string): string | null {
 export function retiredRowLine(
   distribution: string,
   invoke: string,
-  target = "",
+  target: string,
   // The oldest CLI that counts for the row they get (rowCliFloor), when it has one.
-  floor?: string,
+  floor: string | undefined,
 ): string | null {
   if (!Object.hasOwn(NEW_PROJECTS_GET, distribution)) return null;
   const { row, runsOn } = NEW_PROJECTS_GET[distribution];
   const command = `${invoke} config --harness ${row}${target}`;
   return `AI-DLC now sets new projects up on the \`${row}\` row; this project is on the legacy \`${distribution}\` row, which keeps working. ` +
-    `To move it to \`${row}\`, which runs in ${runsOn}${floor ? ` ${floor} or later` : ""}, run \`${command}\`.`;
+    `To move it to \`${row}\`, which runs in ${runsOn(floor)}, run \`${command}\`.`;
 }
 
 // The tools that hide a Stop-hook block's reason from the person: Kiro CLI
