@@ -1925,8 +1925,8 @@ export function hostEnvelopeTurnText(prompt: string): string {
 //
 // A host delivers its own prompts through the same prompt-submit seam as a
 // typed message, with the same payload keys: Kiro IDE's workflow briefs and its
-// finish sentence (1.2.37, Workflows on), Claude Code's background-task
-// notification (2.1.280), Kiro CLI's sub-agent synthesis prompt (reported).
+// finish sentence (1.2.37, Workflows on) and Claude Code's background-task
+// notification (2.1.280).
 // The tool's job is provenance only. A turn is the host's when the host's own
 // record says so (Kiro's chat record marks a synthetic user message; Claude
 // Code's transcript names the turn's origin) or when the whole prompt is one of

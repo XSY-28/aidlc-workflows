@@ -236,9 +236,11 @@ one row, both with this line:
 .kiro is set up for the legacy Kiro CLI row, which AI-DLC no longer ships. Move .kiro aside (for example to .kiro.old), run `aidlc config --harness kiro`, then copy your own files (steering, MCP settings) back from it. aidlc/ is kept.
 ```
 
-After `aidlc update`, the project's hooks stop running until you do this. A
-project pinned to an older release keeps running that release until its pin
-changes. To move the project:
+After `aidlc update`, the project's Kiro CLI hooks answer every file write and
+shell command the agent tries with the same line, so the agent stops and tells
+you, until you do this. A project pinned to an older release keeps running that
+release until its pin changes. Config for another harness in the same project
+still runs. To move the project:
 
 1. Move `.kiro` aside, for example `mv .kiro .kiro.old`.
 2. Run `aidlc config --harness kiro`.

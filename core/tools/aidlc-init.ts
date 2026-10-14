@@ -7025,12 +7025,10 @@ function selectSource(
       requiredVersion,
     );
   }
-  // The saved default reads as a name a person types; a retired row is never
-  // set up from it.
+  // The saved default reads as a name a person types (no typed name means a
+  // retired row).
   const savedDefault = configuredDefaultHarness();
-  const configuredDefault = savedDefault && !retiredRow(harnessIdFromTyped(savedDefault))
-    ? harnessIdFromTyped(savedDefault)
-    : undefined;
+  const configuredDefault = savedDefault ? harnessIdFromTyped(savedDefault) : undefined;
   if (configuredDefault) {
     const selected = versionFiltered.filter((candidate) =>
       candidate.stamp.distribution === configuredDefault
@@ -7053,7 +7051,13 @@ function selectSource(
   }
   // Unnamed, a project is offered only the rows AI-DLC still ships.
   const offered = newProjectChoices(versionFiltered);
-  if (offered.length === 0) throw new Error("no installed harness runtime AI-DLC still ships is available");
+  if (offered.length === 0) {
+    throw new Error(
+      requiredVersion
+        ? `${requiredVersion} holds only rows AI-DLC no longer ships; pin a newer release with aidlc config --pin <version>`
+        : "the installed runtimes hold only rows AI-DLC no longer ships; run aidlc update",
+    );
+  }
   if (offered.length === 1) return offered[0];
   if (configInputIsTty()) {
     process.stdout.write("Select a harness for this project:\n\n");

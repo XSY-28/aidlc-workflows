@@ -165,6 +165,24 @@ describe("the legacy Kiro CLI row AI-DLC no longer ships", () => {
     expect(run(DOCTOR, ["--project-dir", kiro], kiro).out).not.toContain("legacy Kiro CLI row");
   });
 
+  // The legacy row's JSON agents call `engine adapter kiro`, whose runtime is
+  // gone: each hook says the line and blocks (exit 2 stops Kiro CLI's tool call).
+  test("a legacy hook says the line and blocks", () => {
+    const project = legacyProject();
+    for (const target of ["state-transition-guard", "verb-intercept"]) {
+      const result = spawnSync(process.execPath, [DISPATCHER, "engine", "adapter", "kiro", target], {
+        cwd: project,
+        env: childEnv(),
+        encoding: "utf-8",
+        input: "{}",
+      });
+      expect(result.status, target).toBe(2);
+      expect(`${result.stderr}`.replace(/\s+/g, " "), target).toContain(
+        ".kiro is set up for the legacy Kiro CLI row, which AI-DLC no longer ships. Move .kiro aside (for example to .kiro.old), run `aidlc config --harness kiro`",
+      );
+    }
+  });
+
   // The names a person types: `kiro` is the Kiro row (id kiro-ide); the earlier
   // `kiro-ide` says what to type instead and writes nothing.
   test("--harness kiro sets up the Kiro row and says the versions it runs in; kiro-ide says to type kiro", () => {

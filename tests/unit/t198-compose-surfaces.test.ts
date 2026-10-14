@@ -11,7 +11,7 @@
 //     flags.intent), and both force the composer dispatch.
 //   - compose is NOT in WORKSPACE_VERBS / classifyTerminalCommand: on Kiro the
 //     verb-intercept hook classifies every leading terminal verb and runs it
-//     off-band as an aidlc-utility subcommand + arms the roll-forward latch. A
+//     off-band as an aidlc-utility subcommand + holds the rest of that turn. A
 //     compose entry there would spawn a nonexistent subcommand and neuter the
 //     same-turn creation `next` - so classifyTerminalCommand(["compose", ...])
 //     must stay null (the Kiro-adapter regression pin).
@@ -102,7 +102,7 @@ afterEach(() => {
 // ===========================================================================
 // The Kiro verb-intercept regression pin. compose must never
 // classify as a terminal command - a WORKSPACE_VERBS entry would make the Kiro
-// hook run `aidlc-utility.ts compose` off-band and arm the roll-forward latch.
+// hook run `aidlc-utility.ts compose` off-band and hold the rest of that turn.
 // ===========================================================================
 describe("t198 compose is NOT a terminal command (Kiro seam regression)", () => {
   test("classifyTerminalCommand null for compose in every arg shape", () => {

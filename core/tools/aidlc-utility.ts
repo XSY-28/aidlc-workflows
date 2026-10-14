@@ -5259,7 +5259,9 @@ export async function collectDoctorReport(
   // heartbeat read uses: a record from before the engine-dir move keeps both
   // files under the legacy name until the next hook fires.
   const healthDir = hooksHealthReadDir(projectDir);
-  if (heartbeatEntries.length > 0) {
+  if (retiredHere) {
+    // Its hooks stopped with its row; its own doctor row says what to do.
+  } else if (heartbeatEntries.length > 0) {
     if (liveness.stale) {
       results.push({
         pass: false,

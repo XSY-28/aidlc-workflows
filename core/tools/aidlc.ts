@@ -30,6 +30,8 @@ import {
   isCompiledExecutable,
   packagedDistributionRoot,
   discoverableRuntimeHarnessDir,
+  retiredProjectTree,
+  retiredRowLine,
   runtimeHarnessDir,
   runtimeProjectDir,
   runtimeHarnessName,
@@ -1273,6 +1275,25 @@ const ADAPTER_HARNESS_LEAF: Record<AdapterHarness, string> = {
   "kiro-ide": ".kiro",
 };
 
+// The retired Kiro CLI row's JSON agents call `adapter kiro`, whose runtime no
+// longer ships. Each of their hooks says what to do and blocks (Kiro CLI's v2
+// engine stops a tool call on exit 2), so nothing runs without AI-DLC's checks
+// and the person sees the step.
+function retiredKiroAdapter(): Action {
+  let line = "This project's .kiro is set up for the legacy Kiro CLI row, which AI-DLC no longer ships; " +
+    "run `aidlc doctor` for the steps.";
+  try {
+    const tree = retiredProjectTree(runtimeProjectDir());
+    // Only the installed aidlc runs this (a copied legacy tree runs its own
+    // older tool, and config never refreshes one), and the tree's tool is the
+    // one moved aside.
+    if (tree) line = retiredRowLine(tree, "aidlc", "");
+  } catch {
+    // The line above still names where the steps are.
+  }
+  return { type: "stub", message: `${line}\n`, code: 2 };
+}
+
 function isAdapterHarness(value: string): value is AdapterHarness {
   return Object.hasOwn(ADAPTER_HARNESS_LEAF, value);
 }
@@ -1869,6 +1890,7 @@ function handleRouteOnly(route: Route, argv: string[]): Action {
     const harness = argv[1];
     const target = argv[2];
     if (!harness) return nounError("adapter", undefined);
+    if (harness === "kiro") return retiredKiroAdapter();
     if (!isAdapterHarness(harness)) return nounError("adapter", harness);
     if (!target) return nounError("adapter", undefined);
     if (!isSafeName(target)) return nounError("adapter", target);

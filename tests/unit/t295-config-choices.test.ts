@@ -1244,6 +1244,19 @@ describe("t295 project section", () => {
       ], project, env).stdout) as { data: { mcpNote: string } };
       expect(shown.data.mcpNote, harness).toContain("no shipped MCP surface");
     }
+    // A Cursor MCP file in the project stays: `--mcp none` is a preference.
+    const cursor = install("cursor", "none");
+    writeFileSync(join(cursor, ".cursor", "mcp.json"), "{\"mcpServers\":{}}\n");
+    expect(run(["config", "project", "--project-dir", cursor, "--mcp", "none", "--yes"], cursor, env).status).toBe(0);
+    const kept = JSON.parse(run([
+      "config",
+      "project",
+      "--project-dir",
+      cursor,
+      "--show",
+      "--json",
+    ], cursor, env).stdout) as { data: { mcpNote: string } };
+    expect(kept.data.mcpNote).toContain("MCP none is an instruct-only preference and does not remove that file");
   });
 
   test("a plugin change while a workflow runs is done, with its undo", () => {
