@@ -464,6 +464,7 @@ import {
   quoteCommandArgument,
   resolveHarnessPath,
   resolveSkillsPath,
+  retiredProjectTree,
   runtimeHarnessDir,
   runtimeHarnessName,
   runtimeProjectDir,
@@ -2866,9 +2867,6 @@ export type DoctorCheck = {
   severity?: "warn";
   label: string;
   fix?: string;
-  // A passing check the report lists by name even without --verbose: what the
-  // person should know, counted as passed.
-  shown?: true;
 };
 
 type DoctorParkedAttempt = {
@@ -4579,10 +4577,11 @@ export async function collectDoctorReport(
   }
 
   // 4. Harness wiring config present. Claude Code: settings.json (hooks +
-  // permissions live there). Kiro: agents/aidlc-aidlc.md. Codex CLI:
+  // permissions live there). Kiro: agents/aidlc-aidlc.md (a tree on a row
+  // AI-DLC no longer ships has its own doctor row instead). Codex CLI:
   // config.toml + hooks.json (the hook wiring) + rules/default.rules
   // (permissions).
-  if (harness === ".kiro") {
+  if (harness === ".kiro" && retiredProjectTree(projectDir)?.harnessDir !== ".kiro") {
     const markdownAgentPath = join(projectDir, harness, "agents", KIRO_CONDUCTOR_AGENT_FILE);
     results.push({
       pass: existsSync(markdownAgentPath) || existsSync(join(projectDir, harness, "agents", "aidlc.md")),

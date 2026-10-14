@@ -61,7 +61,7 @@ import {
   quoteCommandArgument,
   retiredProjectTree,
   retiredRow,
-  retiredRowLine,
+  retiredRowParts,
   typedHarnessName,
 } from "./aidlc-runtime-paths.ts";
 import { AIDLC_VERSION } from "./aidlc-version.ts";
@@ -274,7 +274,6 @@ export type DiagnosticDoctorCheck = {
   severity?: "warn";
   label: string;
   fix?: string;
-  shown?: true;
 };
 
 export type RuntimeProbeOptions = {
@@ -3431,7 +3430,8 @@ export function retiredRowDoctorCheck(
     ? invocationForHarness(other.harnessDir)
     : `bun ${quoteCommandArgument(join(projectDir, other.harnessDir, "tools", "aidlc.ts"))}`;
   const target = here ? "" : ` --project-dir ${quoteCommandArgument(projectDir)}`;
-  return { pass: false, label: retiredRowLine(tree, invoke, target) };
+  const { state, steps } = retiredRowParts(tree, invoke, target);
+  return { pass: false, label: state, fix: steps };
 }
 
 // Doctor reads Kiro IDE's default terminal like the trust section does, on

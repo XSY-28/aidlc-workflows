@@ -476,10 +476,9 @@ export function retiredTypedHarnessName(name: string): string | null {
   return name === "kiro-ide" ? typedHarnessName("kiro-ide") : null;
 }
 
-// Set once the --harness values of a config command line are row ids: by the
-// dispatcher before it hands `config` to the config tool or a pinned release
-// (an older release reads ids as its own names), and by config for the config
-// runs it starts. Config reads it once and clears it.
+// Set by config for the config runs it starts, whose --harness values are row
+// ids already. Config reads it once and clears it. Nothing else reads typed
+// names: a pinned older release gets the line as typed, in its own names.
 export const HARNESS_IDS_ENV = "AIDLC_CONFIG_HARNESS_IDS";
 
 /**
@@ -522,6 +521,15 @@ export function retiredRow(distribution: string): boolean {
   return Object.hasOwn(RETIRED_ROWS, distribution);
 }
 
+/**
+ * Whether a config run for `requested` (a row id, or none named) would act on
+ * the retired `tree`: unnamed, the retired row itself, or the row that takes
+ * its directory. A run for another harness leaves it alone.
+ */
+export function retiredTreeInTheWay(tree: ProjectHarness, requested: string | undefined): boolean {
+  return !requested || requested === tree.distribution || requested === RETIRED_ROWS[tree.distribution]?.row;
+}
+
 /** The project's first tree on a row AI-DLC no longer ships, or null. */
 export function retiredProjectTree(projectDir: string): ProjectHarness | null {
   return discoverProjectHarnesses(projectDir).find((tree) => retiredRow(tree.distribution)) ?? null;
@@ -534,11 +542,19 @@ export function retiredProjectTree(projectDir: string): ProjectHarness | null {
  * --project-dir).
  */
 export function retiredRowLine(tree: ProjectHarness, invoke: string, target: string): string {
+  const { state, steps } = retiredRowParts(tree, invoke, target);
+  return `${state}. ${steps}`;
+}
+
+/** The same line in two parts, where it stands and what to do, as doctor shows a row and its fix. */
+export function retiredRowParts(tree: ProjectHarness, invoke: string, target: string): { state: string; steps: string } {
   const { title, row, ownFiles } = RETIRED_ROWS[tree.distribution];
   const dir = tree.harnessDir;
-  return `${dir} is set up for ${title}, which AI-DLC no longer ships. Move ${dir} aside ` +
-    `(for example to ${dir}.old), run \`${invoke} config --harness ${typedHarnessName(row)}${target}\`, then copy ` +
-    `your own files (${ownFiles}) back from it. aidlc/ is kept.`;
+  return {
+    state: `${dir} is set up for ${title}, which AI-DLC no longer ships`,
+    steps: `Move ${dir} aside (for example to ${dir}.old), run \`${invoke} config --harness ${typedHarnessName(row)}${target}\`, ` +
+      `then copy your own files (${ownFiles}) back from it. aidlc/ is kept.`,
+  };
 }
 
 // The tools that hide a Stop-hook block's reason from the person: Kiro CLI

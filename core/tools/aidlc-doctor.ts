@@ -381,15 +381,13 @@ function humanReport(
     if (verbose) {
       return `${checks.map(renderCheck).join("")}${extraAttentionRows.join("")}`;
     }
-    const passing = checks.filter((check) => status(check) === "ok" && !check.shown);
-    const attention = checks.filter((check) => status(check) !== "ok" || check.shown);
+    const passing = checks.filter((check) => status(check) === "ok");
+    const attention = checks.filter((check) => status(check) !== "ok");
     let rows = attention.map(renderCheck).join("");
     rows += extraAttentionRows.join("");
     if (passing.length > 0) {
-      const allClean = attention.every((check) => status(check) === "ok") && extraAttentionRows.length === 0;
-      // A passing row shown by name above still counts, as --quiet and --json count it.
-      const passed = checks.filter((check) => status(check) === "ok").length;
-      rows += `  ${okVerdict("ok   ", out)} ${allClean ? "all " : ""}${passed} checks passed\n`;
+      const allClean = attention.length === 0 && extraAttentionRows.length === 0;
+      rows += `  ${okVerdict("ok   ", out)} ${allClean ? "all " : ""}${passing.length} checks passed\n`;
     }
     return rows;
   };

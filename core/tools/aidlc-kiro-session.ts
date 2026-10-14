@@ -374,32 +374,23 @@ async function applyPlan(
   if (!model) return { ok: true, lines, model: null, effort: null, saved: {} };
   const write: KiroSessionWrite = {};
   if (plan.setModel && plan.setModel !== plan.session.model) write.model = plan.setModel;
-  const effort: KiroEffort | null = null;
-  if (!write.model && !write.effort) {
-    return { ok: true, lines, model, effort, saved: {} };
-  }
+  if (!write.model) return { ok: true, lines, model, effort: null, saved: {} };
   if (plan.dryRun) {
     lines.push(`Would save in your personal Kiro settings (${kiroPersonalSettingsPath(env)}):`);
-    if (write.model) lines.push(`  model    ${write.model}`);
-    if (write.effort) lines.push(`  effort   ${write.effort.effort}, for ${write.effort.model}`);
-    return { ok: true, lines, model, effort, saved: {}, wouldSave: write };
+    lines.push(`  model    ${write.model}`);
+    return { ok: true, lines, model, effort: null, saved: {}, wouldSave: write };
   }
   const saved = writeKiroPersonalSession(plan.cli, write, env);
   if (!saved.ok) {
-    const retry = plan.retryCommand ?? plan.modelsCommand;
-    const modelSaved = saved.savedModel && write.model !== undefined;
     lines.push(
-      modelSaved
-        ? `Kiro saved the model ${write.model} in your personal Kiro settings but not its effort, so ${write.model} keeps Kiro's own effort. Run \`${retry}\` to try again.`
-        : `${saved.reason}, so your personal Kiro settings are unchanged. Run \`${retry}\` to try again.`,
+      `${saved.reason}, so your personal Kiro settings are unchanged. Run \`${plan.retryCommand ?? plan.modelsCommand}\` to try again.`,
     );
-    return { ok: false, lines, model, effort, saved: modelSaved ? { model: write.model } : {} };
+    return { ok: false, lines, model, effort: null, saved: {} };
   }
   lines.push(
     `Saved in your personal Kiro settings (${kiroPersonalSettingsPath(env)}). Kiro CLI uses it in every project; Kiro IDE uses its own model picker:`,
   );
-  if (write.model) lines.push(`  model    ${write.model}`);
-  if (write.effort) lines.push(`  effort   ${write.effort.effort}, for ${write.effort.model}`);
+  lines.push(`  model    ${write.model}`);
   lines.push(`Change it any time with \`${plan.modelsCommand}\`, or inside Kiro CLI with ${KIRO_MODEL_IN_CHAT}.`);
-  return { ok: true, lines, model, effort, saved: write };
+  return { ok: true, lines, model, effort: null, saved: write };
 }

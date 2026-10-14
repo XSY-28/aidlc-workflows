@@ -8,7 +8,7 @@
 // picker is t299.)
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, relative } from "node:path";
 import { REPO_ROOT } from "../harness/fixtures.ts";
@@ -55,17 +55,21 @@ function fresh(): string {
   return project;
 }
 
-// What an install of the legacy row left: its stamp names the row, beside its
-// JSON conductor and a record of work.
+// What a legacy-row install wrote at the root and in .kiro/tools/data (its
+// stamp, projection and ownership records), made with that row's last code
+// (main f9f83fcb9, `config --harness kiro --mcp none --yes` in an empty repo).
+const INSTALL = join(REPO_ROOT, "tests", "fixtures", "legacy-kiro-install");
+
+// What an install of the legacy row left: its records name the row, beside its
+// JSON conductor, its root files and a record of work.
 function legacyProject(): string {
   const project = fresh();
+  writeFileSync(join(project, ".gitignore"), readFileSync(join(INSTALL, "gitignore")));
+  writeFileSync(join(project, "AGENTS.md"), readFileSync(join(INSTALL, "AGENTS.md")));
   mkdirSync(join(project, ".kiro", "tools", "data"), { recursive: true });
   mkdirSync(join(project, ".kiro", "agents"), { recursive: true });
   mkdirSync(join(project, "aidlc", "spaces", "default"), { recursive: true });
-  writeFileSync(
-    join(project, ".kiro", "tools", "data", "aidlc-stamp.json"),
-    `${JSON.stringify({ schemaVersion: 1, harnessDir: ".kiro", distribution: "kiro", frameworkVersion: "2.11.0" })}\n`,
-  );
+  cpSync(join(INSTALL, "tools-data"), join(project, ".kiro", "tools", "data"), { recursive: true });
   writeFileSync(join(project, ".kiro", "agents", "aidlc.json"), "{}\n");
   writeFileSync(join(project, "aidlc", "spaces", "default", "notes.md"), "kept\n");
   return project;
@@ -108,7 +112,6 @@ describe("the legacy Kiro CLI row AI-DLC no longer ships", () => {
       ["config", "--yes"],
       ["config", "--dry-run"],
       ["config", "--harness", "kiro", "--from", join(RELEASE, "kiro-ide"), "--mcp", "none", "--yes"],
-      ["config", "--harness", "claude", "--from", join(RELEASE, "claude"), "--mcp", "none", "--yes"],
     ]) {
       const result = run(INIT, args, project);
       expect(result.status, result.out).toBe(2);
@@ -123,6 +126,11 @@ describe("the legacy Kiro CLI row AI-DLC no longer ships", () => {
     // From another folder, the step names the project.
     const elsewhere = run(INIT, ["config", "--project-dir", project, "--yes"], tmpdir());
     expect(elsewhere.out.replace(/\s+/g, " ")).toContain(`config --harness kiro --project-dir ${project}\``);
+    // A run for another harness in the project goes on and leaves .kiro as it is.
+    const claude = run(INIT, ["config", "--harness", "claude", "--from", join(RELEASE, "claude"), "--mcp", "none", "--yes"], project);
+    expect(claude.status, claude.out).toBe(0);
+    expect(existsSync(join(project, ".claude"))).toBe(true);
+    expect(readFileSync(join(project, ".kiro", "agents", "aidlc.json"), "utf-8")).toBe("{}\n");
   });
 
   test("once .kiro is moved aside, --harness kiro sets the Kiro row up and keeps aidlc/", () => {
@@ -132,13 +140,19 @@ describe("the legacy Kiro CLI row AI-DLC no longer ships", () => {
     expect(result.status, result.out).toBe(0);
     expect(existsSync(join(project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
     expect(readFileSync(join(project, "aidlc", "spaces", "default", "notes.md"), "utf-8")).toBe("kept\n");
+    // The root parts the legacy row wrote are taken over as AI-DLC's own.
+    expect(result.out).not.toContain("conflict");
+    expect(readFileSync(join(project, ".gitignore"), "utf-8")).toContain("# BEGIN AI-DLC:gitignore");
   });
 
   test("doctor fails the legacy project with the same line, and says nothing of it on the Kiro row", () => {
     const project = legacyProject();
-    const here = run(DOCTOR, ["--project-dir", project], project);
-    expect(here.out.replace(/\s+/g, " ")).toMatch(SAID);
-    expect(here.out).toMatch(/fail\s+\.kiro is set up for the legacy Kiro CLI row/);
+    const here = run(DOCTOR, ["--project-dir", project], project, { AIDLC_HARNESS_DIR: ".kiro" });
+    // The row says where it stands, its fix what to do; no Kiro-row wiring row
+    // asks for a repair config would refuse.
+    expect(here.out.replace(/\s+/g, " ").replace("ships fix: Move", "ships. Move")).toMatch(SAID);
+    expect(here.out).toMatch(/fail\s+\.kiro is set up for the legacy Kiro CLI row, which AI-DLC no longer ships\n\s+fix: Move \.kiro aside/);
+    expect(here.out).not.toContain("agents/aidlc-aidlc.md present");
     const elsewhere = run(DOCTOR, ["--project-dir", project], tmpdir());
     expect(elsewhere.out.replace(/\s+/g, " ")).toContain(`config --harness kiro --project-dir ${project}\``);
 
@@ -202,7 +216,8 @@ describe("the legacy Kiro CLI row AI-DLC no longer ships", () => {
     const asked = run(INIT, args, project, env({ AIDLC_TEST_CONFIG_TTY: "1" }), "n\n");
     const said = asked.out.replace(/\s+/g, " ");
     expect(said).toContain(`${older} Set up anyway? [y/N]:`);
-    expect(said).toMatch(/Nothing written\. Update Kiro CLI to 2\.24\.1 or later, then run `[^`]* config` again\./);
+    // The step to come back to is the command they ran.
+    expect(said).toMatch(/Nothing written\. Update Kiro CLI to 2\.24\.1 or later, then run `[^`]* config --from [^`]* --harness kiro --mcp none` again\./);
     expect(existsSync(join(project, ".kiro"))).toBe(false);
 
     const went = run(INIT, [...args, "--yes"], project, env());

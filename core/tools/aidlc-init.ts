@@ -170,6 +170,7 @@ import {
   HARNESS_IDS_ENV,
   retiredRowLine,
   retiredRow,
+  retiredTreeInTheWay,
   runtimeHarnessDir,
   typedHarnessName,
 } from "./aidlc-runtime-paths.ts";
@@ -7037,17 +7038,16 @@ function selectSource(
       );
     }
   }
-  if (versionFiltered.length === 0) {
+  // Unnamed, a project is offered only the rows AI-DLC still ships.
+  const offered = newProjectChoices(versionFiltered);
+  if (offered.length === 0) {
     throw new Error(
       requiredVersion
         ? `project requires ${requiredVersion}, which is not installed; run aidlc config --pin ${requiredVersion}`
         : "no installed harness runtime is available",
     );
   }
-  if (versionFiltered.length === 1) return versionFiltered[0];
-  // Unnamed, a new project is offered only the rows new projects get; naming
-  // one with --harness, or a saved default, still installs it.
-  const offered = newProjectChoices(versionFiltered);
+  if (offered.length === 1) return offered[0];
   if (configInputIsTty()) {
     process.stdout.write("Select a harness for this project:\n\n");
     for (const [index, candidate] of offered.entries()) {
@@ -11324,9 +11324,13 @@ export async function main(
   // command printed back writes them as typed names (harnessArgsAsTyped).
   if (internal.setupWalkChild) {
     // The walk's own sections run on the walk's line, already ids.
-  } else if (process.env[HARNESS_IDS_ENV] === "1" || process.env.AIDLC_CONFIG_HANDOFF !== undefined) {
+  } else if (
+    (process.env[HARNESS_IDS_ENV] === "1" || process.env.AIDLC_CONFIG_HANDOFF !== undefined) &&
+    !setByDotenvFile(HARNESS_IDS_ENV) && !setByDotenvFile("AIDLC_CONFIG_HANDOFF")
+  ) {
     // Read once: what this run starts is handed ids the same way (a release's
-    // hand-off always carried ids, before the marker existed too).
+    // hand-off always carried ids, before the marker existed too). A project's
+    // .env never says so.
     delete process.env[HARNESS_IDS_ENV];
   } else {
     const read = harnessArgsAsIds(input);
@@ -11569,9 +11573,11 @@ export async function main(
   }
   const projectDir = projectDirFrom(argv);
   const projectHarnesses = discoverProjectHarnesses(projectDir);
-  // A project on a row AI-DLC no longer ships is told what to do, and nothing
-  // is written.
-  const retiredTree = projectHarnesses.find((tree) => retiredRow(tree.distribution));
+  // A run on a tree whose row AI-DLC no longer ships is told what to do, and
+  // nothing is written; a run for another harness in the project goes on.
+  const retiredTree = projectHarnesses.find((tree) =>
+    retiredRow(tree.distribution) && retiredTreeInTheWay(tree, requestedHarness)
+  );
   if (retiredTree) {
     emitResult(
       failure(retiredRowLine(retiredTree, configInvocationFor(projectDir), projectTarget(projectDir)), EXIT.usage),
@@ -11978,7 +11984,10 @@ export async function main(
     if (older && asking) {
       const answer = configPrompt(`${older} Set up anyway? [y/N]:`);
       if (!answer || !/^y(?:es)?$/i.test(answer.trim())) {
-        const update = rowCliUpdateStep(stamp.distribution, `${configCommand()}${projectTarget(projectDir)}`);
+        const update = rowCliUpdateStep(
+          stamp.distribution,
+          configRerunWith(input, projectDir, []) ?? `${configCommand()}${projectTarget(projectDir)}`,
+        );
         process.stdout.write(`Nothing written.${update ? ` ${update}` : ""}\n`);
         return;
       }

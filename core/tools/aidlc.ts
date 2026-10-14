@@ -34,9 +34,6 @@ import {
   runtimeHarnessDir,
   runtimeProjectDir,
   runtimeHarnessName,
-  harnessArgsAsIds,
-  HARNESS_IDS_ENV,
-  quoteCommandArgument,
 } from "./aidlc-runtime-paths.ts";
 
 type Classification = "passthrough" | "translation" | "stub" | "routing-only" | "help";
@@ -3160,8 +3157,7 @@ export function terminalDispatcherArgv(command: {
  * work's settings). Global flags before the command stay where they are. Any
  * other `config` argv (the install sections) is returned unchanged.
  */
-// Where the command word stands, after the launcher's own options.
-function commandIndex(argv: readonly string[]): number {
+export function normalizeTopLevelConfigVerbs(argv: readonly string[]): string[] {
   for (let index = 0; index < argv.length; index++) {
     const token = argv[index];
     if (token === "--project-dir") {
@@ -3169,15 +3165,10 @@ function commandIndex(argv: readonly string[]): number {
       continue;
     }
     if (LAUNCHER_GLOBAL_FLAGS.has(token) || token === "--no-color") continue;
-    return index;
-  }
-  return -1;
-}
-
-export function normalizeTopLevelConfigVerbs(argv: readonly string[]): string[] {
-  const index = commandIndex(argv);
-  if (index >= 0 && argv[index] === "config" && ["set", "get", "list"].includes(argv[index + 1] ?? "")) {
-    return [...argv.slice(0, index), "engine", ...argv.slice(index)];
+    if (token === "config" && ["set", "get", "list"].includes(argv[index + 1] ?? "")) {
+      return [...argv.slice(0, index), "engine", ...argv.slice(index)];
+    }
+    return [...argv];
   }
   return [...argv];
 }
@@ -3712,25 +3703,8 @@ export async function main(rawArgv: string[]): Promise<void> {
   }
   // Canonicalized before route policy so stdin buffering, pinning, and
   // dispatch see `engine hook`, and `config set|get|list` as `engine config`.
-  let argv = normalizeTopLevelConfigVerbs(canonicalizeLegacyCopilotHookArgv(rawArgv));
+  const argv = normalizeTopLevelConfigVerbs(canonicalizeLegacyCopilotHookArgv(rawArgv));
   process.exitCode = 0;
-  // `config --harness <name>`: the name a person types reads as the row id
-  // here, before a pinned release or the config tool sees the line (an older
-  // release reads ids as its own names); both are told it is ids.
-  if (argv[commandIndex(argv)] === "config" && process.env[HARNESS_IDS_ENV] !== "1") {
-    const read = harnessArgsAsIds(argv);
-    if (read.retired) {
-      process.exitCode = renderDispatcherFailure(
-        argv,
-        2,
-        `\`${read.retired.typed}\` is now called \`${read.retired.instead}\``,
-        `${aidlcInvocation()} ${read.retired.args.map((arg) => quoteCommandArgument(arg)).join(" ")}`,
-      );
-      return;
-    }
-    argv = read.args;
-    process.env[HARNESS_IDS_ENV] = "1";
-  }
   bufferedStdin = null;
   const tracedHook = tracedHookRoute(argv);
   if (tracedHook !== undefined && process.env.AIDLC_HOOK_TRACE_DIR) {

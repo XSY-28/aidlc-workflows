@@ -439,6 +439,15 @@ describe("t316 standalone plugin compose test", () => {
     expect(result.stderr).toContain("--harness <name>");
   });
 
+  // `kiro` is the name a person types for the Kiro row, as config reads it.
+  test("--harness kiro names the Kiro row", () => {
+    const { pluginRoot, installRoot } = copyFixture("typed-kiro");
+    const result = run([pluginRoot, "--install", installRoot, "--harness", "kiro"]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("--harness kiro expects .kiro/ under");
+    expect(result.stderr).not.toContain("unknown harness");
+  });
+
   test("--dist is reserved and usage errors exit 2", () => {
     const { pluginRoot, installRoot } = copyFixture("usage");
     expect(run([]).status).toBe(2);

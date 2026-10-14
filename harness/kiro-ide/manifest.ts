@@ -279,6 +279,15 @@ const manifest: HarnessManifest = {
           // The variant shipped before the block ignored aidlc/.aidlc-request-text/
           // (a request the engine has not read yet).
           "sha256:6c6ff7641c17829d77fdd023f340b938db11dcc26c734a0c452d5213f9bd19cf",
+          // The retired Kiro CLI row's own variants: a project moved off that row
+          // keeps the root parts it wrote, which are AI-DLC's.
+          "sha256:6df8b41c1c9011d8b6d386d389f96bbfa27812386f434103c260bf58641d6b5d",
+          "sha256:83449fdda4644b319cbea5dcbde11919722b5dd6761f4edb4caf0e0e53dc9c6b",
+          "sha256:469dbf89f83865b58b2ae4c51dd2f2fe51fd80a9e2033bfb233688141d0cf632",
+          "sha256:af1b98a4b8c0e288aa8177655495b4a65220dbed2e149a67780aff1e8f379c9d",
+          "sha256:2f413414992c405c11a8bccb230574c2f58cec8fd2906cd37b7cd62bb33a97d8",
+          "sha256:f08d78b3e456c3a7cd7c998196c9bf6d59d24900e2ccf78cf30a1b189e766c2c",
+          "sha256:99b4560aa1bd95f26077eb69a0c6c2a40f81146a212e70d876c27bb84f2b1789",
         ],
       },
     },
@@ -309,6 +318,21 @@ const manifest: HarnessManifest = {
           "sha256:5f6f076a5a9d8a11e1078f568c9dee091f399d9999fae89e9dffa62d8697b797",
           // The variant shipped before the onboarding waited for the person to invoke AI-DLC.
           "sha256:6de1298dfa4c2b6916f66d372b844faf23481c8f258eedd595c1423dab8e106d",
+          // The retired Kiro CLI row's own variants: a project moved off that row
+          // keeps the root parts it wrote, which are AI-DLC's.
+          "sha256:4f7133cc1a9bb1243245c25c28fad57c3660b35e251ea36cea3aa2db431bf55f",
+          "sha256:992307cc3fac05d81958851b2ca51db3723fea604c8d2636814ef9b2e9f7a848",
+          "sha256:b886d5b375f9ebc33ef206c4f6ad20630a13eb83d0f5838e9f71f483c040f362",
+          "sha256:c6796d512752c8f4aa927c9de3fb794e3432f62dd85b77fe3da1101d90aa5a0b",
+          "sha256:cd7c66ba1bdd67af0be6203a1d8928efc01733ef196201003e914051d1309a28",
+          "sha256:e3de4a295f9b9404b40678c28c0773ae432ac8d4aeacc07613ecfcdfbb4c866b",
+          "sha256:e85a5d7ce13b676282dc99572f89c81256f2dada50b1881f4c9641e61339f5a4",
+          "sha256:67a57eddd94d613590d34ec2d0181398123d9e2d9f6382eb36c62233ce02b6f9",
+          "sha256:3aea80a2afde8bb2a222b329bcfc2855b4207a53f7fbfbc3abbfb4aadbafc53b",
+          "sha256:1abeb3cb19943bc1537c413dc45298c43a14ce7544444c88c13b53ea48a607a6",
+          "sha256:ecb68f08789258e77c81488e98dd1632b607b567a2424311c4dcdc30ce3e768f",
+          "sha256:9ad7daa07cbafe9f149311b679281eecd991d2ec77787fc7751226ea0622522b",
+          "sha256:c8777a03505f11dcbb4fb339fef1a8072d9d2500ce401b69a06073b523ea2c67",
         ],
       },
     },
