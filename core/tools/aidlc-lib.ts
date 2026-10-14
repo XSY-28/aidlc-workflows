@@ -2288,6 +2288,19 @@ export function fenceCommandOutput(output: string, exitCode?: number): string {
   );
 }
 
+// What a prompt hook hands the agent with a command it already ran for the
+// person's own line (`command`, as they typed it): the output to show them,
+// and that nothing else is to run this turn. One wording for every host whose
+// prompt hook does this (the core human-turn hook, both Kiro adapters).
+export function terminalCommandRelay(command: string, output: string, exitCode?: number): string {
+  return (
+    `The command \`${command}\` has already run; it carries no workflow work. ` +
+    `Relay the output below to the person ${relayAsTextBlock(output)}, then stop. ` +
+    "Run no shell command and no AI-DLC command this turn, and do not advance, resume, or run any workflow stage.\n\n" +
+    fenceCommandOutput(output, exitCode)
+  );
+}
+
 // --- Engine command detectors (hook classifier seam) ---
 //
 // These raw command-string classifiers are shared by hooks and tests. They do
@@ -7576,7 +7589,12 @@ export function workflowParticipation(
 export function enterHookWorkflow(
   projectDir: string,
   payloadSessionId: unknown,
-): { selection: WorkflowSelection | null; participation: WorkflowParticipation; restore: () => void } {
+): {
+  selection: WorkflowSelection | null;
+  participation: WorkflowParticipation;
+  projectDir: string;
+  restore: () => void;
+} {
   const raw = typeof payloadSessionId === "string" ? validSessionId(payloadSessionId) : null;
   const chat = raw === null ? null : resolveChat(projectDir, raw, { bind: false });
   // Placed: this chat has a binding, or the id belongs to a chat an adapter named.
@@ -7598,34 +7616,66 @@ export function enterHookWorkflow(
   }
   try {
     const selection = resolveWorkflowSelection(projectDir);
-    return { selection, participation: workflowParticipation(projectDir, selection), restore };
+    return {
+      selection,
+      participation: workflowParticipation(projectDir, selection),
+      projectDir,
+      restore,
+    };
   } catch {
-    return { selection: null, participation: "indeterminate", restore };
+    return { selection: null, participation: "indeterminate", projectDir, restore };
   }
 }
 
-// A hook stands outside when its selection names a record this conversation has
-// not joined, or when participation cannot be decided. Hooks that only write into
-// the record skip on it. A selection with no record (a cold workspace) is not
-// "outside": there is nothing to protect, and hooks keep their pre-workflow
-// behaviour.
-export function hookStandsOutside(workflow: ReturnType<typeof enterHookWorkflow>): boolean {
+// This conversation has not joined the selected record, or participation cannot
+// be decided. A selection with no record (a cold workspace) has not failed to
+// join one: there is nothing to protect.
+function conversationHasNotJoined(workflow: ReturnType<typeof enterHookWorkflow>): boolean {
   if (workflow.selection === null) return true;
   if (workflow.selection.intent !== null) return workflow.participation !== "participant";
   // Bound to no record because the record it found was not joined: still outside
   // that record, unlike a session in a workspace that has none.
-  const source = workflow.selection.binding?.source;
-  return source === "unjoined";
+  return workflow.selection.binding?.source === "unjoined";
+}
+
+// The selected record's own Status. Completed and Archived are finished work:
+// the conversation may still be the one that did it, and the record stays
+// selected, but a later chat event is not part of that work.
+export function selectedRecordIsFinished(
+  projectDir: string,
+  selection: WorkflowSelection | null,
+): boolean {
+  if (!projectDir || selection === null) return false;
+  let content: string;
+  try {
+    content = readFileSync(stateFilePathForSelection(projectDir, selection), "utf-8");
+  } catch {
+    return false;
+  }
+  const status = getField(content, "Status");
+  return status === "Completed" || status === "Archived";
+}
+
+// A hook stands outside when its selection names a record this conversation has
+// not joined, when participation cannot be decided, or when that record is
+// finished (Completed or Archived). Hooks that only write into the record skip
+// on it. A selection with no record (a cold workspace) is not "outside": there
+// is nothing to protect, and hooks keep their pre-workflow behaviour.
+export function hookStandsOutside(workflow: ReturnType<typeof enterHookWorkflow>): boolean {
+  if (conversationHasNotJoined(workflow)) return true;
+  return selectedRecordIsFinished(workflow.projectDir, workflow.selection);
 }
 
 // Whether a gate may stand aside for this conversation: only when the selection
-// resolved and the conversation is known not to have joined it. A selection that
-// failed to resolve, or a participation that cannot be decided (malformed or
-// stale delegated worktree metadata), does not lower a gate: the gate takes its
-// ordinary path, which fails closed on the same error.
+// resolved and the conversation is known not to have joined it. Finished work
+// is not that case: the conversation did join it, so a gate keeps the path it
+// takes for a participant. A selection that failed to resolve, or a
+// participation that cannot be decided (malformed or stale delegated worktree
+// metadata), does not lower a gate: the gate takes its ordinary path, which
+// fails closed on the same error.
 export function hookOutsideGate(workflow: ReturnType<typeof enterHookWorkflow>): boolean {
   if (workflow.selection === null || workflow.participation === "indeterminate") return false;
-  return hookStandsOutside(workflow);
+  return conversationHasNotJoined(workflow);
 }
 
 export function stateFilePathForSelection(
@@ -13026,10 +13076,28 @@ export function verificationCommandDetails(command: string): VerificationCommand
   };
 }
 
+/**
+ * The record-relative name of a file the agent names for the engine to read
+ * from the work's record. Named from the record, from the project folder, or in
+ * full, it is the same file (#2167, #2451): the prompts say to write it to
+ * `<record>/<name>`, and `<record>` is a project-relative path. A `.` part
+ * (`./aidlc/...`) names nothing and is dropped. A name with a `..` part, or one
+ * that is not inside the record from the project folder, is returned as given,
+ * for the record reader to take or refuse.
+ */
+export function recordRelativeFileName(projectDir: string, root: string, file: string): string {
+  const parts = file.replaceAll("\\", "/").split("/");
+  if (parts.includes("..")) return file.replaceAll("\\", "/");
+  const given = parts.filter((part, index) => part !== "." || index === parts.length - 1).join("/");
+  const fromRecord = relative(root, resolvePath(projectDir, given)).replaceAll("\\", "/");
+  const inRecord = fromRecord !== "" && fromRecord !== ".." && !fromRecord.startsWith("../") && !isAbsolute(fromRecord);
+  return inRecord ? fromRecord : given;
+}
+
 export function readVerificationCommandFile(projectDir: string, file: string): VerificationCommand {
   const root = recordDir(projectDir);
   if (!root) throw new Error("Verification command file requires an active intent record.");
-  const path = recordFileTargetOrThrow(root, file);
+  const path = recordFileTargetOrThrow(root, recordRelativeFileName(projectDir, root, file));
   return verificationCommandDetails(
     readRegularFileNoFollowOrThrow(path, "verification command file", 16 * 1024).toString("utf-8"),
   );
@@ -13057,13 +13125,9 @@ export function readAnswerTextFile(projectDir: string, file: string): string {
   const inFolder = (name: string): boolean =>
     !name.split("/").some((part) => part === ".." || part === ".") &&
     name.startsWith(`${ANSWER_TEXT_DIR}/`) && name.length > ANSWER_TEXT_DIR.length + 1;
-  const given = file.replaceAll("\\", "/");
-  // Named from the project folder or in full, it is the same file (#2167):
-  // read it under its name in the record, which still has to be in the folder.
-  const fromRecord = relative(root, resolvePath(projectDir, given)).replaceAll("\\", "/");
-  const relativePath = !isAbsolute(file) && inFolder(given)
-    ? given
-    : !isAbsolute(fromRecord) && inFolder(fromRecord) ? fromRecord : null;
+  // Read it under its name in the record, which still has to be in the folder.
+  const name = recordRelativeFileName(projectDir, root, file);
+  const relativePath = inFolder(name) ? name : null;
   if (relativePath === null) {
     throw new Error(
       `An answer text file must be inside ${ANSWER_TEXT_DIR}/ in the work's record, named relative to the record ` +
@@ -39871,6 +39935,24 @@ function waitAtErrorEmitSelectionBarrier(selection: WorkflowSelection): void {
     }
     Atomics.wait(waitCell, 0, 0, 10);
   }
+}
+
+/**
+ * An engine subcommand's arguments ask for its usage (#2449). Read before any
+ * flag parsing, so `--help` never needs a value, is never an error, and adds no
+ * audit row. Only the first argument counts: later, a `--help` can be a piece
+ * of the person's words that a bare double quote split off (`Run "todo --help"
+ * first` arrives as `--details "Run todo" --help first`), and the tool's own
+ * split-value refusal keeps those words instead of printing usage over them.
+ */
+export function asksForHelp(args: readonly string[]): boolean {
+  return args[0] === "--help" || args[0] === "-h" || args[0] === "help";
+}
+
+/** Print a subcommand's usage and exit 0: help is never an error. */
+export function printUsageAndExit(usage: string): never {
+  process.stdout.write(usage.endsWith("\n") ? usage : `${usage}\n`);
+  process.exit(0);
 }
 
 // Failures are swallowed: we're already exiting, the caller gets the JSON
