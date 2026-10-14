@@ -468,6 +468,43 @@ export function retiredTypedHarnessName(name: string): string | null {
   return name === "kiro-ide" ? typedHarnessName("kiro-ide") : null;
 }
 
+// Set once the --harness values of a config command line are row ids: by the
+// dispatcher before it hands `config` to the config tool or a pinned release
+// (an older release reads ids as its own names), and by config for the config
+// runs it starts. The first typed name rides along for config's own wording.
+export const HARNESS_IDS_ENV = "AIDLC_CONFIG_HARNESS_IDS";
+export const TYPED_HARNESS_ENV = "AIDLC_CONFIG_TYPED_HARNESS";
+
+/**
+ * A config command line's --harness values, typed names read as row ids. A
+ * retired typed name stops the reading: `retired` says which and what to type.
+ */
+export function harnessArgsAsIds(args: readonly string[]): {
+  args: string[];
+  typed?: string;
+  retired?: { typed: string; instead: string; args: string[] };
+} {
+  const out = [...args];
+  let typed: string | undefined;
+  for (let i = 0; i < out.length - 1; i++) {
+    if (out[i] !== "--harness" || out[i + 1].startsWith("--")) continue;
+    const name = out[i + 1];
+    const instead = retiredTypedHarnessName(name);
+    if (instead) {
+      const fixed = args.map((arg, index) => (index === i + 1 ? instead : arg));
+      return { args: out, retired: { typed: name, instead, args: fixed } };
+    }
+    typed ??= name;
+    out[i + 1] = harnessIdFromTyped(name);
+  }
+  return { args: out, ...(typed ? { typed } : {}) };
+}
+
+/** The same line with its --harness row ids written as the names a person types, to print. */
+export function harnessArgsAsTyped(args: readonly string[]): string[] {
+  return args.map((arg, index) => (index > 0 && args[index - 1] === "--harness" ? typedHarnessName(arg) : arg));
+}
+
 // The rows AI-DLC no longer offers a new project, each with the row new
 // projects get instead and what that row runs on. A project that has one keeps
 // it: it refreshes and switches either way, and config and doctor say how to

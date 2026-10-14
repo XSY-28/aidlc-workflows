@@ -167,9 +167,11 @@ import {
   type ProjectHarness,
   hasControlCharacters,
   quoteCommandArgument,
-  harnessIdFromTyped,
+  harnessArgsAsIds,
+  harnessArgsAsTyped,
+  HARNESS_IDS_ENV,
   retiredRowLine,
-  retiredTypedHarnessName,
+  TYPED_HARNESS_ENV,
   rowNewProjectsGet,
   runtimeHarnessDir,
   typedHarnessName,
@@ -2632,8 +2634,6 @@ function sameFile(left: string, right: string): boolean {
 // name this harness's tool there, not the first install the project shows.
 let configTargetHarnessDir: string | null = null;
 
-// Set for a config run another one starts: its --harness values are row ids.
-const HARNESS_IDS_ENV = "AIDLC_CONFIG_HARNESS_IDS";
 
 // What config tells a project on a row new projects no longer get, in this
 // run's command form, or null.
@@ -2681,7 +2681,7 @@ function configRerunWith(
   dropValueFlags: readonly string[] = [],
 ): string | undefined {
   const invocation = configInvocationFor(projectDir);
-  const args = stripVerb([...input]).filter((arg, index, all) =>
+  const args = harnessArgsAsTyped(stripVerb([...input])).filter((arg, index, all) =>
     !dropValueFlags.includes(arg) && !dropValueFlags.includes(all[index - 1] ?? "")
   );
   if (args.some(hasControlCharacters) || hasControlCharacters(projectDir)) return undefined;
@@ -2699,7 +2699,7 @@ function configMutationRerun(
   section: "models" | "runtime" | "providers" | "trust" | "flags" | "project",
   argv: readonly string[],
 ): string {
-  const args = argv.filter((arg) => arg !== "--yes").map(commandToken);
+  const args = harnessArgsAsTyped(argv.filter((arg) => arg !== "--yes")).map(commandToken);
   return configCommand([section, ...args, "--yes"].join(" "));
 }
 
@@ -8108,6 +8108,7 @@ function runConfigChild(
   env.AIDLC_CONFIG_DEFER_KIRO_SESSION = "1";
   // The child is handed row ids, not the names a person types.
   env[HARNESS_IDS_ENV] = "1";
+  delete env[TYPED_HARNESS_ENV];
   const commandArgs = isCompiledExecutable()
     ? ["config", ...args]
     : [fileURLToPath(import.meta.url), "config", ...args];
@@ -11305,7 +11306,7 @@ function agentDefaultArgs(id: string): string[] | null {
   const effort = /^models\.agents\.([^.]+)\.effort$/.exec(id);
   if (effort) return ["--agent", effort[1], "--effort", "default"];
   const model = /^models\.agents\.([^.]+)\.model\.([^.]+)$/.exec(id);
-  if (model) return ["--agent", model[1], "--model", "default", "--harness", model[2]];
+  if (model) return ["--agent", model[1], "--model", "default", "--harness", typedHarnessName(model[2])];
   return null;
 }
 
@@ -11355,14 +11356,14 @@ function settingLeaves(file: AidlcSettingsFile | null): Map<string, SettingLeaf>
       const shown = SHOWN_MODEL_ID.test(model);
       leaves.set(`models.agents.${agent}.model.${harness}`, {
         section: "models",
-        label: `${agent} model (${harness})`,
+        label: `${agent} model (${typedHarnessName(harness)})`,
         value: model,
         shown: shown ? model : "(a model ID that is not shown)",
         args: !shown
           ? []
           : policy.effort
-          ? ["--agent", agent, "--effort", policy.effort, "--model", model, "--harness", harness]
-          : ["--agent", agent, "--model", model, "--harness", harness],
+          ? ["--agent", agent, "--effort", policy.effort, "--model", model, "--harness", typedHarnessName(harness)]
+          : ["--agent", agent, "--model", model, "--harness", typedHarnessName(harness)],
       });
     }
   }
@@ -12058,26 +12059,30 @@ export async function main(
   if (!internal.setupWalkChild) configTargetHarnessDir = null;
   let argv = stripVerb(input);
   const options = globalOptions(argv);
-  // What the person typed after --harness reads as a row id here, once
-  // (harnessIdFromTyped); a config run this one starts passes ids and says so.
-  // A typed name that is retired gets the one to type instead.
+  // What the person typed after --harness reads as a row id once, at the
+  // outermost entry: the dispatcher when it ran (it says so in the
+  // environment), else here. From here on `input` and `argv` hold ids, and a
+  // command printed back writes them as typed names (harnessArgsAsTyped).
   let typedHarness: string | undefined;
-  if (!internal.setupWalkChild && process.env[HARNESS_IDS_ENV] !== "1") {
-    argv = [...argv];
-    for (let i = 0; i < argv.length - 1; i++) {
-      if (argv[i] !== "--harness" || argv[i + 1].startsWith("--")) continue;
-      const typed = argv[i + 1];
-      const instead = retiredTypedHarnessName(typed);
-      if (instead) {
-        emitResult(
-          usage(`\`${typed}\` is now called \`${instead}\``, configCommand(`--harness ${instead}`)),
-          options,
-        );
-        return;
-      }
-      typedHarness ??= typed;
-      argv[i + 1] = harnessIdFromTyped(typed);
+  if (internal.setupWalkChild) {
+    // The walk's own sections run on the walk's line, already ids.
+  } else if (process.env[HARNESS_IDS_ENV] === "1") {
+    typedHarness = process.env[TYPED_HARNESS_ENV] || undefined;
+  } else {
+    const read = harnessArgsAsIds(input);
+    if (read.retired) {
+      emitResult(
+        usage(
+          `\`${read.retired.typed}\` is now called \`${read.retired.instead}\``,
+          `${configInvocationFor()} config ${stripVerb(read.retired.args).map((arg) => quoteCommandArgument(arg)).join(" ")}`,
+        ),
+        options,
+      );
+      return;
     }
+    typedHarness = read.typed;
+    input = read.args;
+    argv = stripVerb(input);
   }
   const positionals = configPositionals(argv);
   const section = positionals[0];
@@ -12672,7 +12677,13 @@ export async function main(
       if (downloadCleanup && !args.includes("--download")) args.push("--download");
       const handed = spawnSync(process.execPath, [newerTool, "config", ...args], {
         cwd: process.cwd(),
-        env: { ...process.env, AIDLC_CONFIG_HANDOFF: ranTool, AIDLC_PROJECT_DIR: projectDir, [HARNESS_IDS_ENV]: "1" },
+        env: {
+          ...process.env,
+          AIDLC_CONFIG_HANDOFF: ranTool,
+          AIDLC_PROJECT_DIR: projectDir,
+          [HARNESS_IDS_ENV]: "1",
+          [TYPED_HARNESS_ENV]: typedHarness ?? "",
+        },
         stdio: "inherit",
       });
       if (handed.error) throw handed.error;
@@ -12701,24 +12712,6 @@ export async function main(
     // row says nothing of it, and a preview says what its run says.
     const retired = existing.distribution ? retiredRowNote(projectDir, stamp.distribution) : null;
     if (retired) sourceNotes.push(retired);
-    // A run that puts a project on a row that also runs in an editor says which
-    // versions it runs in; with this machine's CLI older than that, a person at
-    // a terminal is asked first, and any other run says so and goes on.
-    if (!existing.distribution) {
-      const condition = rowVersionCondition(stamp.distribution);
-      if (condition) sourceNotes.push(condition);
-      const inEditor = descriptor.editorTerminalApp !== undefined && launchedFromEditorTerminal(descriptor.editorTerminalApp);
-      const older = inEditor ? null : rowOlderCli(stamp.distribution);
-      if (older && configInputIsTty() && options.mode === "human" && !argv.includes("--yes") && !internal.setupWalkChild) {
-        const answer = configPrompt(`${older} Set up anyway? [y/N]:`);
-        if (!answer || !/^y(?:es)?$/i.test(answer.trim())) {
-          process.stdout.write("Nothing written.\n");
-          return;
-        }
-      } else if (older) {
-        sourceNotes.push(older);
-      }
-    }
     const installed = discoverProjectHarnesses(projectDir);
     // The harness this run replaces in its own directory, if any. A switch is
     // a refresh of that directory: it plans from the occupant's ownership
@@ -12745,20 +12738,48 @@ export async function main(
     }
     // `--harness kiro` named the legacy row before it named the Kiro row: on a
     // project still on the legacy row, a person at a terminal is asked before
-    // it moves; any other run moves as asked.
-    if (
+    // it moves; any other run moves as asked and says so.
+    // A person at a terminal (not a preview) answers both questions below in
+    // one: an older Kiro CLI's line goes before the move question.
+    const asking = configInputIsTty() && options.mode === "human" && !argv.includes("--yes") &&
+      !argv.includes("--dry-run") && !internal.setupWalkChild;
+    // A run that puts a project on a row that also runs in an editor says which
+    // versions it runs in, and whether this machine's CLI is older than that.
+    const condition = existing.distribution ? null : rowVersionCondition(stamp.distribution);
+    if (condition) sourceNotes.push(condition);
+    const inEditor = descriptor.editorTerminalApp !== undefined && launchedFromEditorTerminal(descriptor.editorTerminalApp);
+    const older = existing.distribution || inEditor ? null : rowOlderCli(stamp.distribution);
+    const movesFromRenamed = Boolean(
       switchingFrom && typedHarness === typedHarnessName(stamp.distribution) &&
-      rowNewProjectsGet(switchingFrom.distribution) === stamp.distribution &&
-      configInputIsTty() && options.mode === "human" && !argv.includes("--yes") && !argv.includes("--dry-run")
-    ) {
+        rowNewProjectsGet(switchingFrom.distribution) === stamp.distribution,
+    );
+    if (movesFromRenamed && switchingFrom && asking) {
+      const stay = `${configCommand(`--harness ${typedHarnessName(switchingFrom.distribution)}`)}${projectTarget(projectDir)}`;
       const answer = configPrompt(
-        `This project is on the legacy \`${typedHarnessName(switchingFrom.distribution)}\` row, and \`--harness ${typedHarness}\` ` +
-          `now names the ${descriptor.productName} row. Move ${descriptor.harnessDir} to it in place (aidlc/ is kept)? To stay, ` +
-          `run \`${configCommand(`--harness ${typedHarnessName(switchingFrom.distribution)}`)}\`. [y/N]:`,
+        `${older ? `${older} ` : ""}This project is on the legacy \`${typedHarnessName(switchingFrom.distribution)}\` row, ` +
+          `and \`--harness ${typedHarness}\` now names the ${descriptor.productName} row. Move ${descriptor.harnessDir} to it ` +
+          `in place (aidlc/ is kept)? To stay, run \`${stay}\`. [y/N]:`,
       );
       if (!answer || !/^y(?:es)?$/i.test(answer.trim())) {
         process.stdout.write("Nothing written.\n");
         return;
+      }
+    } else if (older && asking) {
+      const answer = configPrompt(`${older} Set up anyway? [y/N]:`);
+      if (!answer || !/^y(?:es)?$/i.test(answer.trim())) {
+        process.stdout.write("Nothing written.\n");
+        return;
+      }
+    } else {
+      if (older) sourceNotes.push(older);
+      // `--harness kiro` named the legacy row before: a run that moved a
+      // project off it without asking says why, and how to stay.
+      if (movesFromRenamed && switchingFrom) {
+        sourceNotes.push(
+          `\`--harness ${typedHarness}\` now names the ${descriptor.productName} row, so this run moves ${descriptor.harnessDir} ` +
+            `off the legacy \`${typedHarnessName(switchingFrom.distribution)}\` row; ` +
+            `\`--harness ${typedHarnessName(switchingFrom.distribution)}\` keeps a project on that row.`,
+        );
       }
     }
     const refreshing = Boolean(existing.distribution || switchingFrom);

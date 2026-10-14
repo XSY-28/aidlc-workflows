@@ -11,13 +11,14 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { REPO_ROOT } from "../harness/fixtures.ts";
-import { retiredRowLine, rowNewProjectsGet } from "../../core/tools/aidlc-runtime-paths.ts";
+import { harnessArgsAsIds, harnessArgsAsTyped, retiredRowLine, rowNewProjectsGet } from "../../core/tools/aidlc-runtime-paths.ts";
 import { typedHarnessName } from "../../core/tools/aidlc-runtime-paths.ts";
 
 setDefaultTimeout(120_000);
 
 const INIT = join(REPO_ROOT, "core", "tools", "aidlc-init.ts");
 const DOCTOR = join(REPO_ROOT, "core", "tools", "aidlc-doctor.ts");
+const DISPATCHER = join(REPO_ROOT, "core", "tools", "aidlc.ts");
 const RELEASE = join(REPO_ROOT, "dist-release");
 const HOST_ENV = [
   "CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PROJECT_DIR", "KIRO_SESSION_ID", "OPENCODE",
@@ -241,7 +242,8 @@ describe("the legacy kiro row new projects no longer get", () => {
     const named = config(retired, ["--harness", "kiro-ide", "--mcp", "none", "--yes"]);
     expect(named.status).not.toBe(0);
     expect(named.out).toContain("`kiro-ide` is now called `kiro`");
-    expect(named.out).toMatch(/config --harness kiro\n/);
+    // The same line, with the name to type.
+    expect(named.out).toContain(" --harness kiro --mcp none --yes\n");
     expect(existsSync(join(retired, ".kiro"))).toBe(false);
   });
 
@@ -299,5 +301,83 @@ describe("the legacy kiro row new projects no longer get", () => {
     expect(went.status, out).toBe(0);
     expect(out).toContain(`Note: ${older}`);
     expect(existsSync(join(project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
+  });
+
+  // Typed names become row ids once, at the outermost entry, and go back to
+  // typed names wherever a command is printed.
+  test("a config line reads typed names as row ids once, and prints them back as typed names", () => {
+    expect(harnessArgsAsIds(["models", "--harness", "kiro", "--project"])).toEqual({
+      args: ["models", "--harness", "kiro-ide", "--project"],
+      typed: "kiro",
+    });
+    expect(harnessArgsAsIds(["--harness", "kiro-cli-legacy"]).args).toEqual(["--harness", "kiro"]);
+    expect(harnessArgsAsIds(["--harness", "kiro-ide", "--yes"]).retired).toEqual({
+      typed: "kiro-ide",
+      instead: "kiro",
+      args: ["--harness", "kiro", "--yes"],
+    });
+    expect(harnessArgsAsTyped(["--harness", "kiro-ide", "--harness", "kiro"])).toEqual(
+      ["--harness", "kiro", "--harness", "kiro-cli-legacy"],
+    );
+
+    // Through the dispatcher, and the commands config prints back.
+    const { project } = install("kiro-ide");
+    const dispatch = (args: string[]) => {
+      const result = spawnSync(process.execPath, [DISPATCHER, "config", "--project-dir", project, ...args], {
+        cwd: project,
+        env: childEnv(),
+        encoding: "utf-8",
+      });
+      return `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    };
+    expect(dispatch(["--harness", "kiro-ide", "--mcp", "none"])).toContain(
+      `config --project-dir ${project} --harness kiro --mcp none`,
+    );
+    const rerun = dispatch(["models", "--harness", "kiro", "--agent", "developer", "--model", "claude-x", "--project"]);
+    expect(rerun).toContain("config models --harness kiro --agent developer --model claude-x --project");
+    expect(rerun).toMatch(/ --yes\n/);
+    expect(rerun).not.toContain("kiro-ide");
+    const undo = dispatch(["models", "--harness", "kiro", "--agent", "developer", "--model", "claude-x", "--project", "--yes"]);
+    expect(undo).toContain("developer model (kiro) claude-x");
+    expect(undo).toMatch(/To undo: [^\n]* config models --agent developer --model default --harness kiro --project --yes/);
+  });
+
+  // A run that moves a legacy project because `--harness kiro` now names the
+  // Kiro row says so when nobody was asked, and a preview never asks.
+  test.skipIf(process.platform === "win32")("an unasked move says why, a preview never asks, and a terminal is asked once", () => {
+    const bin = realpathSync(mkdtempSync(join(tmpdir(), "aidlc-t-legacy-kiro-bin-")));
+    temporary.push(bin);
+    writeFileSync(join(bin, "kiro-cli"), "#!/bin/sh\necho 'kiro-cli 2.20.0'\n");
+    chmodSync(join(bin, "kiro-cli"), 0o755);
+    const env = (extra: Record<string, string> = {}) => childEnv({ PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`, ...extra });
+    const args = [INIT, "config", "--from", join(RELEASE, "kiro-ide"), "--harness", "kiro", "--mcp", "none"];
+
+    const preview = install("kiro").project;
+    const previewed = spawnSync(process.execPath, [...args, "--dry-run"], {
+      cwd: preview,
+      env: env({ AIDLC_TEST_CONFIG_TTY: "1" }),
+      input: "",
+      encoding: "utf-8",
+    });
+    expect(previewed.status, `${previewed.stdout ?? ""}${previewed.stderr ?? ""}`).toBe(0);
+    expect(previewed.stdout).not.toContain("[y/N]");
+    expect(previewed.stdout).toContain("config plan for");
+
+    const asked = spawnSync(process.execPath, args, {
+      cwd: preview,
+      env: env({ AIDLC_TEST_CONFIG_TTY: "1" }),
+      input: "n\n",
+      encoding: "utf-8",
+    });
+    const said = `${asked.stdout ?? ""}${asked.stderr ?? ""}`;
+    expect(said.match(/\[y\/N\]/g)?.length).toBe(1);
+    expect(said.replace(/\s+/g, " ")).toContain("Kiro CLI 2.20.0 is older than 2.24.1.");
+    expect(said).toContain("Move .kiro to it in place");
+
+    const moved = spawnSync(process.execPath, [...args, "--yes"], { cwd: preview, env: env(), encoding: "utf-8" });
+    expect(moved.status, `${moved.stdout ?? ""}${moved.stderr ?? ""}`).toBe(0);
+    expect(moved.stdout.replace(/\s+/g, " ")).toContain(
+      "Note: `--harness kiro` now names the Kiro row, so this run moves .kiro off the legacy `kiro-cli-legacy` row; `--harness kiro-cli-legacy` keeps a project on that row.",
+    );
   });
 });

@@ -34,6 +34,10 @@ import {
   runtimeHarnessDir,
   runtimeProjectDir,
   runtimeHarnessName,
+  harnessArgsAsIds,
+  HARNESS_IDS_ENV,
+  TYPED_HARNESS_ENV,
+  quoteCommandArgument,
 } from "./aidlc-runtime-paths.ts";
 
 type Classification = "passthrough" | "translation" | "stub" | "routing-only" | "help";
@@ -3703,8 +3707,26 @@ export async function main(rawArgv: string[]): Promise<void> {
   }
   // Canonicalized before route policy so stdin buffering, pinning, and
   // dispatch see `engine hook`, and `config set|get|list` as `engine config`.
-  const argv = normalizeTopLevelConfigVerbs(canonicalizeLegacyCopilotHookArgv(rawArgv));
+  let argv = normalizeTopLevelConfigVerbs(canonicalizeLegacyCopilotHookArgv(rawArgv));
   process.exitCode = 0;
+  // `config --harness <name>`: the name a person types reads as the row id
+  // here, before a pinned release or the config tool sees the line (an older
+  // release reads ids as its own names); both are told it is ids.
+  if (argv[0] === "config" && process.env[HARNESS_IDS_ENV] !== "1") {
+    const read = harnessArgsAsIds(argv);
+    if (read.retired) {
+      process.exitCode = renderDispatcherFailure(
+        argv,
+        2,
+        `\`${read.retired.typed}\` is now called \`${read.retired.instead}\``,
+        `${aidlcInvocation()} ${read.retired.args.map((arg) => quoteCommandArgument(arg)).join(" ")}`,
+      );
+      return;
+    }
+    argv = read.args;
+    process.env[HARNESS_IDS_ENV] = "1";
+    process.env[TYPED_HARNESS_ENV] = read.typed ?? "";
+  }
   bufferedStdin = null;
   const tracedHook = tracedHookRoute(argv);
   if (tracedHook !== undefined && process.env.AIDLC_HOOK_TRACE_DIR) {
