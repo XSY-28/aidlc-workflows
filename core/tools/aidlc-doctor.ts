@@ -414,7 +414,9 @@ function humanReport(
     rows += extraAttentionRows.join("");
     if (passing.length > 0) {
       const allClean = attention.every((check) => status(check) === "ok") && extraAttentionRows.length === 0;
-      rows += `  ${okVerdict("ok   ", out)} ${allClean ? "all " : ""}${passing.length} checks passed\n`;
+      // A passing row shown by name above still counts, as --quiet and --json count it.
+      const passed = checks.filter((check) => status(check) === "ok").length;
+      rows += `  ${okVerdict("ok   ", out)} ${allClean ? "all " : ""}${passed} checks passed\n`;
     }
     return rows;
   };

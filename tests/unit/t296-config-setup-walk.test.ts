@@ -801,13 +801,15 @@ describe("t296 first-run config setup walk", () => {
     // These hosts cannot pin an agent's model or effort, so a recorded policy
     // changes nothing there. The row says where the lever is, counts as done,
     // and never sends the person into the models wizard or the closing list.
+    // The host the session wording names, and the row's own product name
+    // (the kiro-ide row serves Kiro CLI and Kiro IDE alike).
     const hosts = [
-      ["copilot", ".aidlc", "GitHub Copilot"],
-      ["cursor", ".cursor", "Cursor"],
-      ["kiro-ide", ".kiro", "Kiro IDE"],
+      ["copilot", ".aidlc", "GitHub Copilot", "GitHub Copilot"],
+      ["cursor", ".cursor", "Cursor", "Cursor"],
+      ["kiro-ide", ".kiro", "Kiro IDE", "Kiro"],
     ] as const;
     const env = hookPathEnv("aidlc", true);
-    for (const [harness, dir, product] of hosts) {
+    for (const [harness, dir, product, rowName] of hosts) {
       const path = project(`aidlc-t296-session-models-${harness}-`);
       const args = [
         "config", "--project-dir", path, "--from", join(REPO_ROOT, "dist-release", harness),
@@ -828,7 +830,7 @@ describe("t296 first-run config setup walk", () => {
       expect(providers, harness).not.toContain("provider access unverified");
       expect(providers, harness).toContain(
         harness === "kiro-ide"
-          ? "model access comes with Kiro IDE; nothing for AI-DLC to configure"
+          ? "model access comes with Kiro; nothing for AI-DLC to configure"
           : harness === "cursor"
           ? "model access comes with your Cursor session; to use your own Amazon Bedrock access in the Cursor IDE instead, run `"
           : `model access comes with your ${product} session; to use your own Amazon Bedrock access instead, run \``,
@@ -855,7 +857,7 @@ describe("t296 first-run config setup walk", () => {
         );
       expect(rerun.stdout, harness).not.toContain("config models");
       expect(readFileSync(join(path, dir, "tools", "data", "harness.json"), "utf-8"), harness)
-        .toContain(`"productName": "${product}"`);
+        .toContain(`"productName": "${rowName}"`);
     }
 
     // The project's harness file cannot change which host the row names, nor

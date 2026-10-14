@@ -7954,9 +7954,13 @@ function olderToolLine(
     const product = candidate.descriptor.productName;
     const found = detection.harnesses[instead.stamp.distribution]?.version;
     const version = found ? /\d+\.\d+\.\d+/.exec(found)?.[0] : undefined;
-    return `${product}${version ? ` ${version}` : ""} is older than ${needs}, which AI-DLC's \`${instead.stamp.distribution}\` row ` +
-      `needs, so it is not counted below. Update ${product}, or run \`${configInvocationFor(projectDir)} config --harness ${row}` +
-      `${projectTarget(projectDir)}\` to set this project up on the legacy \`${row}\` row.`;
+    const said = `${product}${version ? ` ${version}` : ""} is older than ${needs}, which AI-DLC's ` +
+      `\`${instead.stamp.distribution}\` row needs, so setup does not count it. Update ${product}`;
+    // The old row is named only when it takes this version itself.
+    return detection.harnesses[row]?.found === true
+      ? `${said}, or run \`${configInvocationFor(projectDir)} config --harness ${row}${projectTarget(projectDir)}\` ` +
+        `to set this project up on the legacy \`${row}\` row.`
+      : `${said}.`;
   }
   return null;
 }
@@ -12264,6 +12268,8 @@ export async function main(
       return;
     }
     const installed = projectHarnesses[0];
+    // The commands this run prints name this tree's tool.
+    configTargetHarnessDir = installed.harnessDir;
     process.stdout.write("\n");
     writeMenuRow(
       "  ",

@@ -63,9 +63,9 @@ describe("the legacy kiro row new projects no longer get", () => {
       expect(retiredRowLine(row, "aidlc")).toBeNull();
     }
     expect(retiredRowLine("kiro", "aidlc")).toBe(`${STANDS} ${MOVE}`);
-    // A copied project's tool fetches the release it switches to.
+    // A copied project's tool, named for a run from another folder.
     expect(retiredRowLine("kiro", "bun .kiro/tools/aidlc.ts", " --project-dir /p")).toContain(
-      "run `bun .kiro/tools/aidlc.ts config --harness kiro-ide --download --project-dir /p`.",
+      "run `bun .kiro/tools/aidlc.ts config --harness kiro-ide --project-dir /p`.",
     );
   });
 
@@ -134,6 +134,32 @@ describe("the legacy kiro row new projects no longer get", () => {
     // Run from another folder, the step names the project it diagnosed.
     expect(doctor(legacyProject, tmpdir()).replace(/\s+/g, " ")).toContain(`--project-dir ${legacyProject}\``);
     expect(doctor(install("kiro-ide").project)).not.toContain("now sets new projects up");
+    // The shown row counts as passed in the human report, as --quiet counts it.
+    const quiet = spawnSync(process.execPath, [DOCTOR, "--project-dir", legacyProject, "--quiet"], {
+      cwd: legacyProject,
+      env: childEnv(),
+      encoding: "utf-8",
+    });
+    const quietPassed = /(\d+) passed/.exec(`${quiet.stdout ?? ""}${quiet.stderr ?? ""}`)?.[1];
+    const humanPassed = [...legacy.matchAll(/ok {4}(?:all )?(\d+) checks passed/g)].reduce((sum, m) => sum + Number(m[1]), 0);
+    expect(quietPassed, quiet.stdout).toBeDefined();
+    expect(humanPassed).toBe(Number(quietPassed));
+  });
+
+  test("doctor tells a project with another harness beside its legacy .kiro too", () => {
+    const { project } = install("kiro");
+    const claude = spawnSync(
+      process.execPath,
+      [INIT, "config", "--from", join(RELEASE, "claude"), "--harness", "claude", "--mcp", "none", "--yes"],
+      { cwd: project, env: childEnv(), encoding: "utf-8" },
+    );
+    expect(claude.status, `${claude.stdout ?? ""}${claude.stderr ?? ""}`).toBe(0);
+    const result = spawnSync(process.execPath, [DOCTOR, "--project-dir", project], {
+      cwd: project,
+      env: childEnv({ AIDLC_HARNESS_DIR: ".claude" }),
+      encoding: "utf-8",
+    });
+    expect(`${result.stdout ?? ""}${result.stderr ?? ""}`).toContain("this project is on the legacy `kiro` row");
   });
 
   // The Kiro CLI guide's way through for a project whose agents Kiro CLI 3.0

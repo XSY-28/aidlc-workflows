@@ -58,6 +58,7 @@ import {
   kiroTreeLayout,
   quoteCommandArgument,
   retiredRowLine,
+  rowNewProjectsGet,
 } from "./aidlc-runtime-paths.ts";
 import { AIDLC_VERSION } from "./aidlc-version.ts";
 import { compareVersions, VERSION_ID } from "./aidlc-channel.ts";
@@ -3426,14 +3427,18 @@ export function retiredRowDoctorCheck(
   // which the caller holds).
   here: boolean,
 ): DiagnosticDoctorCheck | null {
-  const selected = selectedHarness(projectDir, harnessDirHint);
+  // Any tree on such a row, not only the one doctor reports on: a project can
+  // hold another harness beside it.
+  const trees = discoverProjectHarnesses(projectDir);
+  const selected = trees.find((tree) => tree.harnessDir === harnessDirHint && rowNewProjectsGet(tree.distribution)) ??
+    trees.find((tree) => rowNewProjectsGet(tree.distribution));
   if (!selected) return null;
   // Run from another folder, the step names this project, and a copied
   // project's tool by its path.
   const invoke = aidlcInvocation() === "aidlc" || here
     ? invocationForHarness(selected.harnessDir)
     : `bun ${quoteCommandArgument(join(projectDir, selected.harnessDir, "tools", "aidlc.ts"))}`;
-  const line = retiredRowLine(selected.harness, invoke, here ? "" : ` --project-dir ${quoteCommandArgument(projectDir)}`);
+  const line = retiredRowLine(selected.distribution, invoke, here ? "" : ` --project-dir ${quoteCommandArgument(projectDir)}`);
   return line ? { pass: true, shown: true, label: line } : null;
 }
 
