@@ -4386,6 +4386,70 @@ describe("t265b #1593 a refusal while a Unit plan waits names what would let the
   });
 });
 
+// #1593 leftover: Plan Approval's "ambiguous" and "stale" share one sentence.
+// Four authority states print one identical refusal today — no marker, a marker
+// naming another stage, a pre-v2 marker, and a current marker only out of date —
+// and for the out-of-date one the reason it gives is false: a matching v2
+// code-generation directive does exist. The remedy half is already right (it
+// names a `next` that runs), so every case here pins it unchanged: these say
+// which cause the refusal found, not which step ends it.
+describe("t265b #1593 an authority refusal names which authority state it found", () => {
+  // Bent after the plan and its fingerprints are written: both need a current
+  // directive to resolve, so the fixture earns one first and loses it after.
+  function authorityRefusal(bend: "missing" | "other-stage" | "out-of-date"): string {
+    const proj = scratchProject();
+    try {
+      seedState(proj);
+      seedUnit(proj, "todo-core", { plan: true, answer: null });
+      const marker = join(proj, RECORD_REL, ".aidlc-engine", "active-directive.json");
+      if (bend === "missing") {
+        rmSync(marker, { force: true });
+      } else if (bend === "other-stage") {
+        seedActiveDirective(proj, "functional-design");
+      } else {
+        const raw = JSON.parse(readFileSync(marker, "utf-8")) as Record<string, unknown>;
+        raw.state_sha256 = "0".repeat(64);
+        writeFileSync(marker, JSON.stringify(raw), "utf-8");
+      }
+      const refused = runHook(proj, WRITE(join(proj, "src", "app.ts")));
+      expect(refused.code, refused.stderr).toBe(2);
+      return refused.stderr;
+    } finally {
+      rmSync(proj, { recursive: true, force: true });
+    }
+  }
+
+  // The hedge itself, and the lowercase join it comes from ("stale. the current
+  // state has..."), which is the lead sentence meeting authorityRemedy's reason.
+  function keepsTheStepAndReadsAsProse(said: string, bend: string): void {
+    expect(said, bend).toContain("aidlc-orchestrate.ts next");
+    expect(said, bend).not.toContain("ambiguous or stale");
+    expect(said, bend).not.toMatch(/\.\s+(?:the|a|an)\s/);
+  }
+
+  const ambiguousStates: Array<["missing" | "other-stage", string]> = [
+    ["missing", "a directive that is missing"],
+    ["other-stage", "a directive naming another stage"],
+  ];
+  for (const [bend, label] of ambiguousStates) {
+    test(`#1593: ${label} is named as that, never as stale`, () => {
+      const said = authorityRefusal(bend);
+      keepsTheStepAndReadsAsProse(said, bend);
+      expect(said).not.toMatch(/\bstale\b/);
+    });
+  }
+
+  test("#1593: a directive only out of date is named out of date, not absent or ambiguous", () => {
+    const said = authorityRefusal("out-of-date");
+    keepsTheStepAndReadsAsProse(said, "out-of-date");
+    expect(said).not.toMatch(/\bambiguous\b/);
+    // The false claim: it sends the agent looking for a directive that is there.
+    expect(said).not.toContain("no matching v2 code-generation active directive");
+    // activeDirectiveOutOfDateReason already knows this; the write path ignores it.
+    expect(said).toMatch(/\bout of date\b|\bstale\b/);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // (c) Registration pins.
 // ---------------------------------------------------------------------------
