@@ -160,9 +160,11 @@ contract. It names the behavior before and after, the question to decide,
 and the changed files. A new internal file, test, refactor or fix restoring
 an existing contract does not by itself require product approval.
 
-This step runs on every non-draft PR opening and push, including fork PRs.
-It uses trusted default-branch controls and reads the diff without running PR
-code. The technical review keeps its own schedule. A green technical review,
+This step runs inside AIDA's existing review workflow, using the same context,
+model and runtime as its other passes. On later pushes it runs only the product
+step; the technical review keeps its own schedule. Fork PRs receive the product
+step only. All passes use trusted default-branch controls and read the diff
+without running PR code. A green technical review,
 authorship, label, or general code-review approval does not approve a product
 choice.
 
@@ -254,11 +256,12 @@ exact anchors, and maintainer decisions available for later reviews. If the
 200-decision archive or the ledger byte limit is exhausted, AIDA refuses the
 new write instead of discarding an authoritative decision.
 
-AIDA reviews a PR when it opens, reopens or leaves draft; a later push is
-reviewed when a maintainer asks for it with
-`gh workflow run ai-pr-review.yml -f pr_number=<n>`, and a PR that changes
-AIDA's own prompts, scripts or workflow is re-reviewed by marking it draft and
-ready again.
+AIDA runs its technical review when a same-repository PR opens, reopens or
+leaves draft; a later push runs only the product decision step. A maintainer
+can request another technical review with
+`gh workflow run ai-pr-review.yml -f pr_number=<n>`.
+PRs changing AIDA itself also use default-branch controls; proposed prompts,
+scripts and workflow changes are review evidence, never their own authority.
 
 After its first review of a PR, AIDA reviews **incrementally**: the direction,
 user-experience, and AIDLC lenses and the judge's non-security categories only

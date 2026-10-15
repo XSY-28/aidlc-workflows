@@ -10,7 +10,13 @@ import {
   applyProductCommand, CHECK_NAME, checkSummary, encodeRecord, parseProductCommand,
   priorApprovals, productApproved, queueMembers, readRecord, validateAssessment, verifyQueue,
 } from "../../.github/scripts/ai-product-decision.ts";
-import type { ChangedFileManifest } from "../../.github/scripts/ai-pr-review.ts";
+import { buildContext, type ChangedFileManifest } from "../../.github/scripts/ai-pr-review.ts";
+import { posixShellPath } from "../harness/git-bash.ts";
+
+const REVIEW_WORKFLOW = Bun.YAML.parse(readFileSync(
+  new URL("../../.github/workflows/ai-pr-review.yml", import.meta.url), "utf8",
+)) as { jobs: { review: { steps: Array<{ name?: string; run?: string; env?: Record<string, string> }> } } };
+const reviewStep = (name: string): string => REVIEW_WORKFLOW.jobs.review.steps.find(step => step.name === name)?.run ?? "";
 
 const BASE = "b".repeat(40);
 const HEAD = "a".repeat(40);
@@ -138,6 +144,49 @@ describe("product classification contract", () => {
     expect(summary).not.toContain("<script>");
     expect(summary).not.toContain("[approved]");
     expect(summary).toContain("/aida product approve 7");
+  });
+});
+
+describe("one AIDA review workflow", () => {
+  test("opening a same-repository PR runs technical review; pushes, edits and forks only check product scope", () => {
+    const context = reviewStep("Build immutable review context");
+    const route = context.slice(context.indexOf("technical=true"), context.indexOf("git fetch --no-tags"));
+    expect(route).toContain("technical=false");
+    for (const [event, action, headRepo, expected] of [
+      ["pull_request_target", "opened", REPO, "true"],
+      ["pull_request_target", "ready_for_review", REPO, "true"],
+      ["pull_request_target", "synchronize", REPO, "false"],
+      ["pull_request_target", "edited", REPO, "false"],
+      ["pull_request_target", "opened", "contributor/fork", "false"],
+      ["workflow_dispatch", "", REPO, "true"],
+      ["pull_request_review", "submitted", REPO, "true"],
+    ]) {
+      const result = execFileSync(posixShellPath(), ["-c", `${route}\nprintf '%s' "$technical"`], {
+        encoding: "utf8", env: { ...process.env, EVENT_NAME: event, EVENT_ACTION: action, head_repo: headRepo, REPO },
+      });
+      expect(result).toBe(expected);
+    }
+  });
+
+  test("the same model runner performs just the product pass on a push", () => {
+    const model = reviewStep("Run review passes sequentially");
+    const route = model.slice(model.indexOf('if [ "$PRODUCT_SKIP"'), model.indexOf("# The two security lenses"));
+    expect(route).toContain('"Product decision"');
+    const stub = `run_model() { printf '%s\\n' "$2"; }\ncat() { :; }\njq() { :; }\n`;
+    for (const [technical, alreadyReviewed, productSkip, expected] of [
+      ["false", "false", "false", "Product decision\n"],
+      ["true", "false", "false", "Product decision\ntechnical lenses\n"],
+      ["true", "true", "false", "Product decision\n"],
+      ["true", "false", "true", "technical lenses\n"],
+      ["false", "false", "true", ""],
+    ]) {
+      const result = execFileSync(posixShellPath(), ["-c", `${stub}${route}\nprintf 'technical lenses\\n'`], {
+        encoding: "utf8", env: { ...process.env, TECHNICAL: technical, ALREADY_REVIEWED: alreadyReviewed, PRODUCT_SKIP: productSkip },
+      });
+      expect(result).toBe(expected);
+    }
+    expect(REVIEW_WORKFLOW.jobs.review.steps.filter(step => step.run?.includes("npm install --global"))).toHaveLength(1);
+    expect(REVIEW_WORKFLOW.jobs.review.steps.find(step => step.name === "Run review passes sequentially")?.env).not.toHaveProperty("GH_TOKEN");
   });
 });
 
@@ -344,7 +393,11 @@ console.log(JSON.stringify(value));
     const load = () => JSON.parse(readFileSync(statePath, "utf8")) as typeof state;
     run("start");
     expect(load().checks[0].conclusion).toBeNull();
-    run("context");
+    git("checkout", "--detach", base);
+    buildContext(base, base, join(root, ".ai-review-context"), root);
+    expect(() => run("prepare")).toThrow();
+    buildContext(base, head, join(root, ".ai-review-context"), root);
+    run("prepare");
     expect(git("rev-parse", "HEAD")).toBe(base);
     expect(readFileSync(join(root, ".ai-review-context/head/format.ts"), "utf8")).toContain("'yaml'");
     const inputPath = join(root, "assessment.json");
@@ -368,7 +421,9 @@ console.log(JSON.stringify(value));
     writeFileSync(statePath, JSON.stringify(updated));
     run("start");
     expect(load().checks[1].conclusion).toBeNull();
-    run("context");
+    git("checkout", "--detach", base);
+    buildContext(base, nextHead, join(root, ".ai-review-context"), root);
+    run("prepare");
     const approvals = JSON.parse(readFileSync(join(root, ".ai-review-context/product-approvals.json"), "utf8"));
     expect(approvals[0].checkId).toBe(7);
     writeFileSync(inputPath, JSON.stringify({ ...proposed, head: nextHead, status: "approved-scope", approvalId: 7 }));

@@ -1226,7 +1226,7 @@ if (endpoint === "repos/acme/repo/pulls/42" && !args.includes("--method")) {
     expect(LEDGER_WORKFLOW).not.toContain("/dismissals");
     expect(LEDGER_WORKFLOW).not.toContain("author_association");
     expect(REVIEW_WORKFLOW).not.toContain("  issue_comment:");
-    expect(REVIEW_WORKFLOW).toContain(".github/scripts/ai-pr-ledger.ts|\\");
+    expect(REVIEW_WORKFLOW).toContain("cp .github/scripts/ai-pr-review.ts .github/scripts/ai-pr-ledger.ts");
     expect(REVIEW_WORKFLOW).toContain("ai-pr-ledger.ts fetch");
     expect(REVIEW_WORKFLOW).toContain("ai-pr-ledger.ts merge");
     expect(REVIEW_WORKFLOW).toContain("--ledger .ai-review-context/ledger.json");

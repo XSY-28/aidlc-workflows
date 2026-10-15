@@ -32,11 +32,11 @@ Three kinds of feedback arrive before merge:
 - **AIDA, the AI reviewer**, reviews eligible PRs automatically. The
   [AI review workflow](.github/workflows/ai-pr-review.yml) supports open,
   non-draft PRs from branches in this repository targeting `main`; fork PRs
-  are currently skipped. Mark a draft ready for review to start review.
+  receive only its product decision step. Mark a draft ready for review to start review.
   Later pushes do not automatically repeat the technical review; eligible
   maintainer review activity or a manual dispatch can request it.
-- **AIDA product decision** assesses every non-draft opening and push,
-  including fork PRs. A new feature, mechanism, supported format or public
+- **AIDA product decision**, a step in that same review workflow, assesses
+  every non-draft opening and push, including fork PRs. A new feature, mechanism, supported format or public
   contract change needs explicit maintainer product approval. Internal changes
   and fixes restoring existing behavior pass without it. A later push within
   the approved scope keeps that decision; expanded scope needs a new one.
@@ -50,12 +50,13 @@ labels and review criteria.
 
 ### Product approval check
 
-The [product workflow](.github/workflows/ai-product-decision.yml) publishes
-**AIDA product decision** on the PR's head commit. It uses the existing
-`ai-pr-review` environment and `AWS_AI_PR_REVIEW_ROLE_ARN` secret. Its model
-reads the diff with restricted tools; PR code and proposed reviewer controls
-are never executed. Maintainer commands and merge-queue verification run
-without model credentials.
+The [AIDA review workflow](.github/workflows/ai-pr-review.yml) publishes
+**AIDA product decision** on the PR's head commit. The product pass reuses
+its review context, Sol model, runtime setup and `ai-pr-review` environment.
+On a push, only that pass runs. All passes read the diff using default-branch
+controls; PR code and proposed reviewer controls are never executed.
+The existing [command workflow](.github/workflows/ai-pr-ledger.yml) applies
+product approvals. Commands and merge-queue verification need no model credentials.
 
 After this workflow is merged and has run successfully, add **AIDA product
 decision**, from **GitHub Actions**, to **Settings → Rules → Rulesets →
@@ -63,7 +64,7 @@ default-branch → Require status checks to pass**. Keep **Tests (smoke + unit)*
 required as well. Adding a workflow alone does not make its check mandatory.
 Do not enable the requirement before the workflow is on `main`: existing
 open PRs also need a product check, which a maintainer can start with
-**Actions → AIDA product approval → Run workflow → PR number**.
+**Actions → Adversarial AI PR Review → Run workflow → PR number**.
 
 The check summary gives the exact `/aida product approve <check-id> <scope>`
 command. GitHub permission verification and the recorded scope own approval;

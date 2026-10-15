@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { actorHasWrite } from "./ai-pr-ledger.ts";
-import { buildContext, type ChangedFileManifest, type GhExecutable } from "./ai-pr-review.ts";
+import type { ChangedFileManifest, GhExecutable } from "./ai-pr-review.ts";
 
 export const CHECK_NAME = "AIDA product decision";
 const APP_ID = 15368;
@@ -383,6 +383,7 @@ export function main(argv = process.argv.slice(2), ghExecutable: GhExecutable = 
     return;
   }
   const context = ".ai-review-context";
+  const checkFile = ".ai-product-state/check.json";
   const pull = api<Pull>(`repos/${repo}/pulls/${pr}`);
   if (pull.state !== "open" || pull.base.ref !== "main") { output({ skip: true }); return; }
   const head = pull.head.sha;
@@ -401,20 +402,17 @@ export function main(argv = process.argv.slice(2), ghExecutable: GhExecutable = 
       output({ skip: true }); return;
     }
     publish(api, repo, check, record, true);
-    mkdirSync(context, { recursive: true });
-    writeFileSync(`${context}/product-check.json`, JSON.stringify({ id: check.id, record }));
+    mkdirSync(".ai-product-state", { recursive: true });
+    writeFileSync(checkFile, JSON.stringify({ id: check.id, record }));
     output({ skip: false, head, base: pull.base.sha, check: check.id });
     return;
   }
-  const saved = JSON.parse(readFileSync(`${context}/product-check.json`, "utf8")) as { id: number; record: ProductRecord };
+  const saved = JSON.parse(readFileSync(checkFile, "utf8")) as { id: number; record: ProductRecord };
   if (saved.record.pr !== pr || saved.record.head !== head) throw new Error("PR head changed during product assessment");
-  if (command === "context") {
-    execFileSync("git", ["fetch", "--no-tags", "origin", saved.record.base, `+refs/pull/${pr}/head:refs/remotes/origin/aida-product-${pr}`]);
-    const fetched = execFileSync("git", ["rev-parse", `refs/remotes/origin/aida-product-${pr}`], { encoding: "utf8" }).trim();
-    if (fetched !== head) throw new Error("fetched head differs from the PR");
-    buildContext(saved.record.base, head, context);
+  if (command === "prepare") {
+    const manifest = JSON.parse(readFileSync(`${context}/changed-files.json`, "utf8")) as ChangedFileManifest;
+    if (manifest.base !== saved.record.base || manifest.head !== head) throw new Error("shared context differs from the product check");
     writeFileSync(`${context}/product-approvals.json`, JSON.stringify(priorApprovals(api, repo, pr)));
-    execFileSync("git", ["checkout", "--detach", saved.record.base]);
     return;
   }
   if (command === "finish" || command === "fail") {
@@ -431,7 +429,7 @@ export function main(argv = process.argv.slice(2), ghExecutable: GhExecutable = 
     publish(api, repo, check, record);
     return;
   }
-  throw new Error("usage: ai-product-decision.ts start|context|finish|fail|command|queue");
+  throw new Error("usage: ai-product-decision.ts start|prepare|finish|fail|command|queue");
 }
 
 if (import.meta.main) {
