@@ -16,7 +16,7 @@
 import { NATIVE_FIXTURE_SETUP_TIMEOUT_MS, NATIVE_STARTUP_TIMEOUT_MS, remainingOperationTimeoutMs } from "../harness/test-budget.ts";
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -217,7 +217,9 @@ function hookProject(prefix: string): string {
   return project;
 }
 
-function reviewerScopeRefusal(): string {
+// The reviewer's two ways to reach another Unit: a shell search, and the
+// native read tool. #1593 row 1 — the contract holds for both, or for neither.
+function reviewerScopeRefusal(through: "shell" | "read-tool" = "shell"): string {
   const project = hookProject("t-guard-refusal-scope-");
   const engine = join(project, "aidlc", "spaces", "default", "intents", ".aidlc-engine");
   mkdirSync(engine, { recursive: true });
@@ -225,12 +227,17 @@ function reviewerScopeRefusal(): string {
     join(engine, "reviewer-dispatch.json"),
     JSON.stringify({ reviewer: "aidlc-architecture-reviewer-agent", stage: "nfr-requirements", unit: "U03-scoring", exempt: [] }),
   );
+  const call = through === "shell"
+    ? { tool_name: "Bash", tool_input: { command: "grep -rn x construction/*/*/*.md" } }
+    : {
+        tool_name: "Read",
+        tool_input: { file_path: join(project, "aidlc", "spaces", "default", "intents", "r", "construction", "U07-other", "nfr-requirements", "nfr.md") },
+      };
   const r = spawnSync(BUN, [join(project, ".claude", "hooks", "aidlc-reviewer-scope.ts")], {
     timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
     input: JSON.stringify({
       hook_event_name: "PreToolUse",
-      tool_name: "Bash",
-      tool_input: { command: "grep -rn x construction/*/*/*.md" },
+      ...call,
       agent_type: "aidlc-architecture-reviewer-agent",
     }),
     env: { ...process.env, CLAUDE_PROJECT_DIR: project },
@@ -241,7 +248,10 @@ function reviewerScopeRefusal(): string {
   return r.stderr ?? "";
 }
 
-function planApprovalRefusal(): string {
+// Two refusals from the same guard: the plan waiting for approval, and the
+// authority for it being unreadable. #1593 row 1 — the second keeps the
+// contract while its cause is still hedged (the wording is pinned in t265).
+function planApprovalRefusal(path: "plan-waits" | "authority" = "plan-waits"): string {
   const project = hookProject("t-guard-refusal-plan-");
   const intents = join(project, "aidlc", "spaces", "default", "intents");
   const record = join(intents, "t-guard-refusal");
@@ -273,10 +283,19 @@ function planApprovalRefusal(): string {
     `## Plan Approval\n[Approval Fingerprint]: ${approvalFingerprint(plan, instructions, contract.contract_sha256, authority)}\n` +
       `[Planned Source]: ${workspaceSourceFingerprint(project) ?? "unbindable"}\n[Answer]:\n`,
   );
-  // A shell form the guard cannot see through is refused while the plan waits.
+  // The authority path needs the directive gone, and only after the plan above
+  // is fingerprinted: resolving the authority to write it requires a current one.
+  if (path === "authority") {
+    rmSync(join(record, ".aidlc-engine", "active-directive.json"), { force: true });
+  }
+  // A shell form the guard cannot see through is refused while the plan waits;
+  // a plain write is what meets the authority refusal.
+  const call = path === "plan-waits"
+    ? { tool_name: "Bash", tool_input: { command: "cat $(ls src)" } }
+    : { tool_name: "Write", tool_input: { file_path: join(project, "src", "app.ts"), content: "x" } };
   const r = spawnSync(BUN, [join(project, ".claude", "hooks", "aidlc-plan-approval-guard.ts")], {
     timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
-    input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "cat $(ls src)" } }),
+    input: JSON.stringify({ hook_event_name: "PreToolUse", ...call }),
     env: { ...process.env, CLAUDE_PROJECT_DIR: project },
     encoding: "utf-8",
   });
@@ -291,6 +310,10 @@ describe("t-guard-refusal-actionable (#1593) every formal guard refusal keeps on
     ["state transition: a lifecycle verb run directly through the state tool", stateToolRefusal],
     ["reviewer scope: a reviewer reading another Unit", reviewerScopeRefusal],
     ["human presence: an approval with no reply from the person", humanPresenceRefusal],
+    // #1593 row 1: a second refusal from a guard the row above already covers,
+    // so the contract is checked on more than one way into the same guard.
+    ["plan approval: a write when the Plan Approval authority is unreadable", () => planApprovalRefusal("authority")],
+    ["reviewer scope: a reviewer opening another Unit through the read tool", () => reviewerScopeRefusal("read-tool")],
   ];
   for (const [name, refuse] of cases) {
     test(name, () => {
