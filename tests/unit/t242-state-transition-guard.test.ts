@@ -27,8 +27,10 @@ import { ENGINE_OWNED_STATE_TRANSITIONS, UTILITY_COMMANDS } from "../../dist/cla
 import { RECORDABLE_PROJECT_BYPASSES } from "../../dist/claude/.claude/tools/aidlc-settings.ts";
 import {
   cleanupTestProject,
+  createOrchestrationTestProject,
   createTestProject,
   FIXTURES_DIR,
+  runOrchestrateNext,
   seededStateFile,
   seededAuditShard,
   seedAuditFile,
@@ -2196,6 +2198,82 @@ describe("t242 state-transition ownership guard", () => {
       expect(`${r.stdout}${r.stderr}`).toContain(
         `Stage status cannot be changed with aidlc-state.ts ${verb}`,
       );
+    }
+  });
+
+  // #1593: a refusal names a step that works when run. The person's own
+  // reply is the one slot the agent fills in; every other part of the step is
+  // written out, so the agent runs it as printed instead of guessing.
+  const refusalText = (r: { stdout: string; stderr: string }): string => {
+    const said = `${r.stdout}${r.stderr}`.trim();
+    try {
+      return String((JSON.parse(said) as { error?: unknown }).error ?? said);
+    } catch {
+      return said;
+    }
+  };
+  const unfilledSlots = (text: string): string[] =>
+    text.replaceAll("<their words>", "").match(/<[^<>\s][^<>]*>/g) ?? [];
+  const OWNING_STEP = /(?:aidlc-orchestrate\.ts|\baidlc(?:\.exe)? engine orchestrate) (?:next|report)\b/;
+  const SWITCH_OFFER = "offer to turn the state-transition check off";
+
+  test("#1593: the state tool's refusal leaves no part of its step for the agent to fill in, for every lifecycle verb", () => {
+    const project = createTestProject();
+    projects.push(project);
+    seedStateFile(project, join(FIXTURES_DIR, "state-mid-ideation.md"));
+    const unfilled: Record<string, string[]> = {};
+    for (const verb of ENGINE_OWNED) {
+      const r = spawnSync(process.execPath, [STATE, verb, "feasibility", "--project-dir", project], {
+        timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
+        encoding: "utf-8",
+        env: { ...unownedEnv(), CLAUDE_PROJECT_DIR: project },
+      });
+      expect(r.status, `${verb}: ${r.stdout}${r.stderr}`).toBe(1);
+      const slots = unfilledSlots(refusalText(r));
+      if (slots.length > 0) unfilled[verb] = slots;
+    }
+    expect(unfilled).toEqual({});
+  });
+
+  test("#1593: the state tool's refusal names the engine's own step ahead of the switch, and that step runs as printed", () => {
+    const project = createOrchestrationTestProject();
+    projects.push(project);
+    seedStateFile(project, join(FIXTURES_DIR, "state-mid-ideation.md"));
+    seedAuditFile(project);
+    const env = { ...unownedEnv(), CLAUDE_PROJECT_DIR: project };
+    const refused = spawnSync(process.execPath, [STATE, "approve", "feasibility", "--project-dir", project], {
+      timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
+      encoding: "utf-8",
+      env,
+    });
+    expect(refused.status).toBe(1);
+    const text = refusalText(refused);
+    // The step is a command written out in full: quoted, as every runnable
+    // step in a refusal is, and the engine's own (next or report), not the switch.
+    const steps = [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter((c) => OWNING_STEP.test(c));
+    expect(steps, text).not.toEqual([]);
+    const step = steps[0];
+    // The engine's step comes first; the switch stays the person's option after it.
+    expect(text.indexOf(step), text).toBeLessThan(
+      text.includes(SWITCH_OFFER) ? text.indexOf(SWITCH_OFFER) : Number.POSITIVE_INFINITY,
+    );
+    expect(unfilledSlots(step)).toEqual([]);
+    // Run the step as printed, through this tree's own tools.
+    const words = step.match(/'[^']*'|\S+/g)?.map((w) => w.replace(/^'(.*)'$/, "$1")) ?? [];
+    const at = words.findIndex((w) => w === "next" || w === "report");
+    const rest = words.slice(at + 1).filter((w, i, all) => w !== "--project-dir" && all[i - 1] !== "--project-dir");
+    if (words[at] === "next") {
+      const ran = runOrchestrateNext(ORCHESTRATE, project, rest, { cwd: project, env });
+      expect(ran.status, ran.out).toBe(0);
+      expect(ran.directive, ran.out).not.toBeNull();
+    } else {
+      const ran = spawnSync(process.execPath, [ORCHESTRATE, "report", ...rest, "--project-dir", project], {
+        timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
+        cwd: project,
+        encoding: "utf-8",
+        env,
+      });
+      expect(ran.status, `${ran.stdout}${ran.stderr}`).toBe(0);
     }
   });
 
