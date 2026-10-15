@@ -1471,12 +1471,14 @@ describe("t299 first-run setup wizard", () => {
     expect(shell.stdout).toContain(
       "    workspace    bun .kiro/tools/aidlc.ts config --harness kiro --download\n",
     );
-    // The completion line stays one line, as scripts and tests read it.
+    // The completion line stays one line, as scripts and tests read it; on a
+    // new install it follows the note that says which versions Kiro runs in.
     for (const [screen, harness] of [["harness-kiro-ide", "kiro-ide"]] as const) {
       const { productName, configNextStep } = kiroProjection(harness);
-      expect(walks[screen].stdout.split("\n")[0]).toBe(
+      expect(walks[screen].stdout.split("\n").slice(0, 2)).toEqual([
+        "  Note: AI-DLC's Kiro harness runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.",
         `configured ${walks[screen].project} for ${productName} ${AIDLC_VERSION}; next: ${configNextStep}`,
-      );
+      ]);
     }
     const ideWalk = walks["harness-kiro-ide"].stdout;
     expect(ideWalk).toContain("\n  Full diagnostics: bun .kiro/tools/aidlc.ts config runtime --show\n");
