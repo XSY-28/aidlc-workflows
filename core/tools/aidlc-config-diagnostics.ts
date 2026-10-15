@@ -2834,7 +2834,7 @@ export function rowCliFloor(row: string): string | undefined {
 export function rowVersionCondition(row: string): string | null {
   const spec = Object.hasOwn(HARNESS_CLI, row) ? HARNESS_CLI[row as ModelHarness] : undefined;
   if (!spec?.editor || !spec.cliName || !spec.minimumVersion) return null;
-  return `AI-DLC's ${HARNESS_PRODUCT_NAMES[row as ModelHarness]} harness runs in ${spec.editor.name} ${spec.editor.minimumVersion} or later ` +
+  return `AI-DLC for ${HARNESS_PRODUCT_NAMES[row as ModelHarness]} runs in ${spec.editor.name} ${spec.editor.minimumVersion} or later ` +
     `and in ${spec.cliName} ${spec.minimumVersion} or later; older versions are not supported.`;
 }
 
@@ -2850,7 +2850,7 @@ export function rowOlderCli(row: string, options: RuntimeProbeOptions = {}): str
   if (probe.status !== "too-old") return null;
   const version = probe.version ? /\d+\.\d+\.\d+/.exec(probe.version)?.[0] : undefined;
   return `${spec.cliName}${version ? ` ${version}` : ""} is older than ${spec.minimumVersion}. ` +
-    `AI-DLC's ${HARNESS_PRODUCT_NAMES[row as ModelHarness]} harness works in ${spec.cliName} ${spec.minimumVersion} or later ` +
+    `AI-DLC for ${HARNESS_PRODUCT_NAMES[row as ModelHarness]} works in ${spec.cliName} ${spec.minimumVersion} or later ` +
     `(and in ${spec.editor.name} ${spec.editor.minimumVersion} or later).`;
 }
 

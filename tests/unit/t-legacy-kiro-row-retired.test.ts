@@ -28,12 +28,12 @@ const HOST_ENV = [
   "AIDLC_CONFIG_HARNESS_IDS", "AIDLC_CONFIG_HANDOFF",
 ];
 const LINE = (command: string) =>
-  ".kiro is set up for the legacy Kiro CLI harness, which AI-DLC no longer ships. Move .kiro aside " +
+  ".kiro is set up for the legacy Kiro CLI, which AI-DLC no longer ships. Move .kiro aside " +
   `(for example to .kiro.old), run \`${command}\`, then copy your own files (steering, MCP settings) back from it. ` +
   "aidlc/ is kept.";
 
 // The line as config and doctor print it, in whatever command form they run.
-const SAID = /\.kiro is set up for the legacy Kiro CLI harness, which AI-DLC no longer ships\. Move \.kiro aside \(for example to \.kiro\.old\), run `[^`]* config --harness kiro(?: --project-dir [^`]*)?`, then copy your own files \(steering, MCP settings\) back from it\. aidlc\/ is kept\./;
+const SAID = /\.kiro is set up for the legacy Kiro CLI, which AI-DLC no longer ships\. Move \.kiro aside \(for example to \.kiro\.old\), run `[^`]* config --harness kiro(?: --project-dir [^`]*)?`, then copy your own files \(steering, MCP settings\) back from it\. aidlc\/ is kept\./;
 
 const temporary: string[] = [];
 afterAll(() => {
@@ -94,7 +94,7 @@ function run(tool: string, args: string[], cwd: string, extra: Record<string, st
   return { status: result.status, out: `${result.stdout ?? ""}${result.stderr ?? ""}` };
 }
 
-describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
+describe("the legacy Kiro CLI AI-DLC no longer ships", () => {
   test("one record names it, and one line says what to do", () => {
     expect(retiredRow("kiro")).toBe(true);
     for (const row of ["kiro-ide", "claude", "codex", "copilot", "cursor", "opencode"]) expect(retiredRow(row)).toBe(false);
@@ -151,7 +151,7 @@ describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
     // The row says where it stands, its fix what to do; no Kiro-harness wiring row
     // asks for a repair config would refuse.
     expect(here.out.replace(/\s+/g, " ").replace("ships fix: Move", "ships. Move")).toMatch(SAID);
-    expect(here.out).toMatch(/fail\s+\.kiro is set up for the legacy Kiro CLI harness, which AI-DLC no longer ships\n\s+fix: Move \.kiro aside/);
+    expect(here.out).toMatch(/fail\s+\.kiro is set up for the legacy Kiro CLI, which AI-DLC no longer ships\n\s+fix: Move \.kiro aside/);
     expect(here.out).not.toContain("agents/aidlc-aidlc.md present");
     // Nor another harness's rows (a fall to the Claude ones), nor its own hook files.
     expect(here.out).not.toContain("settings.json present");
@@ -162,7 +162,7 @@ describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
     const kiro = fresh();
     const set = run(INIT, ["config", "--from", join(RELEASE, "kiro-ide"), "--harness", "kiro", "--mcp", "none", "--yes"], kiro);
     expect(set.status, set.out).toBe(0);
-    expect(run(DOCTOR, ["--project-dir", kiro], kiro).out).not.toContain("legacy Kiro CLI harness");
+    expect(run(DOCTOR, ["--project-dir", kiro], kiro).out).not.toContain("legacy Kiro CLI");
   });
 
   // The legacy harness's JSON agents call `engine adapter kiro`, whose runtime is
@@ -182,7 +182,7 @@ describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
       });
       return { status: result.status, stdout: `${result.stdout}`.replace(/\s+/g, " "), stderr: `${result.stderr}`.replace(/\s+/g, " ") };
     };
-    const said = ".kiro is set up for the legacy Kiro CLI harness, which AI-DLC no longer ships. Move .kiro aside (for example to .kiro.old), run `aidlc config --harness kiro`";
+    const said = ".kiro is set up for the legacy Kiro CLI, which AI-DLC no longer ships. Move .kiro aside (for example to .kiro.old), run `aidlc config --harness kiro`";
     const guard = hook("state-transition-guard");
     expect(guard.status).toBe(2);
     expect(guard.stderr).toContain(said);
@@ -202,7 +202,7 @@ describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
     const moved = hook("state-transition-guard");
     expect(moved.status).toBe(2);
     expect(moved.stderr).toContain(
-      "This chat's agent calls the hooks of the legacy Kiro CLI harness, which AI-DLC no longer ships (`engine adapter kiro`). Start kiro-cli again with the aidlc agent",
+      "This chat's agent calls the hooks of the legacy Kiro CLI, which AI-DLC no longer ships (`engine adapter kiro`). Start kiro-cli again with the aidlc agent",
     );
   });
 
@@ -222,7 +222,7 @@ describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
     const project = fresh();
     const result = run(INIT, ["config", "--from", source, "--mcp", "none", "--yes"], project);
     expect(result.status, result.out).not.toBe(0);
-    expect(result.out.replace(/\s+/g, " ")).toContain("this source holds the legacy Kiro CLI harness, which AI-DLC no longer ships; set up `");
+    expect(result.out.replace(/\s+/g, " ")).toContain("this source holds the legacy Kiro CLI, which AI-DLC no longer ships; set up `");
     expect(existsSync(join(project, ".kiro"))).toBe(false);
   });
 
@@ -233,7 +233,7 @@ describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
     const set = run(INIT, ["config", "--from", join(RELEASE, "kiro-ide"), "--harness", "kiro", "--mcp", "none", "--yes"], kiro);
     expect(set.status, set.out).toBe(0);
     expect(set.out).toContain(
-      "Note: AI-DLC's Kiro harness runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.",
+      "Note: AI-DLC for Kiro runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.",
     );
     expect(existsSync(join(kiro, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
 
@@ -274,7 +274,7 @@ describe("the legacy Kiro CLI harness AI-DLC no longer ships", () => {
     chmodSync(join(bin, "kiro-cli"), 0o755);
     const env = (extra: Record<string, string> = {}) => ({ PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`, ...extra });
     const older =
-      "Kiro CLI 2.20.0 is older than 2.24.1. AI-DLC's Kiro harness works in Kiro CLI 2.24.1 or later (and in Kiro IDE 1.1.70 or later).";
+      "Kiro CLI 2.20.0 is older than 2.24.1. AI-DLC for Kiro works in Kiro CLI 2.24.1 or later (and in Kiro IDE 1.1.70 or later).";
     const project = fresh();
     const args = ["config", "--from", join(RELEASE, "kiro-ide"), "--harness", "kiro", "--mcp", "none"];
     const asked = run(INIT, args, project, env({ AIDLC_TEST_CONFIG_TTY: "1" }), "n\n");

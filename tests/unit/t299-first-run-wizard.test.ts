@@ -1004,7 +1004,7 @@ describe("t299 first-run setup wizard", () => {
   // every platform.
   test.skipIf(process.platform === "win32")("a Kiro CLI from the Kiro harness's floor is detected as that harness, and an older one asks first", () => {
     const condition =
-      "AI-DLC's Kiro harness runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.";
+      "AI-DLC for Kiro runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.";
     const supported = runWizard("\n\n", {
       harnesses: { claude: { found: false }, "kiro-ide": { found: true, version: "kiro-cli 2.24.1" } },
       probed: ["kiro-ide"],
@@ -1017,7 +1017,7 @@ describe("t299 first-run setup wizard", () => {
     expect(existsSync(join(supported.project, ".kiro", "agents", "aidlc-aidlc.md"))).toBe(true);
 
     const older =
-      "Kiro CLI 2.24.0 is older than 2.24.1. AI-DLC's Kiro harness works in Kiro CLI 2.24.1 or later (and in Kiro IDE 1.1.70 or later).";
+      "Kiro CLI 2.24.0 is older than 2.24.1. AI-DLC for Kiro works in Kiro CLI 2.24.1 or later (and in Kiro IDE 1.1.70 or later).";
     // The list (that CLI counts for no harness), the Kiro harness (5), then "n".
     const declined = runWizard("5\nn\n", {
       harnesses: { claude: { found: false }, "kiro-ide": { found: true, version: "kiro-cli 2.24.0" } },
@@ -1476,7 +1476,7 @@ describe("t299 first-run setup wizard", () => {
     for (const [screen, harness] of [["harness-kiro-ide", "kiro-ide"]] as const) {
       const { productName, configNextStep } = kiroProjection(harness);
       expect(walks[screen].stdout.split("\n").slice(0, 2)).toEqual([
-        "  Note: AI-DLC's Kiro harness runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.",
+        "  Note: AI-DLC for Kiro runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.",
         `configured ${walks[screen].project} for ${productName} ${AIDLC_VERSION}; next: ${configNextStep}`,
       ]);
     }

@@ -233,7 +233,7 @@ for it, `aidlc config` stops before writing anything and `aidlc doctor` fails
 one row, both with this line:
 
 ```text
-.kiro is set up for the legacy Kiro CLI harness, which AI-DLC no longer ships. Move .kiro aside (for example to .kiro.old), run `aidlc config --harness kiro`, then copy your own files (steering, MCP settings) back from it. aidlc/ is kept.
+.kiro is set up for the legacy Kiro CLI, which AI-DLC no longer ships. Move .kiro aside (for example to .kiro.old), run `aidlc config --harness kiro`, then copy your own files (steering, MCP settings) back from it. aidlc/ is kept.
 ```
 
 After `aidlc update`, the project's Kiro CLI chat hands the agent the same line

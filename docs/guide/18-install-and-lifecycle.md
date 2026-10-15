@@ -379,7 +379,7 @@ and which runs in Kiro IDE too. `--harness kiro-ide`, its earlier typed name,
 is answered with "`kiro-ide` is now called `kiro`" and the fixed command;
 installed projects and `--json` output keep the harness id `kiro-ide`. Under the
 list, and when it takes the Kiro harness without one, setup says which versions that
-harness runs in: "AI-DLC's Kiro harness runs in Kiro IDE 1.1.70 or later and in Kiro CLI
+harness runs in: "AI-DLC for Kiro runs in Kiro IDE 1.1.70 or later and in Kiro CLI
 2.24.1 or later; older versions are not supported." An older Kiro CLI does not
 count for it; choosing the Kiro harness then, setup says so and asks
 `Set up anyway? [y/N]:` (not in Kiro IDE's own terminal, where the CLI is

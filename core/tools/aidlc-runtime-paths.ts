@@ -513,7 +513,7 @@ export function harnessArgsAsTyped(args: readonly string[]): string[] {
 // nothing moves it. Each names the harness to set up instead and the files a
 // person may have added to the tree.
 const RETIRED_ROWS: Readonly<Record<string, { title: string; row: string; ownFiles: string }>> = Object.freeze({
-  kiro: { title: "the legacy Kiro CLI harness", row: "kiro-ide", ownFiles: "steering, MCP settings" },
+  kiro: { title: "the legacy Kiro CLI", row: "kiro-ide", ownFiles: "steering, MCP settings" },
 });
 
 /** Whether AI-DLC no longer ships the harness `distribution`. */

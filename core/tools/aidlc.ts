@@ -1314,7 +1314,7 @@ function retiredKiroAdapter(harness: string, target: string): Action {
   const line = legacyTree
     ? `${retiredRowLine({ root: "", harnessDir: ".kiro", distribution: harness }, "aidlc", "")} ` +
       "If you have done that already, start kiro-cli again: this chat still runs the old agent."
-    : "This chat's agent calls the hooks of the legacy Kiro CLI harness, which AI-DLC no longer ships " +
+    : "This chat's agent calls the hooks of the legacy Kiro CLI, which AI-DLC no longer ships " +
       "(`engine adapter kiro`). Start kiro-cli again with the aidlc agent; an agent of your own that calls " +
       "these hooks needs them taken out.";
   if (RETIRED_KIRO_TELLS.has(target)) return { type: "stub", message: `${line}\n`, code: 0, stdout: true };

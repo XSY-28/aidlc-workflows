@@ -199,7 +199,7 @@ every default except the provider, where it chose Amazon Bedrock:
     5. Kiro
     6. opencode
 
-  AI-DLC's Kiro harness runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.
+  AI-DLC for Kiro runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.
   Harness [1]:
   Using Claude Code.
 
@@ -327,7 +327,7 @@ up, with no default:
     5. Kiro
     6. opencode
 
-  AI-DLC's Kiro harness runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.
+  AI-DLC for Kiro runs in Kiro IDE 1.1.70 or later and in Kiro CLI 2.24.1 or later; older versions are not supported.
   Harness [1-6]:
 
   That's not one of the choices - enter 1, 2, ... or 6.
