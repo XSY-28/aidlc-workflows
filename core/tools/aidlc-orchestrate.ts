@@ -8221,10 +8221,12 @@ function nextEngagesWorkflow(args: string[], flags: ParsedFlags = parseNextFlags
 // readings of their line give way to it the same way (#2401: on Kiro IDE an
 // agent passed `--description Northwind Mini Bank: ...`, reworded, for the
 // person's `/aidlc I want to build "Northwind Mini Bank", ...`, and that became
-// the work's name). Words their line ends with are one of its readings (their
-// words whole, or what follows a plan word, value or noun the engine's own
-// reading step names), so the agent's pick between them is kept as passed.
-// Which is which is a string comparison, never a reading of meaning.
+// the work's name). The agent's words stand only when they and its plan are
+// exactly one whole reading of their line: the engine's own parse of it, or one
+// its reading step names (their words whole, or a plan word's task under that
+// plan), with no setting of theirs left out. A tail of their words, or a plan
+// they did not name, is not one, so their line is read instead. Which is which
+// is a string comparison, never a reading of meaning.
 function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
   if (engineSessionId === undefined || isReadOnlyEngineProbe()) return null;
   if (flags.request !== undefined) return null;
@@ -8263,8 +8265,8 @@ function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
   const own = parseNextFlags(argv);
   if (agentWords !== undefined) {
     if (own.intent === undefined) return null;
-    const readings = [typed, own.intent, own.personWords, message.words];
-    if (readings.some((reading) => reading?.trim().endsWith(agentWords))) return null;
+    const agentPlan = flags.scope ?? flags.positionalScope;
+    if (wholeReadings(own).some((reading) => reading.plan === agentPlan && reading.words === agentWords)) return null;
   }
   // A line `next` already read for this chat (the reading step over work nobody
   // has selected kept its words as a question) is not read again: the bare
@@ -8273,6 +8275,29 @@ function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
   for (const key of Object.keys(flags)) delete (flags as unknown as Record<string, unknown>)[key];
   Object.assign(flags, own);
   return argv;
+}
+
+// The whole readings of a line, each a plan (or none) and the words: the
+// engine's parse of it, or the ones its reading step names. A line carrying a
+// setting has none an agent's plan and words alone could match.
+function wholeReadings(own: ParsedFlags): { plan?: string; words: string }[] {
+  const said = own.intent?.trim();
+  if (said === undefined) return [];
+  const settings = Object.keys(own).filter((key) =>
+    !["intent", "markedWords", "scope", "positionalScope", "readingStep", "personWords", "untakenFlag", "untakenFlagValue"]
+      .includes(key));
+  if (settings.length > 0) return [];
+  const step = own.readingStep;
+  if (step?.kind === "plan-word") return [{ plan: step.scope, words: planWordTask(step.scope, said) }, { words: said }];
+  if (step !== undefined) return [{ words: said }];
+  const plan = own.scope ?? own.positionalScope;
+  return [{ plan, words: said }, ...(own.personWords === undefined ? [] : [{ plan, words: own.personWords.trim() }])];
+}
+
+// The task after a plan word that opens the person's sentence, as the reading
+// step names it.
+function planWordTask(scope: string, said: string): string {
+  return said.slice(scope.length).trim();
 }
 
 // A settings-only line is handed out once, and `next`, which hands it out,
@@ -8421,7 +8446,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
         `A plan's name and then the task ("${entrySkillInvocation()} ${step.scope} <the task>") is how ` +
         `AI-DLC's guide tells people to pick a plan: when the rest of the line reads as the task for that ` +
         `plan, they named it, so run \`${next} --scope ${step.scope} -- ` +
-        `${quoteCommandArgument(said.slice(step.scope.length).trim())}\`. ` +
+        `${quoteCommandArgument(planWordTask(step.scope, said))}\`. ` +
         `When the whole line reads as one phrase with that word in it ("classic car rental website"), ` +
         `it is their own words: ${theirs}. Ask them once in plain words only when it reads both ways.`,
       ));

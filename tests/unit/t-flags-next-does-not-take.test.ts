@@ -829,7 +829,7 @@ describe("a quoted request is the person's words, whatever its first word", () =
   test("next starts the work with a quoted request that opens with a flag-shaped word, whole", () => {
     const proj = emptyProject();
     const words = "--description should be added to the CLI";
-    say(proj, `/aidlc "${words}"`);
+    say(proj, `/aidlc classic "${words}"`);
     const { d, out } = next(proj, ["--scope", "classic", words]);
     expect(String(d.message), out).not.toContain("does not take");
     const request = /--request ([0-9a-f]{8})/.exec(String(d.message))?.[1];

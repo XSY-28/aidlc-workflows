@@ -175,9 +175,9 @@ describe("next takes the person's own /aidlc line when the agent's command carri
     }
   });
 
-  test("kiro-ide: the explicit forms are untouched: --scope with the words after -- still creates", async () => {
+  test("kiro-ide: the explicit forms are untouched: --scope with the words after -- still creates the plan the person named", async () => {
     const proj = fresh();
-    await say(proj, LINE, "kiro-ide");
+    await say(proj, `/aidlc bugfix: ${WORDS}`, "kiro-ide");
     const { directive, out } = await next(proj, "kiro-ide", ["--scope", "bugfix", "--", WORDS]);
     expect(directive.kind, out).toBe("print");
     expect(directive.message ?? "").toContain("intent create --scope bugfix --request");
@@ -369,6 +369,39 @@ describe("with no work yet, the agent's own wording gives way to the person's /a
       expect(directive.message ?? "", args.join(" ")).not.toContain("is the name of a plan and also the first word");
       expect(questionTexts(proj), `${args.join(" ")}: ${out}`).toContain(args[args.length - 1]);
     }
+  });
+
+  test("kiro-ide: the last words of the line under a plan the agent picked are not a reading: the line is read", async () => {
+    const texts: string[][] = [];
+    for (const args of [[], ["--scope", "classic", "--", "Northwind Mini Bank"]]) {
+      const proj = fresh();
+      await say(proj, "/aidlc Build a demo bank named Northwind Mini Bank", "kiro-ide");
+      const { directive, out } = await next(proj, "kiro-ide", args);
+      expect(directive.kind, out).toBe("ask");
+      expect(out).not.toContain("intent create --scope classic");
+      texts.push(questionTexts(proj));
+    }
+    expect(texts[0].length).toBeGreaterThan(0);
+    expect(texts[1]).toEqual(texts[0]);
+    expect(texts[1]).not.toContain("Northwind Mini Bank");
+  });
+
+  test("kiro-ide: their words whole under a plan they did not name give way to the line", async () => {
+    const proj = fresh();
+    await say(proj, LINE, "kiro-ide");
+    const { directive, out } = await next(proj, "kiro-ide", ["--scope", "classic", "--", WORDS]);
+    expect(directive.kind, out).toBe("ask");
+    expect(directive.ask_type).toBe("scope-confirm");
+    expect(directive.proposed_scope).toBe("bugfix");
+    expect(out).not.toContain("intent create --scope classic");
+  });
+
+  test("kiro-ide: a tail of a plan word's task is not that reading: the line's reading step comes back", async () => {
+    const proj = fresh();
+    await say(proj, "/aidlc bugfix fix the login", "kiro-ide");
+    const { directive, out } = await next(proj, "kiro-ide", ["--scope", "bugfix", "--", "the login"]);
+    expect(directive.message ?? "", out).toContain("`bugfix` is the name of a plan and also the first word");
+    expect(questionFiles(proj)).toHaveLength(0);
   });
 
   test("kiro-ide: with work open the agent's words are left as today", async () => {
