@@ -335,6 +335,50 @@ describe("next takes the person's own /aidlc line when the agent's command carri
   });
 });
 
+// #2401, measured on Kiro IDE 1.3.0 on Windows: the hook kept the person's line,
+// but the agent passed its own rewording behind a flag it made up, and the
+// engine started the work under that. With no work yet, words that are none of
+// the readings of their line give way to it; one of those readings is kept.
+describe("with no work yet, the agent's own wording gives way to the person's /aidlc line", () => {
+  const THEIRS = `I want to build "Northwind Mini Bank", a small demo of a bank's core money handling. Keep the customer's own accounts apart.`;
+  const AGENTS = "--description Northwind Mini Bank: a small demo of a banks core money handling. Keep the customers own accounts apart.";
+
+  // The words are the line as a bare `next` reads it: the engine's one parse,
+  // which keeps the apostrophes and reads the double quotes as quoting.
+  test("kiro-ide: next --scope classic '<the agent's rewording>' reads the person's line as a bare next does", async () => {
+    const texts: string[][] = [];
+    for (const args of [[], ["--scope", "classic", AGENTS]]) {
+      const proj = fresh();
+      const said = await say(proj, `/aidlc ${THEIRS}`, "kiro-ide");
+      expect(said.status, `${said.stdout}${said.stderr}`).toBe(0);
+      const { directive, out } = await next(proj, "kiro-ide", args);
+      expect(directive.kind, out).toBe("ask");
+      expect(out).not.toContain("--description");
+      texts.push(questionTexts(proj));
+    }
+    expect(texts[0].length).toBeGreaterThan(0);
+    expect(texts[1]).toEqual(texts[0]);
+    for (const text of texts[1]) expect(text).toContain("a bank's core money handling. Keep the customer's own accounts");
+  });
+
+  test("kiro-ide: words that are one reading of the line are the agent's pick, kept as passed", async () => {
+    for (const args of [["--", "bugfix fix the login"], ["--scope", "bugfix", "--", "fix the login"]]) {
+      const proj = fresh();
+      await say(proj, "/aidlc bugfix fix the login", "kiro-ide");
+      const { directive, out } = await next(proj, "kiro-ide", args);
+      expect(directive.message ?? "", args.join(" ")).not.toContain("is the name of a plan and also the first word");
+      expect(questionTexts(proj), `${args.join(" ")}: ${out}`).toContain(args[args.length - 1]);
+    }
+  });
+
+  test("kiro-ide: with work open the agent's words are left as today", async () => {
+    const proj = await workOpen();
+    await say(proj, NEW_LINE, "kiro-ide");
+    const { out } = await next(proj, "kiro-ide", ["--", "something the person never typed"]);
+    expect(out).not.toContain(NEW_WORK);
+  });
+});
+
 // Work is open (a bug fix at Requirements Analysis, or t176's widget feature at
 // Feasibility) and the person types new work after the entry word.
 const NEW_WORK = "build a standalone Python CLI that scrapes NOAA weather data and writes it to a SQLite database";

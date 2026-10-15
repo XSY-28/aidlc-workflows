@@ -8164,15 +8164,27 @@ function nextEngagesWorkflow(args: string[], flags: ParsedFlags = parseNextFlags
 // message last (a reply in plain words, a utility). Returns
 // their line's arguments when it took them, for the readings that look at the
 // command as typed.
+//
+// On a workspace with no work yet, words the agent passed that are none of the
+// readings of their line give way to it the same way (#2401: on Kiro IDE an
+// agent passed `--description Northwind Mini Bank: ...`, reworded, for the
+// person's `/aidlc I want to build "Northwind Mini Bank", ...`, and that became
+// the work's name). Words their line ends with are one of its readings (their
+// words whole, or what follows a plan word, value or noun the engine's own
+// reading step names), so the agent's pick between them is kept as passed.
+// Which is which is a string comparison, never a reading of meaning.
 function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
   if (engineSessionId === undefined || isReadOnlyEngineProbe()) return null;
-  if (flags.intent !== undefined || flags.request !== undefined) return null;
+  if (flags.request !== undefined) return null;
+  const agentWords = flags.intent?.trim();
   const carriesNothing = Object.entries(flags).every(([key, value]) =>
-    key === "scope" || key === "positionalScope" || key === "resume" || value === undefined || value === false);
+    key === "scope" || key === "positionalScope" || key === "resume" || value === undefined || value === false ||
+    (agentWords !== undefined && (key === "intent" || key === "markedWords")));
   if (!carriesNothing) return null;
   const message = latestMessage(pd, engineSessionId);
   if (message === null || message.source !== "prompt") return null;
   const stateContent = loadStateFileIfPresent(pd);
+  if (agentWords !== undefined && (stateContent !== null || message.words === null || message.cut)) return null;
   if (message.words !== null) {
     // Their words name work; with work selected, only while their turn is
     // still the latest row: after that the agent's bare `next` is the work in
@@ -8197,6 +8209,11 @@ function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
   if (typed === null || typed.length === 0) return null;
   const argv = splitKiroCommandArgs(typed);
   const own = parseNextFlags(argv);
+  if (agentWords !== undefined) {
+    if (own.intent === undefined) return null;
+    const readings = [typed, own.intent, own.personWords, message.words];
+    if (readings.some((reading) => reading?.trim().endsWith(agentWords))) return null;
+  }
   // A line `next` already read for this chat (the reading step over work nobody
   // has selected kept its words as a question) is not read again: the bare
   // `next` the agent runs after that step asks which work to pick up.
