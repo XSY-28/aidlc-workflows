@@ -6,8 +6,9 @@
 //      review verdict, or a scope the prose names (the fill-in slots);
 //   2. names a way on: a command written out in full, a permitted operation,
 //      or a human action;
-//   3. names any engine command in the form this install runs, by a route the
-//      engine has;
+//   3. names any engine command in the form this install runs, by a route and
+//      verb the engine's own dispatcher (or a recovery operation's source
+//      spelling) defines;
 //   4. never cites the refusal bookkeeping (.aidlc-engine/guard-refusals/) as
 //      the record that lets the call through.
 // Each case drives the shipped tree as the agent would meet the refusal.
@@ -33,6 +34,9 @@ import {
   resolveTestingPosture,
 } from "../../dist/claude/.claude/tools/aidlc-testing-posture.ts";
 import { stateDigest, workspaceSourceFingerprint, writeActiveDirectiveMarker } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
+import { resolveAction } from "../../dist/claude/.claude/tools/aidlc.ts";
+import { SWITCHABLE_GUARD_FENCES } from "../../dist/claude/.claude/tools/aidlc-guard-fences.ts";
+import { guardOperationInvocation } from "../../dist/claude/.claude/tools/aidlc-guard-operation.ts";
 
 setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
@@ -66,25 +70,56 @@ function refusalText(said: string): string {
   }
 }
 
+// The source-only spellings the recovery operations render (the switch is
+// `utility config-change` in a source tree, `config set` in a native one).
+const SOURCE_ONLY_STEPS = new Set(
+  [
+    ...SWITCHABLE_GUARD_FENCES.map((fence) => guardOperationInvocation({ kind: "lower-fence", fence })),
+    guardOperationInvocation({ kind: "review-advisory" }),
+  ].flatMap((invocation) => (invocation.source ? [`${invocation.source.route} ${invocation.source.args[0]}`] : [])),
+);
+
+const dispatches = (argv: string[], tool?: string): boolean => {
+  const action = resolveAction(argv, false);
+  return action.type === "delegate" && (tool === undefined || action.tool === tool);
+};
+
+// Whether a quoted span is an engine command, and if so whether this install
+// runs it: the native form and the source dispatcher by the dispatcher's own
+// routes and verbs; a source tool script by the same route and verb, or a
+// recovery operation's source spelling, and the script must be in the tree.
+function engineCommand(command: string): "runs" | "does-not-run" | "not-a-command" {
+  const words = command.split(/\s+/);
+  if (/^aidlc(?:\.exe)?$/.test(words[0] ?? "") && words[1] === "engine") {
+    return dispatches(words.slice(1)) ? "runs" : "does-not-run";
+  }
+  if (words[0] === "bun" && words[1] === ".claude/tools/aidlc.ts") {
+    return words[2] === "engine" && dispatches(words.slice(2)) ? "runs" : "does-not-run";
+  }
+  const script = words[0] === "bun" ? /^\.claude\/tools\/aidlc-([a-z-]+)\.ts$/.exec(words[1] ?? "") : null;
+  if (script) {
+    const [route, verb] = [script[1], words[2] ?? ""];
+    const known = dispatches(["engine", route, verb], `aidlc-${route}.ts`) || SOURCE_ONLY_STEPS.has(`${route} ${verb}`);
+    return known && existsSync(join(DIST, "tools", `aidlc-${route}.ts`)) ? "runs" : "does-not-run";
+  }
+  return /\baidlc[-a-z]*\.ts\b|\baidlc(?:\.exe)? engine\b/.test(command) ? "does-not-run" : "not-a-command";
+}
+
 function contractBreaks(said: string): ContractBreak[] {
   const text = refusalText(said);
   const breaks: ContractBreak[] = [];
   let open = text;
   for (const slot of FILL_IN_SLOTS) open = open.replaceAll(slot, "");
   for (const slot of open.match(/<[^<>\s][^<>]*>/g) ?? []) breaks.push({ rule: "1 nothing left to fill in", detail: slot });
-  const commands = [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
-  if (commands.length === 0 && !PERMITTED_OPERATION.test(text)) {
-    breaks.push({ rule: "2 names a way on", detail: "no command written out, permitted operation, or human action" });
+  const spans = [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  const verdicts = spans.map((span) => [span, engineCommand(span)] as const);
+  // A quoted path or term is not a way on; only an engine command or a named
+  // operation or human action is.
+  if (!verdicts.some(([, verdict]) => verdict === "runs") && !PERMITTED_OPERATION.test(text)) {
+    breaks.push({ rule: "2 names a way on", detail: "no engine command, permitted operation, or human action" });
   }
-  for (const command of commands) {
-    const source = command.match(/^bun \.claude\/tools\/(aidlc(?:-[a-z-]+)?\.ts)(?:\s|$)/);
-    const native = command.match(/^aidlc(?:\.exe)? engine ([a-z-]+)\b/);
-    if (source && !existsSync(join(DIST, "tools", source[1]))) {
-      breaks.push({ rule: "3 an engine command this install runs", detail: command });
-    }
-    if (!source && !native && /\baidlc[-a-z]*\.ts\b|\baidlc engine\b/.test(command)) {
-      breaks.push({ rule: "3 an engine command this install runs", detail: command });
-    }
+  for (const [span, verdict] of verdicts) {
+    if (verdict === "does-not-run") breaks.push({ rule: "3 an engine command this install runs", detail: span });
   }
   if (text.includes("guard-refusals")) breaks.push({ rule: "4 bookkeeping is not evidence", detail: "cites guard-refusals" });
   return breaks;
@@ -270,7 +305,22 @@ describe("t-guard-refusal-actionable (#1593) every formal guard refusal keeps on
     expect(contractBreaks("Run `aidlc engine orchestrate next`.")).toEqual([]);
     expect(contractBreaks("Run `bun .claude/tools/aidlc-utility.ts config-change --person-words '<their words>'`.")).toEqual([]);
     expect(contractBreaks("Use `report --stage <slug>`.").map((b) => b.rule)).toContain("1 nothing left to fill in");
+    expect(contractBreaks("Run `bun .claude/tools/aidlc-utility.ts config-change --guard.plan-approval off`.")).toEqual([]);
+    expect(contractBreaks("Run `bun .claude/tools/aidlc-log.ts answer --details x`.")).toEqual([]);
     expect(contractBreaks("It is refused.").map((b) => b.rule)).toContain("2 names a way on");
+    // A quoted path is not a way on.
+    expect(contractBreaks("Cannot read `src/app.ts`.").map((b) => b.rule)).toContain("2 names a way on");
+    // An unknown route or verb is not a step this install runs, in every form.
+    for (const command of [
+      "aidlc engine no-such-route next",
+      "aidlc engine orchestrate nonexistent",
+      "bun .claude/tools/aidlc.ts engine no-such-route next",
+      "bun .claude/tools/aidlc.ts engine orchestrate nonexistent",
+      "bun .claude/tools/aidlc-orchestrate.ts nonexistent",
+      "bun .claude/tools/aidlc-utility.ts no-such-verb",
+    ]) {
+      expect(contractBreaks(`Run \`${command}\`.`).map((b) => b.rule), command).toContain("3 an engine command this install runs");
+    }
     expect(contractBreaks("Run `bun .claude/tools/aidlc-nope.ts next`.").map((b) => b.rule)).toContain("3 an engine command this install runs");
     expect(contractBreaks("See .aidlc-engine/guard-refusals/x.json; use the files you were given.").map((b) => b.rule))
       .toContain("4 bookkeeping is not evidence");

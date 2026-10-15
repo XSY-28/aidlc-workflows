@@ -12,7 +12,7 @@ import {
 import { afterAll, describe, expect, test, setDefaultTimeout } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import * as ts from "typescript";
 import {
   DELEGATE_ADMITTED_VERBS,
@@ -30,7 +30,6 @@ import {
   createOrchestrationTestProject,
   createTestProject,
   FIXTURES_DIR,
-  runOrchestrateNext,
   seededStateFile,
   seededAuditShard,
   seedAuditFile,
@@ -2258,23 +2257,26 @@ describe("t242 state-transition ownership guard", () => {
       text.includes(SWITCH_OFFER) ? text.indexOf(SWITCH_OFFER) : Number.POSITIVE_INFINITY,
     );
     expect(unfilledSlots(step)).toEqual([]);
-    // Run the step as printed, through this tree's own tools.
+    // Run the step exactly as printed, from the project, against the tree the
+    // project has installed: the launcher, the tool path and every argument are
+    // the refusal's own. Only the shell is ours, so the step must be one plain
+    // command (no wrapper, pipe or second command) that this tree spells.
+    expect(step, text).toMatch(/^bun \.claude\/tools\/aidlc-orchestrate\.ts (?:next|report)(?: [^;&|<>`$]*)?$/);
     const words = step.match(/'[^']*'|\S+/g)?.map((w) => w.replace(/^'(.*)'$/, "$1")) ?? [];
-    const at = words.findIndex((w) => w === "next" || w === "report");
-    const rest = words.slice(at + 1).filter((w, i, all) => w !== "--project-dir" && all[i - 1] !== "--project-dir");
-    if (words[at] === "next") {
-      const ran = runOrchestrateNext(ORCHESTRATE, project, rest, { cwd: project, env });
-      expect(ran.status, ran.out).toBe(0);
-      expect(ran.directive, ran.out).not.toBeNull();
-    } else {
-      const ran = spawnSync(process.execPath, [ORCHESTRATE, "report", ...rest, "--project-dir", project], {
-        timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
-        cwd: project,
-        encoding: "utf-8",
-        env,
-      });
-      expect(ran.status, `${ran.stdout}${ran.stderr}`).toBe(0);
-    }
+    const at = words.indexOf("--project-dir");
+    if (at >= 0) expect(resolve(project, words[at + 1] ?? ""), step).toBe(resolve(project));
+    cpSync(join(REPO_ROOT, "dist", "claude", ".claude"), join(project, ".claude"), { recursive: true });
+    const tool = join(project, words[1]);
+    expect(existsSync(tool), tool).toBe(true);
+    const ran = spawnSync(process.execPath, [tool, ...words.slice(2)], {
+      timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
+      cwd: project,
+      encoding: "utf-8",
+      env,
+    });
+    expect(ran.status, `${ran.stdout}${ran.stderr}`).toBe(0);
+    // The engine answers with a directive, the way a step it owns does.
+    expect(() => JSON.parse(ran.stdout.trim()), ran.stdout).not.toThrow();
   });
 
   test("the state CLI honors a lowered state-transition fence without corrupting JSON stdout", () => {
