@@ -8,11 +8,11 @@ Take only review threads that meet all of these:
 
 1. The root comment was written by `Copilot` (the `copilot-pull-request-reviewer` bot).
 2. The thread is unresolved.
-3. A human has replied to it, and the reply does one of:
+3. There is a reply to it, and the reply does one of:
    - says the finding is **valid** and names a fix commit that is pushed to the PR branch, or
-   - says the finding is **valid or invalid** and gives its reasoning.
+   - says the finding is **valid** or **invalid** and gives its reasoning.
 
-Skip threads with no human reply, threads started by humans, and threads that are already resolved.
+Skip threads with no replies, threads started by non-Copilot authors, and threads that are already resolved.
 
 ## Steps, per in-scope thread
 
@@ -20,14 +20,14 @@ Skip threads with no human reply, threads started by humans, and threads that ar
 2. If the reply claims a fix, confirm the cited commit is on the PR branch (`git branch --contains`, or the PR commits list). Read only that commit's diff for the commented file or lines. Do not re-review the PR.
 3. Decide:
    - **Agree.** The fix addresses the finding, or the reasoning for invalid or not-needed holds. Resolve the thread.
-   - **Disagree.** The fix is partial or wrong, or the reasoning does not hold. Reply with one short comment that names the gap, and leave the thread open for a human to resolve.
+   - **Disagree.** The fix is partial or wrong, or the reasoning does not hold. Reply with one short comment that names the gap, and leave the thread open for another to resolve.
    - **Unconfirmed.** The claimed commit is missing or not pushed, or a follow-up question is unanswered. Reply with what is needed, and leave the thread open.
 4. If a thread has follow-ups after your last reply, answer only the new points.
 
 ## Rules
 
 - A resolve needs evidence: the commit SHA, the diff hunk, or the cited code. Do not resolve on trust.
-- Replies are at most 3 sentences: verdict, evidence, and what remains if anything.
+- Replies should be as concise as possible: `Agree` / `Disagree` / `Unconfirmed`, plus only the minimum evidence or gap.
 - Never push code, edit the PR, or change unrelated threads.
-- If this environment cannot resolve threads, post the "Agree" verdict as a reply and say the thread is ready for a human to resolve.
+- If this environment cannot resolve threads, post the "Agree" verdict as a reply and say the thread is ready for a user with privilege to resolve.
 - Finish with a table, one row per thread: URL, verdict (resolved, kept open, awaiting author), and a reason of a few words.
