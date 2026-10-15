@@ -1287,7 +1287,7 @@ if (endpoint === "repos/acme/repo/pulls/42" && !args.includes("--method")) {
     expect(CONTRIBUTING).toContain("all-or-nothing");
     expect(CONTRIBUTING).not.toContain("P0 and P1 findings can be accepted but not rejected");
     expect(CONTRIBUTING).toContain("Any finding can be rejected, a P0 or P1 included.");
-    expect(CONTRIBUTING).toContain("never a\nrequest for changes, so it never blocks a merge");
+    expect(CONTRIBUTING).toContain("never a request for changes. Technical findings do not block merge.");
     expect(CONTRIBUTING).toContain("`full` — make the next review cover the whole head");
   });
 });

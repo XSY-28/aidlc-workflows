@@ -21,6 +21,7 @@ jobs:
       && github.event.comment.user.type != 'Bot'
       && github.actor != 'github-actions[bot]'
       && startsWith(github.event.comment.body, '/aida')
+      && !startsWith(github.event.comment.body, '/aida product ')
     concurrency:
       group: aida-pr-${{ github.event.issue.number }}
       cancel-in-progress: false

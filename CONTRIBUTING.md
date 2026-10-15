@@ -136,9 +136,9 @@ PRs produced by AI coding agents are welcome and follow the same process. Start 
 5. Use clear commit messages following [conventional commits](https://www.conventionalcommits.org/) (e.g., `feat:`, `fix:`, `docs:`)
 6. Submit the PR and respond to feedback
 
-AIDA's PR review is advisory: it posts a comment and `aida:*` labels, never a
-request for changes, so it never blocks a merge. It ends with an advisory next
-decision. `author/change` means the author should address the reported gaps.
+AIDA's technical PR review is advisory: it posts a comment and `aida:*` labels,
+never a request for changes. Technical findings do not block merge. It ends
+with an advisory next decision. `author/change` means the author should address the reported gaps.
 `maintainer/merge` means the review found no P0 or P1 finding and considers the
 PR ready for a maintainer's merge decision; AIDA does not approve or merge the
 PR. The next action follows finding severity alone: any open P0 or P1 finding
@@ -150,6 +150,50 @@ factory (the tool they drive it from, their project, the way they set their
 tools up) is theirs, never a defect or a threat (`AGENTS.md`, "The factory
 works with what the person brings"; `.github/prompts/ai-pr-review-common.md`,
 "What AI-DLC is, and who owns what").
+
+#### Product decisions
+
+The separate **AIDA product decision** check asks a maintainer to approve
+changes to what the product offers: a new feature, user-facing mechanism,
+supported file format, integration, or an intentional change to a public
+contract. It names the behavior before and after, the question to decide,
+and the changed files. A new internal file, test, refactor or fix restoring
+an existing contract does not by itself require product approval.
+
+This step runs on every non-draft PR opening and push, including fork PRs.
+It uses trusted default-branch controls and reads the diff without running PR
+code. The technical review keeps its own schedule. A green technical review,
+authorship, label, or general code-review approval does not approve a product
+choice.
+
+A maintainer with repository write, maintain, or admin permission can use the
+command shown in the product check's summary:
+
+```text
+/aida product approve 123456789 Support YAML configuration alongside JSON.
+```
+
+Replace `123456789` with the check ID shown there, and state the scope you
+approve. The command clears the current check without calling a model. A
+maintainer can also explain that no product choice is needed, or record the
+scope manually if model inspection failed. Commands targeting an old head,
+another PR or a superseded check are refused.
+
+Later pushes are assessed against the recorded scope. Implementation fixes,
+tests and rebases within it do not require the same approval again; expanding
+that scope does. To withdraw the current decision:
+
+```text
+/aida product reopen 123456789 Decide whether YAML replaces JSON.
+```
+
+Post a new command to change a decision. Editing or deleting the original
+comment does not edit the recorded check. Product commands are separate from
+the technical findings ledger below. See
+[enabling the required product check](DEVELOPERS.md#product-approval-check)
+for the repository setting that makes this check block merge.
+
+#### Technical findings ledger
 
 AIDA keeps one **findings ledger** comment per PR. Every finding gets a stable
 id (`F1`, `F2`, …) anchored to the exact content of the lines it cites, so a
