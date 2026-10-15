@@ -93,7 +93,11 @@ import {
   errorMessage,
   getField,
   GUARD_RECOVERY_ASK_TYPE,
+  GUARD_REFUSAL_STREAK_CAP,
+  guardAttemptState,
   guardRecoveryAnswerAdmits,
+  recordGuardRefusal,
+  type GuardLifecycleState,
   loadScopeMapping,
   loadStageGraph,
   nextLineFlags,
@@ -586,12 +590,23 @@ export function mutationBlockReason(
   opaqueShell = false,
   detail: string | null = null,
   planApprovalOff = false,
+  hiddenCommand = false,
 ): string {
   const scope = unit === null ? "the zero-Unit stage-level implementation" : `unit ${unit}`;
-  const action = opaqueShell
+  // A command run inside $(...) or backticks is refused because the guard
+  // cannot see what it runs, not because it writes (#1593): the way on for a
+  // read is to name each file, which the guard reads and lets through.
+  const hidden = opaqueShell && hiddenCommand
+    ? `This command runs another command inside $(...) or backticks, which the guard cannot see before it runs. ` +
+      "A read written out, naming each file (for example `cat src/app.ts`), runs while the plan waits. "
+    : "";
+  const action = hidden
+    ? "run that command"
+    : opaqueShell
     ? "run mutation-capable shell commands"
     : "modify workspace paths";
   return (
+    hidden +
     `Code generation cannot ${action} for ${scope} because ` +
     `the plan, unit-test instructions, and current Testing Contract do not have a current ` +
     `matching approval.${detail ? ` Reason: ${detail.replace(/\.+$/, "")}.` : ""} Writes inside the selected code-generation record directory remain ` +
@@ -1751,6 +1766,29 @@ function shellUsesDynamicEvaluation(command: string): boolean {
   return false;
 }
 
+// Whether the command runs a command substitution ($(...) or backticks)
+// outside single quotes: a command the shell reading cannot see before it runs.
+export function shellRunsHiddenCommand(command: string | null): boolean {
+  if (command === null) return false;
+  let singleQuoted = false;
+  let escaped = false;
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+    if (escaped) {
+      escaped = false;
+    } else if (singleQuoted) {
+      if (ch === "'") singleQuoted = false;
+    } else if (ch === "\\") {
+      escaped = true;
+    } else if (ch === "'") {
+      singleQuoted = true;
+    } else if (ch === "`" || (ch === "$" && command[i + 1] === "(")) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function mutationIntent(
   projectDir: string,
   toolName: string,
@@ -2042,6 +2080,7 @@ async function evaluate(
     target: string;
     unit: string | null;
     opaqueShell: boolean;
+    hiddenCommand: boolean;
     detail: string | null;
   } | null = null;
   try {
@@ -2267,6 +2306,7 @@ async function evaluate(
           target: mutation.targets[0] ?? (mutation.shellCommand ?? "").trim().slice(0, 160),
           unit: null,
           opaqueShell: mutation.targets.length === 0,
+          hiddenCommand: shellRunsHiddenCommand(mutation.shellCommand),
           detail: null,
         };
       } else if (activeDirective.kind !== "run-stage") {
@@ -2314,6 +2354,7 @@ async function evaluate(
             target: outsideRecord ?? (mutation.shellCommand ?? "").trim().slice(0, 160),
             unit,
             opaqueShell: outsideRecord === undefined,
+            hiddenCommand: shellRunsHiddenCommand(mutation.shellCommand),
             detail: receiptDetail([evidence], verdict.mentioned),
           };
         }
@@ -2353,6 +2394,7 @@ async function evaluate(
           blockedMutation.opaqueShell,
           detail ?? blockedMutation.detail,
           planApprovalOff,
+          blockedMutation.hiddenCommand,
         )
       : verdict.appendixInBrief
       ? appendixBlockReason(verdict.mentioned)
@@ -2522,8 +2564,46 @@ async function evaluate(
     // Advisory emission only.
   }
 
-  process.stderr.write(`${refusalProse(null)}\n`);
+  const prose = refusalProse(null);
+  const repeats = state === null ? 0 : countPlanApprovalRefusal(projectDir, state, blockedMutation?.unit ?? null, prose);
+  process.stderr.write(
+    repeats > GUARD_REFUSAL_STREAK_CAP
+      ? `${prose} This call has been refused ${repeats} times as things stand: stop retrying it and run ${nextOnItsOwn()}.\n`
+      : `${prose}\n`,
+  );
   return 2; // harness PreToolUse reject contract: exit 2 + stderr blocks
+}
+
+// Count this refusal in the work's guard-refusals record, the way the review
+// freeze counts its own, so a refusal the agent meets again and again is seen
+// (#1593). It leaves no recovery question: `next` already puts the plan to
+// the person, and a second question would stand in front of that one. The
+// record carries no authority, so a failure here only under-counts.
+function countPlanApprovalRefusal(
+  projectDir: string,
+  state: string,
+  unit: string | null,
+  userMessage: string,
+): number {
+  try {
+    const stage = loadStageGraph().find((entry) => entry.slug === GUARDED_STAGE);
+    if (!stage) return 0;
+    const checkbox = parseCheckboxes(state).find((entry) => entry.slug === GUARDED_STAGE)?.state;
+    const snapshot = guardAttemptState(projectDir, state, stage, unit ? { unit } : {});
+    const streak = recordGuardRefusal(projectDir, {
+      code: "PLAN_APPROVAL_BLOCKED",
+      blockedAction: "plan-approval",
+      stage: GUARDED_STAGE,
+      ...(unit ? { unit } : {}),
+      state: (checkbox ?? "in-progress") as GuardLifecycleState,
+      invariant: "Code generation builds only what the person approved.",
+      userMessage,
+      remedies: [],
+    }, snapshot.attempt, snapshot.resources);
+    return streak.count;
+  } catch {
+    return 0;
+  }
 }
 
 if (import.meta.main) {

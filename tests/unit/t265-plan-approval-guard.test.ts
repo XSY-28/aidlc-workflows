@@ -4366,6 +4366,33 @@ describe("t265b #1593 a refusal while a Unit plan waits names what would let the
     });
   }
 
+  test("#1593: past the repetition cap the refusal tells the agent to stop retrying and run next, and leaves no question", () => {
+    const proj = scratchProject();
+    try {
+      seedState(proj);
+      seedUnit(proj, "todo-core", { plan: true, answer: null });
+      const said: string[] = [];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const refused = runHook(proj, WRITE(join(proj, "src", "app.ts")));
+        expect(refused.code).toBe(2);
+        said.push(refused.stderr);
+      }
+      // The first refusals are the refusal alone; the third names the stop.
+      expect(said[0]).not.toContain("stop retrying");
+      expect(said[1]).not.toContain("stop retrying");
+      expect(said[2]).toContain("has been refused 3 times as things stand: stop retrying it and run");
+      expect(said[2]).toMatch(/`[^`]*orchestrate[^`]* next`/);
+      // `next` already puts the waiting plan to the person, so the record keeps
+      // no recovery question that would stand in front of it.
+      const dir = join(proj, RECORD_REL, ".aidlc-engine", "guard-refusals");
+      for (const name of readdirSync(dir).filter((entry) => entry.endsWith(".json"))) {
+        expect(JSON.parse(readFileSync(join(dir, name), "utf-8")).pendingAsk).toBeUndefined();
+      }
+    } finally {
+      rmSync(proj, { recursive: true, force: true });
+    }
+  });
+
   test("#1593: the same plan-approval refusal met again is counted in the work's guard-refusals record", () => {
     const proj = scratchProject();
     try {

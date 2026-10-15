@@ -889,10 +889,11 @@ export function main(argv: string[]): void {
     } else {
       exitWithError(
         `Stage status cannot be changed with aidlc-state.ts ${subcommand} because that bypasses ` +
-          "the workflow's completion and approval checks. Use aidlc-orchestrate.ts report " +
-          "--stage <slug> --result " +
-          "<awaiting-approval|approved|rejected|revised|completed|skipped>; use " +
-          "aidlc-orchestrate.ts park to pause, and next/jump to move through the workflow. " +
+          "the workflow's completion and approval checks. " +
+          // #1593: one step written out in full, the engine's own, which names
+          // and checks the stage's next move (its report, a pause, or a jump),
+          // so nothing is left for the agent to fill in or guess.
+          `Run \`${aidlcToolInvocation("orchestrate")} next\`: it names this stage's next step and checks it. ` +
           // The way out is named here, so the human is not told to go and find it.
           fenceSwitchSentence(pd, "state-transition"),
       );
