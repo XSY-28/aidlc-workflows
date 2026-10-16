@@ -1809,6 +1809,9 @@ export function shellRunsHiddenCommand(command: string | null, powerShell = fals
   if (command === null) return false;
   const escapeChar = powerShell ? "`" : "\\";
   let singleQuoted = false;
+  // Inside double quotes a substitution still runs, while a quote mark is
+  // literal and a `#` starts no comment.
+  let doubleQuoted = false;
   let escaped = false;
   for (let i = 0; i < command.length; i++) {
     const ch = command[i];
@@ -1818,9 +1821,11 @@ export function shellRunsHiddenCommand(command: string | null, powerShell = fals
       if (ch === "'") singleQuoted = false;
     } else if (ch === escapeChar) {
       escaped = true;
-    } else if (ch === "'") {
+    } else if (ch === '"') {
+      doubleQuoted = !doubleQuoted;
+    } else if (ch === "'" && !doubleQuoted) {
       singleQuoted = true;
-    } else if (ch === "#" && (i === 0 || /\s/.test(command[i - 1] ?? ""))) {
+    } else if (ch === "#" && !doubleQuoted && (i === 0 || /\s/.test(command[i - 1] ?? ""))) {
       // A comment runs nothing, to the end of its line.
       const end = command.indexOf("\n", i);
       if (end === -1) return false;

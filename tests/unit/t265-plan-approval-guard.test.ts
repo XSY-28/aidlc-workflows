@@ -4380,6 +4380,11 @@ describe("t265b #1593 a refusal while a Unit plan waits names what would let the
     expect(shellRunsHiddenCommand("Get-Content `$(Get-Date) src/app.ts", true)).toBe(false);
     expect(shellRunsHiddenCommand("Get-Content $(Get-ChildItem src)", true)).toBe(true);
     expect(shellRunsHiddenCommand(null)).toBe(false);
+    // In double quotes a substitution still runs, an apostrophe is literal, and `#` is text.
+    expect(shellRunsHiddenCommand(`echo "'$(ls src)'"`)).toBe(true);
+    expect(shellRunsHiddenCommand(`echo "a # b $(ls src)"`)).toBe(true);
+    expect(shellRunsHiddenCommand(`echo "it's fine" && cat src/app.ts`)).toBe(false);
+    expect(shellRunsHiddenCommand(`Write-Output "x $(Get-ChildItem src)"`, true)).toBe(true);
     // A comment runs nothing; a substitution on the next line still does.
     expect(shellRunsHiddenCommand("cat src/app.ts # was $(ls src)")).toBe(false);
     expect(shellRunsHiddenCommand("cat src/app.ts # note\ncat $(ls src)")).toBe(true);
