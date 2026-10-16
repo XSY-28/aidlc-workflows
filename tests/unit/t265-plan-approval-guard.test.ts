@@ -4427,15 +4427,24 @@ describe("t265b #1593 an authority refusal names which authority state it found"
     expect(said, bend).not.toMatch(/\.\s+(?:the|a|an)\s/);
   }
 
-  const ambiguousStates: Array<["missing" | "other-stage", string]> = [
-    ["missing", "a directive that is missing"],
-    ["other-stage", "a directive naming another stage"],
+  // Each case says which state it found, so dropping the cause cannot answer
+  // the hedge: a bare "Code generation cannot start. Run <next>." satisfies
+  // every negative assertion while naming nothing, and that refusal would be
+  // worse than today's, which at least carries a reason.
+  const ambiguousStates: Array<["missing" | "other-stage", string, RegExp]> = [
+    // Today's reason already says "has no matching ... directive", so this
+    // pins the cause against removal rather than asking for new words.
+    ["missing", "a directive that is missing", /\bno\b[^.]*\bdirective\b|\bdirective\b[^.]*\b(?:missing|absent)\b/i],
+    // The marker names functional-design, and naming it is the only evidence
+    // the refusal told this apart from a directive that is absent entirely.
+    ["other-stage", "a directive naming another stage", /functional[- ]design/i],
   ];
-  for (const [bend, label] of ambiguousStates) {
+  for (const [bend, label, namesTheState] of ambiguousStates) {
     test(`#1593: ${label} is named as that, never as stale`, () => {
       const said = authorityRefusal(bend);
       keepsTheStepAndReadsAsProse(said, bend);
       expect(said).not.toMatch(/\bstale\b/);
+      expect(said, bend).toMatch(namesTheState);
     });
   }
 
