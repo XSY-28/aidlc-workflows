@@ -118,6 +118,7 @@ import {
   personSpokeSinceGate,
   readActiveDirectiveMarker,
   activeDirectiveMarkerAbsence,
+  staleActiveDirectiveUnit,
   spacesRoot,
   activeDirectiveOutOfDateReason,
   recordHookDrop,
@@ -2198,7 +2199,8 @@ async function evaluate(
       return 0;
     }
     refusedTarget = mutation.targets[0] ?? (mutation.shellCommand?.trim().slice(0, 160) || null);
-    refusedUnit = activeDirective?.unit?.trim() || null;
+    refusedUnit = activeDirective?.unit?.trim() ||
+      (activeDirective === null ? staleActiveDirectiveUnit(projectDir, state) : null);
     // What the plan never governs, at any point of Code Generation and under
     // every Guard Policy: a command the lexer read whole that names no file it
     // writes and is not AI-DLC's own (a read, a scan, a test run), and a write
@@ -2633,7 +2635,11 @@ async function evaluate(
     ? `dispatch:${subagentType}`
     : `${toolName}:${blockedMutation?.target ?? refusedTarget ?? ""}`;
   const refusedFor = blockedMutation ? blockedMutation.unit : refusedUnit;
-  const repeats = state === null
+  // An authority refusal whose Unit cannot be told, in work that has Units,
+  // is not counted: merging different Units' refusals would claim a repeat.
+  const unitUnknown = blockedMutation === null && refusedFor === null && authorityFailure !== null &&
+    knownUnits(projectDir, docsRoot(projectDir) ?? "").length > 0;
+  const repeats = state === null || unitUnknown
     ? 0
     : countPlanApprovalRefusal(projectDir, state, refusedFor, prose, `${refusedCall}\0${authorityFailure ?? ""}`);
   process.stderr.write(

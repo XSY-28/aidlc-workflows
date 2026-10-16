@@ -10433,6 +10433,18 @@ export function activeDirectiveMarkerAbsence(
   }
 }
 
+// The Unit a marker the state has moved past names (#1593), so a refusal it
+// leads to is counted for that Unit. Read only; it carries no authority.
+export function staleActiveDirectiveUnit(projectDir: string, stateContent: string): string | null {
+  try {
+    const marker = readActiveDirectiveMarkerRaw(activeDirectiveMarkerPath(projectDir));
+    if (marker === null || marker.state_sha256 === stateDigest(stateContent)) return null;
+    return typeof marker.unit === "string" && marker.unit.trim() ? marker.unit.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 export function readActiveDirectiveMarker(
   projectDir: string,
   stateContent: string,

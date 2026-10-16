@@ -2234,11 +2234,12 @@ describe("t242 state-transition ownership guard", () => {
     expect(unfilled).toEqual({});
   });
 
-  test("#1593: a decision refused through the state tool is recorded by the step next prints, never by a report rebuilt without the person's reply", () => {
+  test("#1593: a decision refused through the state tool is carried by next --choice with the person's words, never by a report rebuilt without them", () => {
     const project = createTestProject();
     projects.push(project);
     seedStateFile(project, join(FIXTURES_DIR, "state-mid-ideation.md"));
-    for (const verb of ["approve", "reject", "revise", "gate-start", "skip"]) {
+    // A stage skip has its own route, pinned by the test below.
+    for (const verb of ["approve", "reject", "revise", "gate-start"]) {
       const text = refusalText(
         spawnSync(process.execPath, [STATE, verb, "feasibility", "--project-dir", project], {
           timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
@@ -2246,8 +2247,10 @@ describe("t242 state-transition ownership guard", () => {
           env: { ...unownedEnv(), CLAUDE_PROJECT_DIR: project },
         }),
       );
-      expect(text, verb).toContain("`bun .claude/tools/aidlc-orchestrate.ts next`");
-      expect(text, verb).toContain("the aidlc-orchestrate.ts report that records a decision the person already gave, with their reply");
+      // Each step names the project the refused call named.
+      expect(text, verb).toContain(`\`bun .claude/tools/aidlc-orchestrate.ts next --project-dir ${project}\``);
+      expect(text, verb).toContain("`bun .claude/tools/aidlc-orchestrate.ts next --choice '<their words>' --project-dir ");
+      expect(text, verb).toContain("it prints the aidlc-orchestrate.ts report that records it");
       // No report command is printed: one rebuilt from this call would lack the reply, Unit and reason it needs.
       const quoted = [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
       expect(quoted.filter((span) => /orchestrate\S* report\b/.test(span)), verb).toEqual([]);
@@ -2267,8 +2270,8 @@ describe("t242 state-transition ownership guard", () => {
       }),
     );
     const stage = said("feasibility");
-    expect(stage).toContain("`bun .claude/tools/aidlc-orchestrate.ts next --skip feasibility`");
-    expect(stage.indexOf("next --skip")).toBeLessThan(stage.indexOf("orchestrate.ts next`"));
+    expect(stage).toContain(`\`bun .claude/tools/aidlc-orchestrate.ts next --skip feasibility --project-dir ${project}\``);
+    expect(stage.indexOf("next --skip")).toBeLessThan(stage.indexOf(`orchestrate.ts next --project-dir`));
     expect(unfilledSlots(stage)).toEqual([]);
     // A Unit's skip, or a slug that is no stage, names next alone.
     expect(said("feasibility", "--unit", "u1")).not.toContain("--skip");
@@ -2286,7 +2289,7 @@ describe("t242 state-transition ownership guard", () => {
     });
     expect(r.status).toBe(1);
     const text = refusalText(r);
-    expect(text).toMatch(/`bun \.claude\/tools\/aidlc-orchestrate\.ts park --person-asked`/);
+    expect(text).toContain(`\`bun .claude/tools/aidlc-orchestrate.ts park --person-asked --project-dir ${project}\``);
     expect(text.indexOf("park --person-asked")).toBeLessThan(text.indexOf("orchestrate.ts next"));
     expect(unfilledSlots(text)).toEqual([]);
   });

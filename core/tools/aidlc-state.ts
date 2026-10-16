@@ -237,6 +237,7 @@ import {
   keepPlanApprovalAskOverStateWrite,
   recordHookDrop,
   engineDir,
+  shellArg,
 } from "./aidlc-lib.js";
 import { memoryDirFor, STAGE_WIDE_SENSOR_IDS, templateEligibleArtifacts } from "./aidlc-graph.ts";
 import { inspectRequiredArtifactInstances } from "./aidlc-artifact-resolution.ts";
@@ -1068,27 +1069,36 @@ export function main(argv: string[]): void {
 }
 
 // The engine-owned step for a lifecycle verb refused through the state tool
-// (#1593): written out in full, so nothing is left to fill in. `next` names the
-// stage's next step with the context this call cannot carry (the person's
-// reply, the Unit, the reason), so a decision the person already gave is
-// recorded by the step it prints rather than by a report rebuilt from here. A
-// pause keeps its own step, so a stop is never turned into carrying on.
+// (#1593): written out in full, and for the project the refused call named. A
+// decision the person already gave is carried by `next --choice` with their
+// own words, which prints the aidlc-orchestrate.ts report that records it;
+// bare `next` would show the open gate again. A pause and a whole-stage skip
+// keep their own routes, so a stop or a skip is never turned into carrying on.
+const DECISION_VERBS = new Set(["approve", "reject", "revise", "gate-start"]);
+
 function ownedTransitionStep(subcommand: string, rest: string[] = []): string {
+  // The selector the refused call was given (the tool takes it off its own
+  // arguments first), so the step acts on the same project from the same folder.
+  const argv = process.argv;
+  const at = argv.indexOf("--project-dir");
+  const named = at >= 0 ? argv[at + 1] : argv.find((arg) => arg.startsWith("--project-dir="))?.slice("--project-dir=".length);
+  const project = named ? ` --project-dir ${shellArg(named)}` : "";
   const orchestrate = aidlcToolInvocation("orchestrate");
-  const next = `\`${orchestrate} next\`: it prints this stage's next step, including the aidlc-orchestrate.ts ` +
-    "report that records a decision the person already gave, with their reply. ";
+  const step = (args: string): string => `\`${orchestrate} ${args}${project}\``;
+  const next = `${step("next")}: it prints this stage's next step. `;
   if (subcommand === "park") {
-    return `If the person asked to stop, run \`${orchestrate} park --person-asked\`; if not, run ${next}`;
+    return `If the person asked to stop, run ${step("park --person-asked")}; if not, run ${next}`;
   }
-  // A skip of a whole stage keeps the engine's own route for it, so the
-  // person's skip is carried out rather than the stage issued again. A Unit's
-  // skip is the engine's to make inside its own walk, which `next` prints.
   const stage = rest[0];
   if (
     subcommand === "skip" && !rest.includes("--unit") && stage !== undefined &&
     SLUG_RE.test(stage) && findStageBySlug(stage)
   ) {
-    return `If the person asked to skip this stage, run \`${orchestrate} next --skip ${stage}\`; if not, run ${next}`;
+    return `If the person asked to skip this stage, run ${step(`next --skip ${stage}`)}; if not, run ${next}`;
+  }
+  if (DECISION_VERBS.has(subcommand)) {
+    return `Run ${next}If the person already gave their decision, run ${step("next --choice '<their words>'")} ` +
+      "with their reply instead: it prints the aidlc-orchestrate.ts report that records it. ";
   }
   return `Run ${next}`;
 }

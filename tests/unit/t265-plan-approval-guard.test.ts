@@ -4394,21 +4394,36 @@ describe("t265b #1593 a refusal while a Unit plan waits names what would let the
     expect(shellRunsHiddenCommand("echo $(( $(wc -l < src/app.ts) + 1 ))")).toBe(true);
   });
 
-  test("#1593: different calls refused for the authority start their own counts too", () => {
+  test("#1593: an authority refusal is counted for the Unit its stale directive names", () => {
     const proj = scratchProject();
     try {
       seedState(proj);
       seedUnit(proj, "todo-core", { plan: true, answer: null });
+      // The Unit's directive goes out of date: the state moved past it.
+      const marker = join(proj, RECORD_REL, ".aidlc-engine", "active-directive.json");
+      const raw = JSON.parse(readFileSync(marker, "utf-8")) as Record<string, unknown>;
+      raw.state_sha256 = "0".repeat(64);
+      writeFileSync(marker, JSON.stringify(raw), "utf-8");
+      const said = [0, 1, 2].map(() => runHook(proj, WRITE(join(proj, "src", "app.ts"))).stderr);
+      expect(said[1]).not.toContain("stop retrying");
+      expect(said[2]).toContain("has been refused 3 times");
+    } finally {
+      rmSync(proj, { recursive: true, force: true });
+    }
+  });
+
+  test("#1593: an authority refusal whose Unit cannot be told is never counted as a repeat", () => {
+    const proj = scratchProject();
+    try {
+      seedState(proj);
+      seedUnit(proj, "todo-core", { plan: true, answer: null });
+      // No directive at all: nothing names which Unit the call is for.
       rmSync(join(proj, RECORD_REL, ".aidlc-engine", "active-directive.json"), { force: true });
-      expect(runHook(proj, WRITE(join(proj, "src", "app.ts"))).code).toBe(2);
-      expect(runHook(proj, WRITE(join(proj, "src", "app.ts"))).code).toBe(2);
-      const other = runHook(proj, WRITE(join(proj, "src", "other.ts")));
-      expect(other.code).toBe(2);
-      expect(other.stderr).not.toContain("stop retrying");
-      // The count is of the same call refused in a row: the other call met
-      // again, and again, is the one now repeated.
-      expect(runHook(proj, WRITE(join(proj, "src", "other.ts"))).stderr).not.toContain("stop retrying");
-      expect(runHook(proj, WRITE(join(proj, "src", "other.ts"))).stderr).toContain("has been refused 3 times");
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const refused = runHook(proj, WRITE(join(proj, "src", "app.ts")));
+        expect(refused.code).toBe(2);
+        expect(refused.stderr).not.toContain("stop retrying");
+      }
     } finally {
       rmSync(proj, { recursive: true, force: true });
     }
