@@ -666,8 +666,9 @@ Windows, installs the last stable release with its own installer, sets up a
 project for every harness with the person's work waiting at a gate, runs
 `aidlc update` to the candidate, and checks that each project's hooks,
 `aidlc config --yes` refresh and doctor still work, and that the person picks
-their work up at that gate with nothing asked again. A
-stable release does not publish when it fails; a preview publishes with a
+their work up at that gate with nothing asked again. Its copy leg does the same
+for projects copied from the last release's copy runtime, which refresh with
+their own `config --from`. A stable release does not publish when it fails; a preview publishes with a
 warning in its notes. `publish` downloads the same candidate, re-verifies
 it, attests it, adds the exported `aidlc-release.intoto.jsonl` bundle, validates
 the complete inventory, and uploads one `attested-release` workflow artifact.
@@ -895,7 +896,8 @@ a conversation outside the selected workflow writes nothing into it and is not h
 by its gates, while runtime integrity, direct lifecycle-command refusals and the
 claimed-checkout write bound still apply. The engine treats such a conversation as
 having no active intent (`next` asks which intent to work on; `continue`, `report`
-and `park` refuse). When participation cannot be decided because a sibling-only
+and `park` refuse with a step for the agent: list the work, select the one the request is for, run the
+same command again). When participation cannot be decided because a sibling-only
 worktree's delegated metadata is malformed or stale, no workflow is selected: hooks
 write nothing, the reviewer read scope fails open, gates do not stand aside so
 Plan Approval refuses mutations, and the engine refuses with the file to repair
@@ -942,7 +944,10 @@ an idle machine, and on a busy one it finishes instead of losing the chat.
 
 Multiple Kiro IDE chats
 and opencode sessions can still share one process; process ancestry cannot
-distinguish those conversations. Spawned tools with unavailable or ambiguous
+distinguish those conversations. AI-DLC's opencode plugin gives each shell
+command its chat as `AIDLC_SESSION_OVERRIDE` (opencode's `shell.env` hook); a
+file write's audit and sensors, and the to-do list sync, still go by the
+process there. Spawned tools with unavailable or ambiguous
 ancestry use shared-cursor behavior unless a payload-bearing hook or the harness
 process supplies `AIDLC_SESSION_OVERRIDE`.
 
@@ -1003,7 +1008,7 @@ readers read the rows they share once (`copiedAuditBlocks` in
 
 11. **Phase boundary verification** -- Traceability checks run at the end of Ideation, Inception and Construction (the Initialization->Ideation transition has none), written by the phase's last stage to `<record>/verification/`. This catches missing requirements-to-design links, orphaned artifacts, and inconsistencies before downstream stages build on incomplete foundations.
 
-12. **Hook-based audit logging** -- A PostToolUse hook on Write/Edit operations automatically logs artifact creation and modification to the intent's `audit/` shards. A PreCompact hook validates state file structure before context compaction. A SubagentStop hook logs subagent completions. The 118-event taxonomy (defined in `knowledge/aidlc-shared/audit-format.md`; see [State Machine](12-state-machine.md) for the emitter registry) enables post-hoc analysis -- key events include `STAGE_STARTED`, `STAGE_COMPLETED`, `DECISION_RECORDED`, `SCOPE_CHANGED`, and `RULE_LEARNED`.
+12. **Hook-based audit logging** -- A PostToolUse hook on Write/Edit operations automatically logs artifact creation and modification to the intent's `audit/` shards. A PreCompact hook validates state file structure before context compaction. A SubagentStop hook logs subagent completions. The 119-event taxonomy (defined in `knowledge/aidlc-shared/audit-format.md`; see [State Machine](12-state-machine.md) for the emitter registry) enables post-hoc analysis -- key events include `STAGE_STARTED`, `STAGE_COMPLETED`, `DECISION_RECORDED`, `SCOPE_CHANGED`, and `RULE_LEARNED`.
 
 13. **No nested delegation** -- The conductor (SKILL.md) performs every agent Task call. Agents never invoke each other or spawn subagents. This keeps the delegation graph flat and debuggable.
 

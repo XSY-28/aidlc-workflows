@@ -571,7 +571,10 @@ export function recoveryAsk(said: string): Directive | null {
  * Any other remedy (request-changes needs feedback the scope run never gives)
  * stops the run as the stand-in's limit, never as the engine's deadlock.
  */
-const REMEDY_PREFERENCE = ["present-approval-gate", "start-recovery-review", "request-review"];
+const REMEDY_PREFERENCE = [
+  "finish-unit-step", "produce-stage-output", "present-findings-at-gate", "present-approval-gate",
+  "start-recovery-review", "request-review",
+];
 
 /** Where the agent handed the turn to the person, and whether the Stop hook let it. */
 export interface Handoff {
@@ -620,7 +623,7 @@ export const PLAIN_ANSWERS: PersonAnswers = {
 const RECORD_PREFIX = /^aidlc\/spaces\/[^/]+\/intents\/[^/]+\//;
 
 /** The detour when picked-up work answers that it is paused: the person has to ask to resume again. */
-export const RESUME_AGAIN = "the person picked their parked work and was told to resume it again";
+const RESUME_AGAIN = "the person picked their parked work and was told to resume it again";
 
 export interface StandInOptions {
   answers?: Partial<PersonAnswers>;
@@ -965,7 +968,7 @@ export class AgentStandIn {
     }
     const ask = recoveryAsk(said);
     if (ask) {
-      const remedies = ((ask.remedies as { op: string; executableNow?: boolean; interaction?: string; command?: string }[] | undefined) ?? [])
+      const remedies = ((ask.remedies as { op: string; action?: string; executableNow?: boolean; interaction?: string; command?: string }[] | undefined) ?? [])
         .filter((r) => r.executableNow === true);
       if (remedies.length === 0) {
         this.refusalsMet.push({ said, signature, took: "none: no remedy can be taken now" });
@@ -979,9 +982,12 @@ export class AgentStandIn {
       }
       const stage = String(ask.stage ?? "");
       const unit = typeof ask.unit === "string" ? ask.unit : null;
-      this.askPerson("guard recovery", stage, String(ask.question ?? ""), remedies.map((r) => r.op), remedy.op);
-      this.must("log", "answer", "--stage", stage, "--checkpoint", "guard-recovery", "--details", remedy.op,
-        ...(unit ? ["--unit", unit] : []));
+      // The agent's own work is no question: it takes the way on with no pick.
+      if (ask.agent_work !== true) {
+        this.askPerson("guard recovery", stage, String(ask.question ?? ""), remedies.map((r) => r.op), remedy.op);
+        this.must("log", "answer", "--stage", stage, "--checkpoint", "guard-recovery", "--details", remedy.op,
+          ...(unit ? ["--unit", unit] : []));
+      }
       this.refusalsMet.push({ said, signature, took: `remedy ${remedy.op}` });
       // The remedy's interaction, as the skill's guard-recovery execution says.
       // A step the remedy takes that is refused in turn is followed the same way.
@@ -994,8 +1000,25 @@ export class AgentStandIn {
           if (out && typeof out.kind === "string" && out.kind !== "print" && out.kind !== "done") this.pending = out;
         } else if (remedy.op === "start-recovery-review" || remedy.op === "request-review") {
           this.reviewAgain(stage, unit);
-        } else if (remedy.op === "present-approval-gate") {
-          // Its route after the pick: the stage's gate opens for the person.
+        } else if (remedy.op === "present-approval-gate" || remedy.op === "present-findings-at-gate") {
+          // The stage's gate opens for the person.
+          this.report(stage, "--result", "awaiting-approval");
+        } else if (remedy.op === "finish-unit-step") {
+          // The command the step names records the Unit's step done; `next`
+          // then brings its checkpoint or the next step.
+          const named = this.named("[^`]+").exec(String(remedy.action ?? ""))?.[1];
+          if (!named) this.fail(`remedy ${remedy.op} named no command: ${clip(String(remedy.action ?? ""), 600)}`);
+          const ran = this.host.bash(named);
+          if (ran.status !== 0) this.refused(`remedy ${remedy.op}`, `${ran.stdout}${ran.stderr}`);
+        } else if (remedy.op === "produce-stage-output") {
+          // The stage's outputs (its code too), as its own step names them,
+          // then the same report again.
+          const step = [...this.directives].reverse().find((d) => d.kind === "run-stage" && d.stage === stage);
+          if (!step) this.fail(`remedy ${remedy.op}: no step for ${stage} names its outputs`);
+          if (stage === "code-generation") this.writeCode(step);
+          for (const p of (step.produces as string[] | undefined) ?? []) {
+            if (!existsSync(join(this.host.proj, p))) this.host.write(p, artifactText(p, stage));
+          }
           this.report(stage, "--result", "awaiting-approval");
         }
       } catch (error) {

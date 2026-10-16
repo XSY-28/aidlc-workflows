@@ -53,7 +53,7 @@ An explicitly named scope on a fresh workspace (no intent yet: no `aidlc-state.m
 When the argument is freeform text (not a known scope keyword):
 
 1. Reads guardrails from `aidlc/spaces/<active-space>/memory/`.
-2. Keeps the request as a question (`--request <8hex id>`) and returns a `print` for the agent: the request as written, every plan this install ships (its stage count for this project, whether its stages split the work into Units, what it is for, and the `keywords` hints its author wrote), and the two commands that answer it: `next --propose <plan> --request <id>` for the plan that fits what the person described, or `next --propose compose --request <id>` when no ready-made plan fits. No tool reads the request for meaning; the agent does. Settings typed with the request are stored on that question and ride the answer. Re-run with the same `--request <id>`, the step returns the same print with the same id.
+2. Keeps the request as a question (`--request <8hex id>`) and returns a `print` for the agent: the request as written, every plan this install ships (its stage count for this project, whether its stages split the work into Units, what it is for, and the `keywords` hints its author wrote), and the two commands that answer it: `next --propose <plan> --request <id>` for the plan that fits what the person described, or `next --propose compose --request <id>` when no ready-made plan fits. Words on finished work (the selected workflow is finished, or nothing is selected in this chat and finished work is here) may instead ask to go back to one of its stages, so there the print opens with the person's words rather than calling them new work, names that work, and gives the way back beside the plans: `intent <record>` when it is not selected in this chat, then `next --stage <slug>` with `--unit <unit>` or `--every-unit` when they named Units. New work the person confirmed with `--new-intent` gets the plan step alone. No tool reads the request for meaning; the agent does. Settings typed with the request are stored on that question and ride the answer. Re-run with the same `--request <id>`, the step returns the same print with the same id.
 3. `next --propose <plan> --request <id>` emits the typed `scope-confirm` ask naming the effective ceremony from the compiled grid and workspace scan: the plan, a request preview, stage count, approval gates, and the choice to confirm, change plan, or compose a tailored plan. The directive carries `response_route: "next"`, a `confirm_command` (`next --scope <plan> --request <id>`), a `compose_command`, and `scope_commands` (one row per valid scope with its `stages` count), so the person's yes runs the exact prebuilt command.
 4. `next --propose compose --request <id>` emits the typed `compose-offer` ask with `response_route: "next"`, `compose_command`, and `scope_commands`; each `scope_commands` row carries its plan's `stages` count for this project ("15 stages", the stages after Initialization), counted the same way as the question.
 5. `--propose` with a word outside the plan table is the value reading step naming the plans; `--propose` with no value, or without `--request`, is a `print` for the agent naming the command shape. None of these reaches the person.
@@ -885,7 +885,7 @@ The orchestration engine owns every transition above. The conductor reports outc
 
 1. **Run completion verification** - check artifacts exist on disk, guardrails respected. This is a correctness check, not a state transition. This is also enforced deterministically: `approve` refuses a gated stage whose declared `produces` artifacts are missing (unless `AIDLC_SKIP_ARTIFACT_GUARD=1`), so a stage cannot be marked complete without its outputs (#366). Per-unit Construction stages are verified by the swarm referee instead.
 
-2. **Enter the gate**: `aidlc engine orchestrate report --stage <slug> --result awaiting-approval`. Before the state transaction opens, the engine fires each gate-bound sensor once per existing declared deliverable when a person will answer the gate; a gate the engine approves itself under Construction autonomy fires only its blocking sensors, since advisory evidence has no reader there. A blocking binding requires a verified pass; findings, unavailable execution, malformed verdicts, and timeouts refuse the transition. To override interactively, first record and present the separate `Fix findings` / `Override blocking sensors` decision through `aidlc-log.ts`, wait for and record the exact human answer, then retry with `--override-blocking-sensors --user-input "Override blocking sensors"`. Autonomous runs cannot override. Otherwise the engine marks `[-]` → `[?]`, emits `STAGE_AWAITING_APPROVAL`, and makes `/aidlc --status` show "Awaiting your approval on \<stage\>".
+2. **Enter the gate**: `aidlc engine orchestrate report --stage <slug> --result awaiting-approval`. Before the state transaction opens, the engine fires each gate-bound sensor once per existing declared deliverable (`upstream-coverage` and `claim-sources` once per output folder) when a person will answer the gate; a gate the engine approves itself under Construction autonomy fires only its blocking sensors, since advisory evidence has no reader there. A blocking binding requires a verified pass; findings, unavailable execution, malformed verdicts, and timeouts refuse the transition. To override interactively, first record and present the separate `Fix findings` / `Override blocking sensors` decision through `aidlc-log.ts`, wait for and record the exact human answer, then retry with `--override-blocking-sensors --user-input "Override blocking sensors"`. Autonomous runs cannot override. Otherwise the engine marks `[-]` → `[?]`, emits `STAGE_AWAITING_APPROVAL`, and makes `/aidlc --status` show "Awaiting your approval on \<stage\>".
 
 3. **Present the approval gate** (AskUserQuestion).
 
@@ -1287,8 +1287,23 @@ the change, and reads the person's answer in their own words: a yes is their
 redo request; anything else carries on.
 Under Guard Policy `relaxed` or `off` an edit to a document that is still there
 is not raised on `next`: the guard accepts it and says it once. A document that
-is gone, a project-type change and a stage-graph change still are, and
-`/aidlc --status` still lists every stage behind.
+is gone and a project-type change still are, and `/aidlc --status` still lists
+every stage behind.
+When only the stage itself changed (an AI-DLC update, a plugin turned on, or the
+team's own stage edit changed what it reads, writes or when it runs) and nothing
+of the person's work did, the stage is not behind and no later stage is
+affected, under every Guard Policy. When the stage now needs an input it did not
+need when it ran (a new required input, or one made required), the next step the
+person hears carries one `change_notices` line that asks nothing: "AI-DLC now
+does Functional Design differently from when yours ran; your work stands, and
+`/aidlc --stage functional-design` goes back to it (the stages after it reopen
+too)." Any other change to the stage itself (an optional input or output added
+or removed, an input made optional, a changed condition) is not said. Either
+way, once a step is said, a `STAGE_DEFINITION_CHANGED` audit row records the
+stage's receipt for its new definition, so no later step or conversation says it
+again, `/aidlc --status` names the stage with that line, and a later change to
+what the stage now reads is raised as usual. A change to the person's work in
+the same window keeps the question above.
 Inspection-unavailable stages remain a per-turn advisory because they need
 attention. Receipt-less histories are not shown by `next` or by
 `/aidlc --status`, so migration adds no warning.

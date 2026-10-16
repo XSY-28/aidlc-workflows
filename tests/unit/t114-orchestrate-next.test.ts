@@ -5,9 +5,9 @@
 // aidlc-orchestrate.ts `next` CLI-contract test.
 //
 // SUBJECT: `next` is the read-only orchestration engine handler
-// (aidlc-orchestrate.ts:785 handleNext). It reads workflow state + the compiled
+// (aidlc-orchestrate.ts handleNext). It reads workflow state + the compiled
 // stage graph and emits EXACTLY ONE validated directive (JSON) to stdout via
-// `console.log(JSON.stringify(...))` (:147), mutating no workflow state. The
+// `console.log(JSON.stringify(...))`, mutating no workflow state. The
 // table drives it over the existing state fixtures and asserts (state + args) →
 // directive kind + key fields, the flag-precedence ladder (state > flag > env >
 // default), read-only dispatch (--status/--version → print), the
@@ -16,7 +16,7 @@
 //
 // SPAWN (not in-process): the whole contract is the argv-dispatch / process
 // boundary of aidlc-orchestrate.ts. `handleNext` is NOT exported (internal,
-// reached only through `main()` at :1965 via the `next` case at :1984). The
+// reached only through `main()` via the `next` case). The
 // directive lands on stdout through `console.log`; errors land through the
 // composed sibling tools the non-happy-path branches shell out to
 // (aidlc-jump.ts resolve/execute, aidlc-utility.ts resolve-env-scope /
@@ -57,16 +57,16 @@
 // mechanism and were dropped with it; issue #369.)
 //
 // Source cites (dist/claude/.claude/tools/aidlc-orchestrate.ts):
-//   :785 handleNext — the read-only branch ladder.
-//   :793 Branch 1  --status/--version -> print.
-//   :804 Branch 2  --stage + --phase -> "Cannot use --stage and --phase together".
-//   :822 Branch 3  --init -> print naming the scaffold cmd.
-//   :858 Branch 3b UNCONDITIONAL invalid --scope -> "Unknown scope ...".
-//   :873 Branch 4  env source -> shells resolve-env-scope -> verbatim "Invalid AWS_AIDLC_DEFAULT_SCOPE ...".
-//   :934 Branch 5  scope-change print ("scope change --scope <s>").
-//  :1034 Branch 7  --stage/--phase jump -> emitJumpDirective; with-state -> print "aidlc-jump.ts execute --target ... --direction ...".
-//  :1116 Branch 10 happy path -> run-stage for the in-flight current stage.
-//   :754 computeGate -> gate:true for every EXECUTE stage except initialization (the gate axis is NOT the execution axis).
+//   handleNext - the read-only branch ladder.
+//   Branch 1  --status/--version -> print.
+//   Branch 2  --stage + --phase -> "Cannot use --stage and --phase together".
+//   Branch 3  --init -> print naming the scaffold cmd.
+//   Branch 3b UNCONDITIONAL invalid --scope -> "Unknown scope ...".
+//   Branch 4  env source -> shells resolve-env-scope -> verbatim "Invalid AWS_AIDLC_DEFAULT_SCOPE ...".
+//   Branch 5  scope-change print ("scope change --scope <s>").
+//   Branch 7  --stage/--phase jump -> emitJumpDirective; with-state -> print "aidlc-jump.ts execute --target ... --direction ...".
+//   Branch 10 happy path -> run-stage for the in-flight current stage.
+//   computeGate -> gate:true for every EXECUTE stage except initialization (the gate axis is NOT the execution axis).
 
 import {
   NATIVE_FIXTURE_SETUP_TIMEOUT_MS,
@@ -75,13 +75,14 @@ import {
 } from "../harness/test-budget.ts";
 import { afterEach, beforeAll, describe, expect, test, setDefaultTimeout } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   AIDLC_SRC,
   cleanupTestProject,
   createOrchestrationTestProject,
   createTestProject,
+  DEFAULT_RECORD_DIR,
   FIXTURES_DIR,
   followProposal,
   REPO_ROOT,
@@ -1392,6 +1393,77 @@ describe("t114 new description over a finished workflow -> new work (#1535)", ()
     seedStateFile(proj, COMPLETED);
     const out = runNext(proj, ["--resume", "a standalone metrics dashboard"]).out;
     expect(out).not.toContain("intent create");
+  });
+
+  // Words beside finished work may ask to go back to one of its stages ("go
+  // back to code generation for a second round"): the print names the work and
+  // the way back beside the plans, and leaves the reading to the agent.
+  const GO_BACK = "go back to code generation for a second round on both units";
+  const proposalPrint = (args: string[]): string => {
+    const d = runOrchestrateNext(TOOL, proj, args, { cwd: proj, env: { ...process.env } }).directive as
+      { kind?: string; message?: string } | null;
+    expect(d?.kind, JSON.stringify(d).slice(0, 300)).toBe("print");
+    return String(d?.message);
+  };
+  const intents = () => join(proj, "aidlc", "spaces", "default", "intents");
+
+  test("words over the selected finished workflow name it and the way back to a stage", () => {
+    proj = createOrchestrationTestProject();
+    seedStateFile(proj, COMPLETED);
+    const message = proposalPrint([GO_BACK]);
+    expect(message).toStartWith(`The person said: "${GO_BACK}".`);
+    expect(message).not.toContain("asked for new work");
+    expect(message).toContain(`This project's work \`fixture\` (record: \`${DEFAULT_RECORD_DIR}\`) is finished.`);
+    expect(message).toContain("next --stage <stage slug>` (add `--unit <unit>` or `--every-unit`");
+    // It is selected here, so nothing to select first.
+    expect(message).not.toContain(`intent ${DEFAULT_RECORD_DIR}`);
+    expect(message).toContain("--propose <plan> --request ");
+    expect(message).toContain("Plans: ");
+  });
+
+  test("in a fresh clone the finished work is named with the command that selects it", () => {
+    proj = createOrchestrationTestProject();
+    seedStateFile(proj, COMPLETED);
+    rmSync(join(intents(), "active-intent"), { force: true });
+    const message = proposalPrint([GO_BACK]);
+    expect(message).toStartWith(`The person said: "${GO_BACK}".`);
+    expect(message).toContain("is finished, and it is not selected in this chat.");
+    expect(message).toContain(`intent ${DEFAULT_RECORD_DIR}\`, then \``);
+    expect(message).toContain("next --stage <stage slug>`");
+    expect(message).toContain("--propose <plan> --request ");
+  });
+
+  test("a finished record named outside the record-name shape is not written into a command", () => {
+    proj = createOrchestrationTestProject();
+    seedStateFile(proj, COMPLETED);
+    rmSync(join(intents(), "active-intent"), { force: true });
+    renameSync(join(intents(), DEFAULT_RECORD_DIR), join(intents(), "customer work"));
+    const registry = join(intents(), "intents.json");
+    writeFileSync(registry, readFileSync(registry, "utf-8").replaceAll(`"${DEFAULT_RECORD_DIR}"`, '"customer work"'));
+    const message = proposalPrint([GO_BACK]);
+    expect(message).not.toContain("customer work");
+    expect(message).toStartWith("The person asked for new work: ");
+  });
+
+  // A jump takes no settings (--review beside --stage is refused), so the way
+  // back sets what they typed first, or it would be dropped without a word.
+  test("a setting typed with the words rides the way back, set before the stage step", () => {
+    proj = createOrchestrationTestProject();
+    seedStateFile(proj, COMPLETED);
+    rmSync(join(intents(), "active-intent"), { force: true });
+    const message = proposalPrint(["--review", "none", GO_BACK]);
+    const select = message.indexOf(`intent ${DEFAULT_RECORD_DIR}\``);
+    const set = message.indexOf("config set review none` and say the line it prints, then `");
+    const stage = message.indexOf("next --stage <stage slug>`");
+    expect({ select: select >= 0, set: set > select, stage: stage > set }).toEqual({ select: true, set: true, stage: true });
+  });
+
+  test("new work the person confirmed beside finished work gets the plan step alone", () => {
+    proj = createOrchestrationTestProject();
+    seedStateFile(proj, COMPLETED);
+    const message = proposalPrint(["--new-intent", "a standalone metrics dashboard"]);
+    expect(message).toStartWith("The person asked for new work: ");
+    expect(message).not.toContain("is finished");
   });
 });
 

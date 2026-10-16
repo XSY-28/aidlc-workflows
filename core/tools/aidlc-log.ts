@@ -1796,12 +1796,30 @@ function answerEnginePlanApproval(
     : picked.choice === "I'll edit the files" ? "edit" as const : "approve" as const;
   const units = (flags.units ?? flags.unit ?? "").split(",").map((unit) => unit.trim()).filter(Boolean);
   const feedback = flags.reason ?? (choice === "request-changes" && picked.rest ? picked.rest : undefined);
+  // A change asked for in the message the question opened for: the one the
+  // agent names, or this chat's latest with words, proved as any answer's is.
+  // Records keep whole seconds, so two in the latest second cannot be told
+  // apart: neither is taken unless the agent names one.
+  let opening: { words: string; at: string } | undefined;
+  if (choice === "request-changes") {
+    const chat = invokingChat(pd);
+    const said = chat === null ? [] : listMessages(pd).filter((m) => m.session === chat && m.words !== null);
+    const latestAt = said.reduce((at, m) => (m.at > at ? m.at : at), "");
+    const newest = said.filter((m) => m.at === latestAt);
+    const id = flags.message ?? (newest.length === 1 ? newest[0].id : undefined);
+    const proof = id === undefined ? null : proveMessage(pd, id, "answer");
+    if (proof !== null && "refusal" in proof && flags.message !== undefined) error(proof.refusal);
+    if (proof !== null && "message" in proof && proof.message.words) {
+      opening = { words: proof.message.words, at: proof.message.at };
+    }
+  }
   let result: { message: string; complete: boolean };
   try {
     result = recordPlanApprovalAnswer(pd, resolveInvokingSessionId(pd) ?? "", {
       choice,
       ...(units.length > 0 ? { units } : {}),
       ...(feedback ? { feedback } : {}),
+      ...(opening ? { opening } : {}),
     });
   } catch (e) {
     error(errorMessage(e));
@@ -3241,13 +3259,17 @@ function handleReview(args: string[]): void {
   const mintReviewRequestId = (): string =>
     `review:${randomBytes(16).toString("hex")}`;
   // The reviewer writes its review into this slot; the verdict consumes it into
-  // the record. Project-relative so the conductor can hand it to the reviewer.
+  // the record. `reviewerPath` is the path the reviewer is handed. The reviewer
+  // runs in the session's folder, which for a side-by-side Unit's worktree is
+  // the project's main folder, so there it is absolute: a project-relative path
+  // put the review in the main folder's record, where no verdict reads it.
   const reviewSlot = (
     floor: string,
     iteration: number,
     requestId: string | null,
   ): {
     draftRelative: string;
+    reviewerPath: string;
     draftRelativeToRecord: string;
     recordRelative: string;
   } => {
@@ -3255,8 +3277,11 @@ function handleReview(args: string[]): void {
     if (record === null) refuseReview("Cannot resolve the active intent record.");
     const attemptId = reviewAttemptId(floor);
     const draft = reviewDraftRelativePath(flags.stage as string, flags.unit, attemptId, iteration, requestId);
+    const draftPath = join(record, ...draft.split("/"));
+    const draftRelative = toPosix(relative(pd, draftPath));
     return {
-      draftRelative: toPosix(relative(pd, join(record, ...draft.split("/")))),
+      draftRelative,
+      reviewerPath: swarmWorkerWorktreeMeta(pd) === null ? draftRelative : toPosix(draftPath),
       draftRelativeToRecord: draft,
       recordRelative: reviewRecordRelativePath(flags.stage as string, flags.unit, attemptId, iteration),
     };
@@ -3400,7 +3425,7 @@ function handleReview(args: string[]): void {
             `${slot.draftRelativeToRecord} cannot be opened (${errorMessage(e)}).`,
         );
       }
-      reviewFile = slot.draftRelative;
+      reviewFile = slot.reviewerPath;
       // The request names its own review file, so its verdict reads that file
       // only; a request recorded without one predates per-request files.
       fields["Review File"] = slot.draftRelativeToRecord;
@@ -4113,7 +4138,7 @@ function handleReview(args: string[]): void {
             refuseReview(
               `Cannot record review for "${flags.stage}": ${reviewFileFlag} is not the review ` +
                 `file for iteration ${iteration}. Have the reviewer write its review to ` +
-                `${readFrom.draftRelative}, then record the verdict again.`,
+                `${readFrom.reviewerPath}, then record the verdict again.`,
             );
           }
         }
@@ -4124,7 +4149,7 @@ function handleReview(args: string[]): void {
         if (readError instanceof ReviewRefusal) throw readError;
         refuseReview(
           `Cannot record review for "${flags.stage}": the review file ` +
-            `${reviewFileFlag ?? readFrom.draftRelative} is not a plain readable file ` +
+            `${reviewFileFlag ?? readFrom.reviewerPath} is not a plain readable file ` +
             `(${errorMessage(readError)}).`,
         );
       }
@@ -4150,12 +4175,12 @@ function handleReview(args: string[]): void {
           pendingRequest.retried
             ? `Cannot record review for "${flags.stage}": no review was written for ` +
               `iteration ${iteration} since the request was retried. The retry reopened the review ` +
-              `slot, so dispatch the reviewer to write ${readFrom.draftRelative} again, then record ` +
+              `slot, so dispatch the reviewer to write ${readFrom.reviewerPath} again, then record ` +
               "the verdict; a retried attempt that ends with no review records --verdict NOT-READY " +
               "without one."
             : `Cannot record review for "${flags.stage}": no review was written for ` +
               `iteration ${iteration}. The reviewer writes its review to ` +
-              `${readFrom.draftRelative}; a retried ` +
+              `${readFrom.reviewerPath}; a retried ` +
               "incomplete attempt records --verdict NOT-READY without a review.",
         );
       }
@@ -4463,7 +4488,7 @@ function handleReview(args: string[]): void {
           `Cannot record the verdict for "${flags.stage}": the review record ` +
             `would be ${recordBytes} bytes, over the ${REVIEW_RECORD_MAX_BYTES}-byte ` +
             `limit readers accept. Shorten the review file ` +
-            `${reviewFileFlag ?? readFrom.draftRelative} and record the verdict again.`,
+            `${reviewFileFlag ?? readFrom.reviewerPath} and record the verdict again.`,
         );
       }
       try {
