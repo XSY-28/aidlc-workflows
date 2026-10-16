@@ -330,31 +330,79 @@ export interface CopilotTurnOptions {
   /** Where Copilot writes the session's token usage. */
   usageFile?: string;
   timeoutMs?: number;
+  /** Print the turn as JSON events (one per line), which `copilotToolResults` reads. */
+  json?: boolean;
+  /**
+   * Hand the line over on stdin, not as `-p <line>`: no shell or launcher sees
+   * it, so it arrives as typed. On Windows the CLI is an npm `.cmd` launcher,
+   * and Bun refuses an argument with a double quote for one.
+   */
+  stdin?: boolean;
+}
+
+/** The argv and stdin of one Copilot CLI turn for `line`. */
+export function copilotTurnCommand(line: string, options: CopilotTurnOptions): { argv: string[]; input?: string } {
+  return {
+    argv: [
+      ...(options.stdin ? [] : ["-p", line]), "-s", "--no-remote", "--allow-all-tools",
+      ...(options.resume ? ["--resume", options.sessionId] : ["--session-id", options.sessionId]),
+      ...(options.usageFile ? ["--usage-output-file", options.usageFile] : []),
+      ...(options.json ? ["--output-format", "json"] : []),
+    ],
+    ...(options.stdin ? { input: line } : {}),
+  };
 }
 
 // One person turn in a named Copilot CLI session: the typed line rides the
 // prompt as it is (`/aidlc ...` or a reply), so AI-DLC's hooks see what the
 // person typed. --allow-all-tools as in runCopilot.
 export function copilotTurn(proj: string, line: string, options: CopilotTurnOptions): ExecResult {
+  const { argv, input } = copilotTurnCommand(line, options);
   const result = spawnSync(
     COPILOT_BIN,
-    [
-      "-p", line, "-s", "--no-remote", "--allow-all-tools",
-      ...(options.resume ? ["--resume", options.sessionId] : ["--session-id", options.sessionId]),
-      ...(options.usageFile ? ["--usage-output-file", options.usageFile] : []),
-    ],
+    argv,
     {
       cwd: proj,
       encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
+      ...(input === undefined ? { stdio: ["ignore", "pipe", "pipe"] as const } : { input, stdio: ["pipe", "pipe", "pipe"] as const }),
       env: { ...process.env, PWD: proj, COPILOT_HOME: options.copilotHome },
       timeout: remainingOperationTimeoutMs(options.timeoutMs ?? TEST_TIMEOUT_MS, { phase: "Copilot turn" }),
+      // A JSON turn prints an event per streamed token: several MB for one stage.
+      maxBuffer: 64 * 1024 * 1024,
     },
   );
   return {
     rc: result.status ?? -1,
-    out: `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+    out: `${result.stdout ?? ""}\n${result.stderr ?? ""}${result.error ? `\n${result.error.message}` : ""}`,
   };
+}
+
+/**
+ * The shell commands of one `copilot --output-format json` turn (its `bash`
+ * tool, `powershell` on Windows), in the shape the SDK drive captures tool calls.
+ */
+export function copilotToolResults(stdout: string): CapturedToolResult[] {
+  const commands = new Map<string, string>();
+  const results: CapturedToolResult[] = [];
+  for (const line of stdout.split("\n")) {
+    if (!line.startsWith("{")) continue;
+    let event: { type?: unknown; data?: { toolCallId?: unknown; arguments?: { command?: unknown }; success?: unknown; result?: { content?: unknown } } };
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const id = String(event.data?.toolCallId ?? "");
+    if (event.type === "tool.execution_start" && typeof event.data?.arguments?.command === "string") {
+      commands.set(id, event.data.arguments.command);
+    } else if (event.type === "tool.execution_complete" && commands.has(id)) {
+      results.push({
+        toolName: "Bash", input: { command: commands.get(id)! }, toolUseId: id,
+        resultText: String(event.data?.result?.content ?? ""), isError: event.data?.success === false,
+      });
+    }
+  }
+  return results;
 }
 
 export interface OpencodeProject {
@@ -373,6 +421,61 @@ export function setupOpencodeProject(): OpencodeProject {
   cpSync(OPENCODE_DIST, proj, { recursive: true });
   initializeGit(proj);
   return { proj, root };
+}
+
+/**
+ * The argv of one `opencode run` turn for a line the person typed: `/aidlc ...`
+ * runs the shipped command with the words after it, any other line goes to the
+ * session as it is. Each word is its own argument: `opencode run` quotes an
+ * argument that holds a space, so a whole line would arrive in quotation marks.
+ */
+export function opencodeRunArgs(line: string, sessionId?: string): string[] {
+  const command = /^\/aidlc(?:\s|$)/.test(line);
+  const words = (command ? line.replace(/^\/aidlc\s*/, "") : line).split(/\s+/).filter(Boolean);
+  return [
+    "run", ...(sessionId ? ["-s", sessionId] : []), ...(command ? ["--command", "aidlc"] : []),
+    "-m", OPENCODE_MODEL, "--format", "json", ...(words.length ? ["--", ...words] : []),
+  ];
+}
+
+/** The session and tool calls of one `opencode run --format json` turn, in the shape the SDK drive captures tool calls. */
+export function opencodeToolResults(stdout: string): { sessionId?: string; results: CapturedToolResult[] } {
+  let sessionId: string | undefined;
+  const results: CapturedToolResult[] = [];
+  for (const line of stdout.split("\n")) {
+    if (!line.startsWith("{")) continue;
+    let event: { type?: unknown; sessionID?: unknown; part?: { tool?: unknown; callID?: unknown; state?: { status?: unknown; input?: Record<string, unknown>; output?: unknown; error?: unknown } } };
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (sessionId === undefined && typeof event.sessionID === "string") sessionId = event.sessionID;
+    const state = event.part?.state;
+    if (event.type !== "tool_use" || !state) continue;
+    results.push({
+      toolName: event.part?.tool === "bash" ? "Bash" : String(event.part?.tool), input: state.input ?? {},
+      toolUseId: String(event.part?.callID ?? ""), resultText: String(state.output ?? state.error ?? ""), isError: state.status === "error",
+    });
+  }
+  return { sessionId, results };
+}
+
+/** One person turn as `opencode run --format json`: a new session, or `sessionId` continued. */
+export function opencodeTurn(proj: string, line: string, options: { sessionId?: string; timeoutMs?: number } = {}): ExecResult & { stdout: string } {
+  const result = spawnSync(OPENCODE_BIN, opencodeRunArgs(line, options.sessionId), {
+    cwd: proj,
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, PWD: proj },
+    timeout: remainingOperationTimeoutMs(options.timeoutMs ?? TEST_TIMEOUT_MS, { phase: "opencode turn" }),
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return {
+    rc: result.status ?? -1,
+    stdout: result.stdout ?? "",
+    out: `${result.stdout ?? ""}\n${result.stderr ?? ""}${result.error ? `\n${result.error.message}` : ""}`,
+  };
 }
 
 // `--command aidlc` invokes the shipped .opencode/command/aidlc.md; the

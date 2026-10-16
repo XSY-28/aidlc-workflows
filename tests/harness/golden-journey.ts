@@ -93,6 +93,11 @@ export interface GoldenJourney {
    * must come first there; it counts as asked once.
    */
   newSessionAtPlan?: string;
+  /**
+   * The person's first reply to this stage's approval asks for this change
+   * instead; the gate offered again after the revision counts as asked once.
+   */
+  changeRequest?: { stage: string; words: string };
 }
 
 export interface GoldenRun {
@@ -163,20 +168,29 @@ function stageAwaitingApproval(proj: string): string | undefined {
   return /^- \[\?\] (\S+)/m.exec(readStateFile(proj) ?? "")?.[1];
 }
 
-/** The engine's last step handed to the agent, read from the agent's own Bash results. */
+/**
+ * The engine's last step handed to the agent, read from the agent's own Bash
+ * results. A print after it changes nothing waiting for the person (the
+ * engine's "Nothing was started: the person has not answered the plan question
+ * yet" to an agent that ran ahead), so the step before it counts; a print alone
+ * is the last step.
+ */
 function lastEngineStep(results: readonly CapturedToolResult[]): Record<string, unknown> | undefined {
+  let print: Record<string, unknown> | undefined;
   for (let i = results.length - 1; i >= 0; i--) {
     const t = results[i];
     const command = typeof t.input.command === "string" ? t.input.command : "";
     // The engine's own steps also tell the agent to run aidlc-orchestrate.ts (the plan offer's `next --propose`).
     if (t.toolName !== "Bash" || !/engine orchestrate|aidlc-orchestrate\.ts/.test(command)) continue;
     try {
-      return parseDirectiveOutput(t.resultText).directive as unknown as Record<string, unknown>;
+      const step = parseDirectiveOutput(t.resultText).directive as unknown as Record<string, unknown>;
+      if (step.kind !== "print") return step;
+      print ??= step;
     } catch {
       // Not a directive (a refusal or a print): look further back.
     }
   }
-  return undefined;
+  return print;
 }
 
 /** The plain choice at an approval, a mode, a summary or a learnings question. */
@@ -213,6 +227,7 @@ export class GoldenPerson {
   private lastKey = "";
   private left: string | undefined;
   private leftOnce = false;
+  private changed = false;
 
   constructor(private readonly j: GoldenJourney) {
     this.start = auditRows(j.proj).length;
@@ -352,6 +367,13 @@ export class GoldenPerson {
     const waiting = stageAwaitingApproval(this.j.proj);
     if (waiting) {
       this.reach(`approval | ${waiting}`, `the ${waiting} approval`);
+      const change = this.j.changeRequest;
+      if (change?.stage === waiting && !this.changed) {
+        this.changed = true;
+        this.reached.delete(`approval | ${waiting}`);
+        this.said.push(`typed ${JSON.stringify(change.words)} for the ${waiting} approval`);
+        return change.words;
+      }
       this.said.push(`typed "Approve" for the ${waiting} approval`);
       return "Approve";
     }
@@ -433,8 +455,17 @@ export function goldenPathProblems(j: GoldenJourney, run: GoldenRun): string[] {
   for (const r of rows.filter((r) => r.event === "STAGE_AWAITING_APPROVAL")) {
     if (!approvals.has(stageField(r)) && through.includes(stageField(r))) problems.push(`${stageField(r)} waited for approval and was never approved`);
   }
+  const change = j.changeRequest;
   for (const event of ["GATE_REJECTED", "STAGE_REVISING"]) {
-    if (count(event) > 0) problems.push(`${event} recorded ${count(event)} times; the person never asked for changes`);
+    const at = rows.filter((r) => r.event === event);
+    if (!change && at.length > 0) problems.push(`${event} recorded ${at.length} times; the person never asked for changes`);
+    if (change && (at.length !== 1 || stageField(at[0]) !== change.stage)) {
+      problems.push(`${event} recorded ${at.length} times; the person asked for one change, at ${change.stage}`);
+    }
+  }
+  const rejected = change && rows.find((r) => r.event === "GATE_REJECTED" && stageField(r) === change.stage);
+  if (change && rejected && !(auditBlockField(rejected.block, "Feedback") ?? "").includes(change.words)) {
+    problems.push(`the change the person asked for at ${change.stage} is not on the record in their words`);
   }
 
   // The plan: asked once and approved once where the scope asks, never otherwise.
