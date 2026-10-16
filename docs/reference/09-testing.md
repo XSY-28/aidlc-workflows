@@ -304,8 +304,8 @@ the day, picks the work up from a fresh clone (the folder left with only what a
 clone holds, the first clone's audit shard sorting last), and carries on in a
 second chat with `/aidlc --resume`. The journey checks what the scope runs
 check, plus two audit shards, two chats, each Unit's checkpoint asked once, and
-no detour the person should not meet; a known one is listed in
-`KNOWN_JOURNEY_DETOURS` with a `test.todo` named after it. CI runs them as their
+no detour the person should not meet (such as being told to resume work they
+just picked up). CI runs them as their
 own integration job (`scope-hosts`): Linux on pull requests and in the merge
 queue, and Linux, macOS and Windows in the nightly Full Suite (its `scope_runs`
 job) and in a `full_verification` Full Suite.
@@ -1744,7 +1744,10 @@ The declared coverage is:
   is what a person does on day one: set up through the copy channel, doctor, the
   documented first step, the plan question, and Reverse Engineering approved, with a
   message record for every line typed; a second case leaves the folder untrusted
-  and requires doctor to name the trust fix.
+  and requires doctor to name the trust fix. Codex's golden journey
+  (`tests/e2e/t-exec-codex-journey-golden-bugfix.serial.test.ts`, Linux and
+  Windows) fixes the same greeter from the first line to Code Generation approved,
+  with the plan question left for the day and approved in a new session.
 - Kiro ACP, TUI and IDE are declared exclusions pending a dedicated isolated
   Windows desktop host; local live runs remain their coverage path.
 - Cursor is excluded: no credential separation is available because its vendor
@@ -1757,8 +1760,9 @@ linux`, `--matrix macos` and `--matrix windows` as the dynamic matrices of the
 `live_linux`, `live_macos` and `live_windows` jobs. Each row's `shard: N/M`
 selects a duration-balanced group for its family/platform. Each OS has two Claude
 SDK (five on Linux, which alone runs the golden journeys and the answers corpus,
-the corpus on a shard of its own), three Claude TUI, one Codex, one Copilot and one
-opencode shard: 27 live harness jobs in all. Timing weights in
+the corpus on a shard of its own), three Claude TUI, one Codex (two on Linux and
+Windows, where the Codex golden journey runs), one Copilot and one opencode shard:
+29 live harness jobs in all. Timing weights in
 `tests/live-shard-weights.json` are scheduling hints;
 discovery still assigns every eligible file exactly once per platform. Each OS
 has its own concurrency cap: four Linux, two macOS and three Windows live jobs.

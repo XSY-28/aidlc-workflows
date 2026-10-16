@@ -427,7 +427,12 @@ export interface HookActivation {
 
 interface ShippedHarnessData {
   rulesSubdir: string | null;
+  /** The plugins the person selected, as typed; null when there is no selection. */
   plugins: ReadonlySet<string> | null;
+  /** Selected plugins paused because their base is off, each with its base. */
+  paused: ReadonlyMap<string, string>;
+  /** The plugins that run: the selection less the paused ones. */
+  active: ReadonlySet<string> | null;
   documentExtractors: ReadonlyMap<string, DocumentExtractorSpec> | null;
   runnerFrontmatterAdditions: readonly string[];
   hookActivation: HookActivation | null;
@@ -619,9 +624,14 @@ function readShippedHarnessData(): ShippedHarnessData {
         finish.every((name) => typeof name === "string" && name !== "")
       ? [...finish as string[]]
       : null;
+    const paused = pausedBySelection(plugins, (plugin) => composedPluginBase(dirname(p), plugin));
     _shippedHarnessData = {
       rulesSubdir,
       plugins,
+      paused,
+      active: plugins === null || paused.size === 0
+        ? plugins
+        : new Set([...plugins].filter((plugin) => !paused.has(plugin))),
       documentExtractors,
       runnerFrontmatterAdditions,
       hookActivation,
@@ -635,6 +645,8 @@ function readShippedHarnessData(): ShippedHarnessData {
   _shippedHarnessData = {
     rulesSubdir: null,
     plugins: null,
+    paused: new Map(),
+    active: null,
     documentExtractors: null,
     runnerFrontmatterAdditions: [],
     hookActivation: null,
@@ -678,8 +690,59 @@ export function documentExtractors(): ReadonlyMap<string, DocumentExtractorSpec>
   return readShippedHarnessData().documentExtractors;
 }
 
+/** The plugins that run: the person's selection less the plugins paused
+ *  because their base is off. Null when there is no selection (all run). */
 export function pluginsEnabled(): ReadonlySet<string> | null {
+  return readShippedHarnessData().active;
+}
+
+/** The person's selection exactly as they typed it, for showing it back. */
+export function pluginsSelected(): ReadonlySet<string> | null {
   return readShippedHarnessData().plugins;
+}
+
+/** Selected plugins paused because their base is off, each with its base. */
+export function pausedPlugins(): ReadonlyMap<string, string> {
+  return readShippedHarnessData().paused;
+}
+
+// A plugin builds on core and at most one base plugin. When the person's
+// selection keeps a plugin but leaves its base out, that plugin stays in their
+// list and is paused: nothing it adds runs until the base is on again. The one
+// owner of that rule; the base comes from the plugin's composition stamp,
+// which plugin sync writes.
+export function pausedBySelection(
+  selection: ReadonlySet<string> | null,
+  baseOf: (plugin: string) => string | null,
+): Map<string, string> {
+  const paused = new Map<string, string>();
+  if (selection === null) return paused;
+  for (const plugin of [...selection].sort()) {
+    if (plugin === "aidlc") continue;
+    const base = baseOf(plugin);
+    if (base !== null && !selection.has(base)) paused.set(plugin, base);
+  }
+  return paused;
+}
+
+/** The one line a selection change says, once, when it pauses `plugin`;
+ *  `offCommand` turns the plugin off as well, or null when no list is left. */
+export function pausedLine(plugin: string, base: string, offCommand: string | null): string {
+  return `${base} is off. ${plugin} builds on ${base}, so ${plugin} is paused until ${base} is on again. ` +
+    (offCommand === null
+      ? `To turn ${plugin} off as well, select the plugins you want on.`
+      : `To turn ${plugin} off as well: ${offCommand}.`);
+}
+
+/** The base a composed plugin builds on, from its stamp in `dataDir`. */
+export function composedPluginBase(dataDir: string, plugin: string): string | null {
+  if (!/^[a-z][a-z0-9-]*$/.test(plugin)) return null;
+  try {
+    const base = (JSON.parse(readFileSync(join(dataDir, `plugin-compose-${plugin}.json`), "utf-8")) as { base?: unknown }).base;
+    return typeof base === "string" && /^[a-z][a-z0-9-]*$/.test(base) ? base : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -4578,18 +4641,49 @@ export function workToPickUp(
 ): Array<{ intent: IntentInfo; state: string }> | null {
   const recorded = listIntents(projectDir, space, selectedIntent).filter((intent) => !isArchivedIntent(intent));
   if (recorded.length === 0 || recorded.some((intent) => intent.active)) return null;
-  const unfinished = recorded.map((intent) => {
-    let state = "";
-    if (intent.dirName) {
-      try {
-        state = readFileSync(stateFilePath(projectDir, intent.dirName, space), "utf-8");
-      } catch {
-        // Registry-only or incomplete record: leave unannotated.
-      }
-    }
-    return { intent, state };
-  }).filter(({ intent, state }) => !isCompletedIntent(intent) && getField(state, "Status") !== "Completed");
+  const unfinished = recorded.map((intent) => ({ intent, state: recordStateText(projectDir, intent, space) }))
+    .filter(({ intent, state }) => !isFinishedWork(intent, state));
   return unfinished.some(({ intent }) => intent.dirName) ? unfinished : null;
+}
+
+/**
+ * The finished work in `space` whose record is in this checkout, archived work
+ * left out: what words on finished work may ask to go back to. The same
+ * finished test as `workToPickUp`, which leaves this work out.
+ */
+export function finishedWork(projectDir: string, space: string, selectedIntent: string | null): IntentInfo[] {
+  return listIntents(projectDir, space, selectedIntent)
+    .filter((intent) => intent.dirName !== null && !isArchivedIntent(intent))
+    .filter((intent) => isFinishedWork(intent, recordStateText(projectDir, intent, space)));
+}
+
+/**
+ * Where a piece of work stands, in the stage names the person sees: "at
+ * <stage>", or "in <Phase>" for work going Unit by Unit, whose Current Stage
+ * stays on the first per-Unit stage while each Unit works through the later
+ * ones. Empty when the state names no known stage.
+ */
+export function workStanding(state: string): string {
+  const stage = findStageBySlug((getField(state, "Current Stage") ?? "").trim());
+  if (!stage) return "";
+  const unitByUnit = isPerUnitStage(stage) && getField(state, "Construction Iteration")?.trim() === "unit-major";
+  return unitByUnit ? `in ${stage.phase.charAt(0).toUpperCase()}${stage.phase.slice(1)}` : `at ${stage.name}`;
+}
+
+// Either signal marks work finished: the registry row, or the state file a
+// finalize completed.
+function isFinishedWork(intent: IntentInfo, state: string): boolean {
+  return isCompletedIntent(intent) || getField(state, "Status") === "Completed";
+}
+
+function recordStateText(projectDir: string, intent: IntentInfo, space: string): string {
+  if (!intent.dirName) return "";
+  try {
+    return readFileSync(stateFilePath(projectDir, intent.dirName, space), "utf-8");
+  } catch {
+    // Registry-only or incomplete record: leave unannotated.
+    return "";
+  }
 }
 
 export function listIntents(
@@ -10802,7 +10896,9 @@ const GUARD_REMEDY_ANSWER_ROUTES: Record<GuardRemedyOp, GuardRemedyAnswerPhases 
   "abort-bolt": null,
   "record-unit-completion": null,
   // The conductor's own work only, as present-findings-at-gate.
+  "finish-unit-step": null,
   "dispatch-pipeline-links": null,
+  "produce-stage-output": null,
   "repair-source-boundary": { afterPick: reviewRoute },
   // Present the summary (its prompt checkpoint) on the pick; record the
   // confirmation once the person gave it.
@@ -11859,10 +11955,13 @@ export function consumeCopilotConversation(
 ): boolean {
   return transactActiveDirective(projectDir, (marker, target) => {
     const context = activeDirectiveContext(target, stateContent);
+    // The stage's work recorded through `aidlc log` (markStageWorkLogged)
+    // leaves the engine mark, not an engine sequence: it is engagement here too.
     if (
       marker?.version !== 2 || marker.owner_session !== sessionId || marker.state_sha256 !== context.stateSha256 ||
       (marker.human_sequence ?? 0) <= (marker.engine_sequence ?? 0) ||
-      (marker.human_sequence ?? 0) <= (marker.conversation_sequence ?? 0)
+      (marker.human_sequence ?? 0) <= (marker.conversation_sequence ?? 0) ||
+      engineMarkedSincePersonSpoke(projectDir)
     ) return { marker, result: false, preserve: true };
     return {
       marker: {
@@ -13080,6 +13179,16 @@ export function readVerificationCommandFile(projectDir: string, file: string): V
  *  without passing through any shell (bash, PowerShell, or cmd.exe). */
 export const ANSWER_TEXT_DIR = ".aidlc-engine/answer-text";
 const ANSWER_TEXT_MAX_BYTES = 64 * 1024;
+
+/** The folder in a piece of work's record where the agent writes a stage's
+ *  learnings picks for `learnings persist --selections-json` (#1592): one file
+ *  per stage, the path `learnings surface` returns, the only one persist reads. */
+export const LEARNINGS_SELECTIONS_DIR = `${ENGINE_DIR}/learnings`;
+
+/** The record folders the agent may write while Plan Approval waits: text only
+ *  the engine reads (answer text, learnings picks), never a planning authority
+ *  file. The plan-approval guard and every adapter that mirrors it read this. */
+export const ENGINE_TEXT_DIRS: readonly string[] = [ANSWER_TEXT_DIR, LEARNINGS_SELECTIONS_DIR];
 
 /** The project folder where a person's request for `next --request-file` is
  *  written, so the words reach the engine without passing through any shell.
@@ -19657,6 +19766,8 @@ export interface ReviewAttemptAccounting {
       // The request row names its own review file (rows recorded before
       // per-request review files do not).
       ownReviewFile: boolean;
+      // Admitted past the pass budget because the person asked (Person Asked).
+      personAsked: boolean;
     }
   >;
   recoveryIteration: number | null;
@@ -19964,6 +20075,7 @@ export function reviewAttemptAccounting(
       binding: ReviewRequestBinding | null;
       retried: boolean;
       ownReviewFile: boolean;
+      personAsked: boolean;
     }
   >();
   for (let i = floor + 1; i < events.length; i++) {
@@ -20023,6 +20135,7 @@ export function reviewAttemptAccounting(
             (auditBlockField(entry.block, "Retry") === "pending-request" &&
               modernBinding)),
         ownReviewFile: auditBlockField(entry.block, "Review File") !== null,
+        personAsked: auditBlockField(entry.block, "Person Asked") === "true",
       });
     } else {
       const pending = pendingRequests.get(iteration);
@@ -27941,8 +28054,9 @@ export function stopHookDir(projectDir: string, intent?: string, space?: string)
 //   .aidlc-engine/human-turn   - touched by the UserPromptSubmit mint, once per human
 //                         prompt, alongside the HUMAN_TURN ledger event.
 //   .aidlc-engine/engine-touch - touched by aidlc-orchestrate on every ADVANCING
-//                         invocation (`next` / `report` / `park`), and by
-//                         `intent create` for the work it creates.
+//                         invocation (`next` / `report` / `park`), by
+//                         `intent create` for the work it creates, and by a
+//                         `log answer|review|link` the logger counts as stage work.
 //
 //   conversational  <=>  mtime(.aidlc-engine/human-turn) > mtime(.aidlc-engine/engine-touch)
 //
@@ -28130,19 +28244,21 @@ export function turnEndIsOpen(projectDir: string, intent?: string, space?: strin
 
 // Record that the workflow engine was ADVANCED (not merely probed). Called from
 // orchestrate's `next` / `report` / `park`, from `intent create` for the work it
-// creates, and from the intent and space switches for the work they select (a
+// creates, from the intent and space switches for the work they select (a
 // record with no mark, made before the markers shipped or freshly cloned, would
 // otherwise read every later plain question as the engine's unfinished turn on
-// the transcript-free hosts). A no-op in three cases: when STOP_HOOK_PROBE_ENV
-// is set (the Stop hook's own probe, see above), for read-only utility routing
-// (excluded at the call site), and before creation.
+// the transcript-free hosts), and through markStageWorkLogged (below) from a
+// `log answer` / `log review` / `log link` the logger counts as stage work. A no-op in
+// three cases: when STOP_HOOK_PROBE_ENV is set (the Stop hook's own probe, see
+// above), for read-only utility routing (excluded at the call site), and
+// before creation.
 //
 // KNOWN COVERAGE GAP — the marker sees LESS than the transcript predicate does.
 // isEngineToolCall (below) counts as engagement any non-read-only aidlc-jump /
 // aidlc-bolt / aidlc-swarm invocation and the mutating aidlc-state verbs
 // (approve, advance, skip, set, …). NONE of those tools touch this marker: the
-// only writers are orchestrate's three subcommands, intent create and the two
-// switches. So on a transcript-free
+// only writers are orchestrate's three subcommands, intent create, the two
+// switches and the stage-work log verbs. So on a transcript-free
 // harness a conductor that runs, say, `aidlc-jump` — mutating the stage pointer
 // and emitting audit — and then ends its turn without consulting the engine
 // reads as CONVERSATIONAL here, while the same turn BLOCKS on Claude/Codex where
@@ -28161,6 +28277,85 @@ export function markEngineTouch(projectDir: string, intent?: string, space?: str
   if (!workflowIsCreated(projectDir, intent, space)) return;
   touchTurnMarker(projectDir, "engine-touch", intent, space);
 }
+
+// --- Stage work recorded through `aidlc log` (the conversational carve-out) ---
+//
+// A turn that answers the stage's questions, requests its review and records
+// the verdict does all of it through `log answer` / `log review` (and a
+// pipeline stage's `log link`), with no `next` or `report`. Such a turn is the
+// stage's work in flight, not chat: one that ends before the gate is a bail
+// mid-stage, and the carve-out must not release it (#2400). aidlc-log is the
+// one owner of that call: after a row it recorded it leaves the engine mark
+// (markStageWorkLogged), or the turn-end mark when the person answers next
+// (an answer whose reply also asked something, `--ends-turn`; a summary's
+// Request changes with nothing said, which asks "What should change?"; and
+// the learnings question's Add a note), or no mark for a review of a stage
+// no longer in flight. Both evidence paths read that mark, kept here rather
+// than in isEngineEngagementSegment, which also feeds the forwarding-loop and
+// runtime-compile detectors:
+//
+//   - marker path (Kiro IDE, Kiro CLI, opencode): the engine mark itself;
+//   - transcript path (Claude Code, Codex): a call isStageWorkLogCall names,
+//     whose own correlated result shows the `emitted` row it recorded, with
+//     the engine mark newer than the person's turn (stageWorkLogged).
+//
+// A refusal recorded nothing, and several tell the agent to end its turn, so
+// the stop stays allowed. Not counted either: `log decision` (a logged
+// question waits on the person, which the pending-decision carve-out lets end
+// the turn), `log answers` (a read), and the Plan Approval and guard-recovery
+// answers, which record through their own owners (recordPlanApprovalAnswer,
+// recordGuardRecoveryChoice) and print `recorded`, not `emitted`: several of
+// them end the turn (I'll edit the files, Request Changes, a park).
+const STAGE_WORK_LOG_VERBS: ReadonlySet<string> = new Set(["answer", "review", "link"]);
+
+// Marker path: the engine mark for a `log` subcommand that recorded the stage's work.
+export function markStageWorkLogged(verb: string | undefined, projectDir: string, intent?: string, space?: string): void {
+  if (verb === undefined || !STAGE_WORK_LOG_VERBS.has(verb)) return;
+  markEngineTouch(projectDir, intent, space);
+}
+
+// Transcript path, the call: a shell command that runs one of the verbs, in
+// the native (`aidlc engine log review`), source-dispatcher (`bun
+// <harness>/tools/aidlc.ts engine log review`) or legacy (`aidlc-log.ts
+// review`) spelling.
+export function isStageWorkLogCall(name: string, input: unknown): boolean {
+  if (!isShellToolName(name)) return false;
+  const text = shellCommandText(input);
+  if (text === null) return false;
+  const verbs = canonicalEngineCommand(text)
+    .matchAll(/(?:\baidlc[ \t]+(?:engine[ \t]+)?log|\baidlc-log(?:\.ts)?["']?)[ \t]+([a-z-]+)/g);
+  for (const match of verbs) if (STAGE_WORK_LOG_VERBS.has(match[1] as string)) return true;
+  return false;
+}
+
+// Transcript path, the result: the call's output carries the `emitted` row it
+// recorded (a refusal, a skip and a print-only answer carry none), and the
+// logger left the engine mark after the person's last turn, which it does only
+// for the stage's work. The output is the text a transcript keeps (a string, a
+// Codex JSON string, or Claude text parts). Any unreadable mark is no evidence.
+export function stageWorkLogged(output: unknown, projectDir: string): boolean {
+  const text = typeof output === "string"
+    ? output
+    : Array.isArray(output)
+      ? output.map((part) => isPlainObject(part) && typeof part.text === "string" ? part.text : "").join("\n")
+      : "";
+  if (!/\\?"emitted\\?"\s*:\s*\\?"[A-Z][A-Z_]*\\?"/.test(text)) return false;
+  return engineMarkedSincePersonSpoke(projectDir);
+}
+
+// The engine mark is newer than the person's turn: the copilot path reads it
+// beside its own sequences, which a `log` call does not advance. Any
+// unreadable mark is no evidence.
+export function engineMarkedSincePersonSpoke(projectDir: string): boolean {
+  try {
+    const human = turnMarkerStat(projectDir, "human-turn");
+    const engine = turnMarkerStat(projectDir, "engine-touch");
+    return human?.isFile() === true && engine?.isFile() === true && engine.mtimeMs > human.mtimeMs;
+  } catch {
+    return false;
+  }
+}
+
 
 // The engine mark for the work an intent or space switch selects. Written only
 // when the record has none (work made before the markers shipped, or a fresh
@@ -31325,8 +31520,13 @@ export const GUARD_REMEDY_OPS = [
   // Record a Unit's missing UNIT_COMPLETED receipt from the artifacts already
   // on disk, when the gate needs it and the Unit's work is done.
   "record-unit-completion",
+  // record-unit-completion's finish as the conductor's own step: the review cap
+  // refused a pass nobody asked for part way through a Unit's step.
+  "finish-unit-step",
   // Dispatch the pipeline links the stage has not recorded, and record each.
   "dispatch-pipeline-links",
+  // Write the outputs or the code a stage was reported without.
+  "produce-stage-output",
   "repair-source-boundary",
   "reconfirm-summary",
   "unset-unattended",
@@ -31396,7 +31596,8 @@ export interface GuardAttemptState {
   requestReview?: string;
   summaryCoverage: "current" | "stale" | "missing";
   reviewCoverage: "current" | "stale" | "missing";
-  sourceCoverage: "current" | "stale" | "missing" | "unbindable";
+  // "unreadable": this machine could not read the source to compare it.
+  sourceCoverage: "current" | "stale" | "missing" | "unbindable" | "unreadable";
 }
 
 export interface GuardHumanAuthorityState {
@@ -31757,6 +31958,16 @@ export function requestChangesReportCommand(projectDir: string, stage: string, u
   );
 }
 
+// The report that shows a stage's approval gate, rendered for this checkout:
+// `awaiting-approval` the first time (and again while it is open), `revised`
+// after a revision.
+export function stageGateReportCommand(stage: string, result: "awaiting-approval" | "revised"): string {
+  return renderEngineInvocation(
+    { route: "orchestrate", args: ["report", "--stage", stage, "--result", result] },
+    { harnessDir: harnessDir() },
+  );
+}
+
 // The scopes whose plan runs this stage, for a remedy that switches to one.
 function scopesRunningStage(slug: string): string[] {
   try {
@@ -32050,6 +32261,19 @@ export function evaluateGuardRefusal(
         executableNow: openForWork || state === "revising",
       });
     }
+    // The stage was reported before its outputs or its code exist: writing
+    // them is the conductor's own step, which the refusal's sentence names.
+    // No review or reset produces them.
+    const missingOutput = input.code === "REQUIRED_ARTIFACTS_MISSING" ||
+      input.code === "REQUIRED_SOURCE_WORK_MISSING";
+    if (missingOutput) {
+      remedies.push({
+        op: "produce-stage-output",
+        action: input.userMessage,
+        requiresHuman: false,
+        executableNow: openForWork || state === "revising",
+      });
+    }
     if (input.attempt.pendingReview) {
       if (
         input.attempt.pendingReview.verdictRecordable !== false &&
@@ -32138,7 +32362,14 @@ export function evaluateGuardRefusal(
       ? unitStepInProgress(input)
       : null;
     if (midStep !== null) {
-      remedies.push(finishUnitStepRemedy(input.stage, midStep), reopenUnitStepRemedy(input.stage, midStep));
+      const finish = finishUnitStepRemedy(input.stage, midStep);
+      // The cap refused a pass nobody asked for, as at a gate below: finishing
+      // the step with the review it has is the conductor's own step. A repeat
+      // still offers the person both.
+      if (input.code === "REVIEW_BUDGET_EXHAUSTED") {
+        remedies.push({ op: "finish-unit-step", action: finish.action, requiresHuman: false, executableNow: true });
+      }
+      remedies.push(finish, reopenUnitStepRemedy(input.stage, midStep));
     } else if (
       !reviewBudgetAvailable &&
       input.attempt.reviewCoverage === "current" &&
@@ -32183,16 +32414,20 @@ export function evaluateGuardRefusal(
       !input.attempt.pendingReview &&
       !input.attempt.repairReview &&
       !input.attempt.nextReview;
+    // The source changed after a review that still stands for the output: the
+    // one recovery review clears it, as it clears a changed output.
+    const sourceRecovery = input.code === "SOURCE_REVIEW_STALE" && input.attempt.sourceCoverage === "stale";
     if (
       input.attempt.recovery === "available" &&
-      input.attempt.reviewCoverage === "stale" &&
+      (input.attempt.reviewCoverage === "stale" || sourceRecovery) &&
       noReviewInFlight
     ) {
       remedies.push({
         op: "start-recovery-review",
-        action:
-          "Start the one stale-review recovery review against the current " +
-          "artifact and source state.",
+        action: reviewRequestAction(
+          "Start the one stale-review recovery review against the current artifact and source state",
+          input.attempt.requestReview,
+        ),
         requiresHuman: false,
         executableNow: input.attempt.summaryCoverage === "current" && openForWork,
       });
@@ -32200,7 +32435,8 @@ export function evaluateGuardRefusal(
       reviewBudgetAvailable &&
       input.attempt.reviewCoverage === "missing" &&
       noReviewInFlight &&
-      !pipelineLinks
+      !pipelineLinks &&
+      !missingOutput
     ) {
       remedies.push({
         op: "request-review",
@@ -32496,11 +32732,13 @@ export function guardAttemptState(
     sourceCoverage:
       receipts?.sourceStaleReason === "boundary-unbindable"
         ? "unbindable"
-        : receipts?.sourceStale
-          ? "stale"
-          : receipts?.newestSourceFingerprint
-            ? "current"
-            : "missing",
+        : receipts?.sourceStaleReason === "source-unreadable"
+          ? "unreadable"
+          : receipts?.sourceStale
+            ? "stale"
+            : receipts?.newestSourceFingerprint
+              ? "current"
+              : "missing",
   };
   return {
     attempt,
@@ -38255,6 +38493,24 @@ export function isKiroConductorAgentFile(name: string): boolean {
   return KIRO_CONDUCTOR_AGENT_FILES.includes(basename(name));
 }
 
+// A reviewer copy one review request writes on Kiro (kiro-ide) when the
+// reviewer read-scope preview feature is on (aidlc-kiro-review-copy.ts): the
+// installed reviewer with that review's read scope added, named from the
+// request id so the name stands for that one request. It is the reviewer under
+// another name, never a persona of its own.
+const SCOPED_REVIEW_COPY_RE = /^aidlc-scoped-review-[0-9a-f]{12}$/;
+
+/** The reviewer copy's agent name for a review request id, or null for an id not minted as `review:<hex>`. */
+export function scopedReviewCopyName(requestId: string): string | null {
+  const m = /^review:([0-9a-f]{12})[0-9a-f]{20}$/.exec(requestId);
+  return m ? `aidlc-scoped-review-${m[1]}` : null;
+}
+
+/** Whether an agent name, or an agent file name, is a reviewer copy's. */
+export function isScopedReviewCopy(name: string): boolean {
+  return SCOPED_REVIEW_COPY_RE.test(basename(name).replace(/\.md$/, ""));
+}
+
 export function isAidlcAgentFile(path: string): boolean {
   return aidlcAgentClaim(path) !== null;
 }
@@ -38274,7 +38530,7 @@ export function loadAgents(): AgentMetadata[] {
     const slugToFile = new Map<string, string>();
     const agents: AgentMetadata[] = [];
     const files = readdirSync(dir)
-      .filter((f) => f.endsWith(".md") && !isKiroConductorAgentFile(f))
+      .filter((f) => f.endsWith(".md") && !isKiroConductorAgentFile(f) && !isScopedReviewCopy(f))
       .sort();
     for (const f of files) {
       const filePath = join(dir, f);
@@ -38455,7 +38711,6 @@ export function parseStageFrontmatter(
     // an empty-string value.
     if (key === "optional_produces") continue;
     if (key === "required_sections") continue;
-    if (key === "cites") continue;
     // The key was discovered at the start of some line, so it IS
     // present. scalarField returns "" for both absent AND empty-quoted
     // ("") — since we know it's present, assign the result
@@ -38501,12 +38756,6 @@ export function parseStageFrontmatter(
   // "required_sections must be array, got string".
   if (topLevelKeys.has("required_sections")) {
     obj.required_sections = listField(fm, "required_sections");
-  }
-
-  // cites is an OPTIONAL array field: absent key -> absent property, so only the
-  // stages that author it carry it through compile.
-  if (topLevelKeys.has("cites")) {
-    obj.cites = listField(fm, "cites");
   }
 
   // reviewer_max_iterations is the one numeric scalar field. The generic
@@ -38810,7 +39059,6 @@ export function emitStageFrontmatter(obj: Record<string, unknown>): string {
     "optional_produces",
     "produces_kinds",
     "consumes",
-    "cites",
     "requires_stage",
     "sensors",
     "scopes",
@@ -38872,6 +39120,9 @@ export function emitStageFrontmatter(obj: Record<string, unknown>): string {
           }
           if (typeof e.conditional_on === "string") {
             lines.push(`    conditional_on: ${emitScalar(e.conditional_on)}`);
+          }
+          if (typeof e.cited === "boolean") {
+            lines.push(`    cited: ${e.cited}`);
           }
         }
       }
@@ -40830,6 +41081,19 @@ export function ceremonyPolicyValues(
   };
 }
 
+// Whether a stage's run lists the learnings ritual: the ceremony is on, and
+// the gate is at its first showing, never again for a revision of it
+// (stage-protocol.md, Request Changes). The run-stage directive and the
+// review verdict's next step both read it here.
+export function learningsRitualRuns(
+  learnings: CeremonyPolicy["learnings"],
+  stateContent: string | null | undefined,
+  slug: string,
+): boolean {
+  if (learnings !== "on") return false;
+  return !stateContent || parseCheckboxes(stateContent).find((row) => row.slug === slug)?.state !== "revising";
+}
+
 // --- Answer mode (stage-protocol.md section 3, Step 2) ---
 //
 // How the person answers a stage's questions: Guide me, I'll edit the file, or
@@ -40841,8 +41105,12 @@ export type AnswerModeChoice = "guide" | "file" | "chat";
 export const ANSWER_MODE_FIELD = "Answer Mode";
 /** The DECISION_RECORDED field naming which of the engine's own questions a row is. */
 export const QUESTION_KIND_FIELD = "Question Kind";
+/** The learnings ritual's "Anything to add?" options (stage-protocol-learnings.md section 13). */
+export const LEARNINGS_NOTE_CHOICES = ["Nothing to add", "Add a note"] as const;
 /** Its value for the mode question, written by the command the step note hands the agent. */
 export const ANSWER_MODE_QUESTION_KIND = "answer-mode";
+/** Its value for the learnings ritual's "Anything to add?", written by the command that module names. */
+export const LEARNINGS_NOTE_QUESTION_KIND = "learnings-note";
 export const ANSWER_MODE_LABELS: Record<AnswerModeChoice, string> = {
   guide: "Guide me",
   file: "I'll edit the file",
@@ -40864,6 +41132,17 @@ export function isAnswerModeDecision(block: string): boolean {
   const offered = (auditBlockField(block, "Options") ?? "").split(",").map(plain).filter((option) => option !== "");
   const labels = Object.values(ANSWER_MODE_LABELS).map(plain);
   return offered.length === labels.length && labels.every((label) => offered.includes(label));
+}
+/**
+ * True when a DECISION_RECORDED block is the learnings ritual's "Anything to
+ * add?": its Question Kind says so. A row recorded before that field existed
+ * is that question when it offers exactly the ritual's two choices.
+ */
+export function isLearningsNoteDecision(block: string): boolean {
+  const kind = auditBlockField(block, QUESTION_KIND_FIELD);
+  if (kind !== null) return kind === LEARNINGS_NOTE_QUESTION_KIND;
+  return (auditBlockField(block, "Options") ?? "").split(",").map((option) => option.trim()).join(",") ===
+    LEARNINGS_NOTE_CHOICES.join(",");
 }
 const ANSWER_MODE_OTHERS: Record<AnswerModeChoice, string> = {
   guide: "edit the file or chat",
@@ -43634,7 +43913,6 @@ export type BoltDagResolution =
       batches: string[][];
       units: string[];
       unitKinds: Map<string, string> | null;
-      healed: boolean;
     }
   | { state: "none" }
   | { state: "malformed"; reason: string; detail: string };
@@ -43709,7 +43987,6 @@ export function resolveBoltDag(
             batches: typedBatches,
             units,
             unitKinds: unitKinds.size > 0 ? unitKinds : null,
-            healed: false,
           };
         }
       }
@@ -43741,7 +44018,6 @@ export function resolveBoltDag(
     batches: parsed.batches,
     units: parsed.batches.flat(),
     unitKinds: unitKinds.size > 0 ? unitKinds : null,
-    healed: true,
   };
   return cached !== null && boltDagMatches(cached, authored) ? cached : authored;
 }

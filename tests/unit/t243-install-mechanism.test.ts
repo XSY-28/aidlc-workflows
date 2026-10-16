@@ -127,6 +127,7 @@ const CLAUDE_RELEASE = join(REPO_ROOT, "dist-release", "claude");
 const CODEX_RELEASE = join(REPO_ROOT, "dist-release", "codex");
 const COPILOT_RELEASE = join(REPO_ROOT, "dist-release", "copilot");
 const CURSOR_RELEASE = join(REPO_ROOT, "dist-release", "cursor");
+const CURSOR_COPY = join(REPO_ROOT, "dist", "cursor");
 const KIRO_IDE_COPY = join(REPO_ROOT, "dist", "kiro-ide");
 const KIRO_IDE_RELEASE = join(REPO_ROOT, "dist-release", "kiro-ide");
 const OPENCODE_RELEASE = join(REPO_ROOT, "dist-release", "opencode");
@@ -3015,12 +3016,14 @@ describe("t243 project initialization", () => {
     mkdirSync(join(project, ".git"));
     const config = join(project, "install.ts");
     writeFileSync(config, "// the project's own install script\n");
+    // The copy runtime is the tree that still writes a whole file (its
+    // installer); native setup leaves it out.
     const initialized = run(INIT, [
       "config",
       "--project-dir",
       project,
       "--from",
-      CURSOR_RELEASE,
+      CURSOR_COPY,
       "--harness",
       "cursor",
       "--force",
@@ -8512,6 +8515,7 @@ describe("t243 projection channel", () => {
           "sha256:a21217e44700aa0d6e703ebb524c4e07a3c4c12f7097d1923034b10b9a6d0549",
           "sha256:6c6ff7641c17829d77fdd023f340b938db11dcc26c734a0c452d5213f9bd19cf",
           "sha256:f9d49a8c823df8174ea7d8a83209380202e5673b5ee8c1ff6b9cce90bcfd550e",
+          "sha256:e7c17271c65f778895fe75352413c03da8a3c37c37bca2b8bcb1c447f4c8b8f3",
         ],
         "AGENTS.md": [
           "sha256:4d539288363565feb6cf1a8d2468d1aca4373d46d354936d89e609f9862b2b9f",
@@ -8614,6 +8618,7 @@ describe("t243 projection channel", () => {
           "sha256:fde31c458f35dc77c83845acdad3d4715a4c87a219f2004fc6c96625c7933d29",
           "sha256:724c2e36547e1eab35a3637595cea3f4bf1ddecf75fb798e0e165932c06cd93e",
           "sha256:b0f5e39317a501be8567bbb0ecbdff651116abc28a500b9c451b732ca8f2e088",
+          "sha256:b87a3ec2c39cb24074c6fa37f626e9d150d435d18069fbd0c762fdbd70719c5c",
         ],
       },
     };

@@ -1225,9 +1225,50 @@ export function autonomyChoiceNote(boltInvocation: string): string {
  * reviewer's file itself and recorded READY, so the person got a review their
  * reviewer never wrote.
  */
-export function reviewRequestNote(reviewer: string, reviewFile: string, recordVerdict: string): string {
-  return `Dispatch ${reviewer} as a subagent and have it write ${reviewFile}: that file is the reviewer's, so never ` +
+export function reviewRequestNote(
+  reviewer: string,
+  reviewFile: string,
+  recordVerdict: string,
+  dispatchAgent: string | null = null,
+): string {
+  // A reviewer copy (Kiro preview) is dispatched by its own name; the brief and
+  // the verdict keep the reviewer's.
+  const dispatch = dispatchAgent === null
+    ? `Dispatch ${reviewer} as a subagent`
+    : `Dispatch ${dispatchAgent} (${reviewer} with this review's read scope; if Kiro has no agent by that name, ` +
+      `dispatch ${reviewer} instead and tell the person in one line that this review runs without the reviewer ` +
+      `read-scope check) as a subagent, name ${reviewer} as the reviewer in the brief,`;
+  return `${dispatch} and have it write ${reviewFile}: that file is the reviewer's, so never ` +
     `write it yourself and never stand in for it. When its verdict is back, record it with \`${recordVerdict}\`.`;
+}
+
+// The step after a stage's verdict is recorded (#2400), as the logger decides
+// it: one branch, with its exact command. A verdict no further pass follows
+// leads into the skill's ordered completion sequence at its next step,
+// stage-completion verification, named here and owned there. What the person
+// wrote comes before it: their branch is `next` alone.
+export type ReviewVerdictStep =
+  | { kind: "person-wrote"; next: string }
+  | { kind: "next-pass"; request: string }
+  | { kind: "learnings" }
+  | { kind: "gate"; report: string; summary: boolean };
+const NO_FURTHER_PASS = "No further review pass follows: run stage-completion verification, then ";
+export function reviewVerdictNote(step: ReviewVerdictStep): string {
+  switch (step.kind) {
+    case "person-wrote":
+      return `The person wrote since the review was requested: run \`${step.next}\` and follow its step together ` +
+        "with what they said; if what they said answers the approval, record it with their words rather than " +
+        "asking again.";
+    case "next-pass":
+      return "Another review pass follows: fix what its findings name (a review that did not finish names nothing " +
+        `to fix), then request the next pass with \`${step.request}\` in this turn.`;
+    case "learnings":
+      return `${NO_FURTHER_PASS}say the completion summary, then run the learnings ritual and ask its question, ` +
+        "which ends the turn. The approval gate comes after their answer.";
+    case "gate":
+      return `${NO_FURTHER_PASS}${step.summary ? "say the completion summary, then " : ""}run ` +
+        `\`${step.report}\`, print the review brief and ask the approval question in this turn.`;
+  }
 }
 
 // How this stage's questions are answered (stage-protocol.md section 3, Step
