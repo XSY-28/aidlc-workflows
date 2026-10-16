@@ -4396,8 +4396,10 @@ describe("t265b #1593 a refusal while a Unit plan waits names what would let the
       const other = runHook(proj, WRITE(join(proj, "src", "other.ts")));
       expect(other.code).toBe(2);
       expect(other.stderr).not.toContain("stop retrying");
-      const same = runHook(proj, WRITE(join(proj, "src", "app.ts")));
-      expect(same.stderr).toContain("has been refused 3 times");
+      // The count is of the same call refused in a row: the other call met
+      // again, and again, is the one now repeated.
+      expect(runHook(proj, WRITE(join(proj, "src", "other.ts"))).stderr).not.toContain("stop retrying");
+      expect(runHook(proj, WRITE(join(proj, "src", "other.ts"))).stderr).toContain("has been refused 3 times");
     } finally {
       rmSync(proj, { recursive: true, force: true });
     }

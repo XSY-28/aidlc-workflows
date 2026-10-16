@@ -1075,8 +1075,8 @@ export function main(argv: string[]): void {
 // pause keeps its own step, so a stop is never turned into carrying on.
 function ownedTransitionStep(subcommand: string): string {
   const orchestrate = aidlcToolInvocation("orchestrate");
-  const next = `\`${orchestrate} next\`: it names this stage's next step, and when the person already ` +
-    "gave their decision, the step that records it with their reply. ";
+  const next = `\`${orchestrate} next\`: it prints this stage's next step, including the aidlc-orchestrate.ts ` +
+    "report that records a decision the person already gave, with their reply. ";
   if (subcommand === "park") {
     return `If the person asked to stop, run \`${orchestrate} park --person-asked\`; if not, run ${next}`;
   }

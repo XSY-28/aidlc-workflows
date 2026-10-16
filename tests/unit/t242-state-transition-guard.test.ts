@@ -2247,9 +2247,10 @@ describe("t242 state-transition ownership guard", () => {
         }),
       );
       expect(text, verb).toContain("`bun .claude/tools/aidlc-orchestrate.ts next`");
-      expect(text, verb).toContain("the step that records it with their reply");
-      // A report rebuilt from this call would lack the reply, Unit and reason it needs.
-      expect(text, verb).not.toContain("orchestrate.ts report");
+      expect(text, verb).toContain("the aidlc-orchestrate.ts report that records a decision the person already gave, with their reply");
+      // No report command is printed: one rebuilt from this call would lack the reply, Unit and reason it needs.
+      const quoted = [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+      expect(quoted.filter((span) => /orchestrate\S* report\b/.test(span)), verb).toEqual([]);
       expect(unfilledSlots(text), verb).toEqual([]);
     }
   });
