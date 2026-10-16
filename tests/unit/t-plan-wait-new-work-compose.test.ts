@@ -255,7 +255,7 @@ describe("while a code plan waits, new work the person asks for is composed", ()
         state_sha256: "0".repeat(64),
       });
       // #1593: the refusal names the state it found: a step on record the state has moved past.
-      expect(shell(proj, "printf x > src/other.ts").stderr).toContain("the step on record is out of date");
+      expect(shell(proj, "printf x > src/other.ts").stderr).toContain("the directive on record is out of date");
       composerRuns(proj);
       expect(write(proj, join(proj, "src", "slugify.ts")).code).toBe(2);
       expect(shell(proj, "echo 'export const s = 1;' > src/slugify.ts").code).toBe(2);

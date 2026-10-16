@@ -4380,6 +4380,27 @@ describe("t265b #1593 a refusal while a Unit plan waits names what would let the
     expect(shellRunsHiddenCommand("Get-Content `$(Get-Date) src/app.ts", true)).toBe(false);
     expect(shellRunsHiddenCommand("Get-Content $(Get-ChildItem src)", true)).toBe(true);
     expect(shellRunsHiddenCommand(null)).toBe(false);
+    // Arithmetic runs no command; a substitution inside it still does.
+    expect(shellRunsHiddenCommand("echo $((1 + 2)) && cat src/app.ts")).toBe(false);
+    expect(shellRunsHiddenCommand("echo $(( $(wc -l < src/app.ts) + 1 ))")).toBe(true);
+  });
+
+  test("#1593: different calls refused for the authority start their own counts too", () => {
+    const proj = scratchProject();
+    try {
+      seedState(proj);
+      seedUnit(proj, "todo-core", { plan: true, answer: null });
+      rmSync(join(proj, RECORD_REL, ".aidlc-engine", "active-directive.json"), { force: true });
+      expect(runHook(proj, WRITE(join(proj, "src", "app.ts"))).code).toBe(2);
+      expect(runHook(proj, WRITE(join(proj, "src", "app.ts"))).code).toBe(2);
+      const other = runHook(proj, WRITE(join(proj, "src", "other.ts")));
+      expect(other.code).toBe(2);
+      expect(other.stderr).not.toContain("stop retrying");
+      const same = runHook(proj, WRITE(join(proj, "src", "app.ts")));
+      expect(same.stderr).toContain("has been refused 3 times");
+    } finally {
+      rmSync(proj, { recursive: true, force: true });
+    }
   });
 
   test("#1593: a different refused call starts its own count, so it is never told it repeated", () => {

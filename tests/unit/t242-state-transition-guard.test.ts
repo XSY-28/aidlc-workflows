@@ -2234,34 +2234,24 @@ describe("t242 state-transition ownership guard", () => {
     expect(unfilled).toEqual({});
   });
 
-  test("#1593: a decision refused through the state tool keeps its owning step, so the person's choice is recorded, not dropped", () => {
+  test("#1593: a decision refused through the state tool is recorded by the step next prints, never by a report rebuilt without the person's reply", () => {
     const project = createTestProject();
     projects.push(project);
     seedStateFile(project, join(FIXTURES_DIR, "state-mid-ideation.md"));
-    const said = (verb: string, slug = "feasibility"): string => refusalText(
-      spawnSync(process.execPath, [STATE, verb, slug, "--project-dir", project], {
-        timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
-        encoding: "utf-8",
-        env: { ...unownedEnv(), CLAUDE_PROJECT_DIR: project },
-      }),
-    );
-    for (const [verb, result] of [
-      ["approve", "approved"],
-      ["reject", "rejected"],
-      ["revise", "revised"],
-      ["gate-start", "awaiting-approval"],
-    ] as const) {
-      const text = said(verb);
-      expect(text, verb).toContain(`\`bun .claude/tools/aidlc-orchestrate.ts report --stage feasibility --result ${result}\``);
-      // `next` comes first: the report is only for a decision the person gave.
-      expect(text.indexOf("orchestrate.ts next"), verb).toBeLessThan(text.indexOf("orchestrate.ts report"));
+    for (const verb of ["approve", "reject", "revise", "gate-start", "skip"]) {
+      const text = refusalText(
+        spawnSync(process.execPath, [STATE, verb, "feasibility", "--project-dir", project], {
+          timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
+          encoding: "utf-8",
+          env: { ...unownedEnv(), CLAUDE_PROJECT_DIR: project },
+        }),
+      );
+      expect(text, verb).toContain("`bun .claude/tools/aidlc-orchestrate.ts next`");
+      expect(text, verb).toContain("the step that records it with their reply");
+      // A report rebuilt from this call would lack the reply, Unit and reason it needs.
+      expect(text, verb).not.toContain("orchestrate.ts report");
       expect(unfilledSlots(text), verb).toEqual([]);
     }
-    // A skip's report needs its reason, which is the person's own words.
-    expect(said("skip")).toContain("--result skipped --reason '<their words>'");
-    // A verb with no decision to record, or a slug that is no stage, names next alone.
-    expect(said("set")).not.toContain("orchestrate.ts report");
-    expect(said("approve", "not-a-stage")).not.toContain("orchestrate.ts report");
   });
 
   test("#1593: a pause refused through the state tool keeps its own step, so a person's stop is not turned into carrying on", () => {

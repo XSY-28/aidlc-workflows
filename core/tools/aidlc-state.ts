@@ -893,7 +893,7 @@ export function main(argv: string[]): void {
           // #1593: one step written out in full, the engine's own, which names
           // and checks the stage's next move (its report, a pause, or a jump),
           // so nothing is left for the agent to fill in or guess.
-          ownedTransitionStep(subcommand, args[1]) +
+          ownedTransitionStep(subcommand) +
           // The way out is named here, so the human is not told to go and find it.
           fenceSwitchSentence(pd, "state-transition"),
       );
@@ -1068,30 +1068,19 @@ export function main(argv: string[]): void {
 }
 
 // The engine-owned step for a lifecycle verb refused through the state tool
-// (#1593): written out in full, so nothing is left to fill in. `next` names and
-// checks the stage's next move; a decision the person already gave keeps its
-// own owning step, so it is recorded rather than dropped or asked again, and a
-// pause keeps its own, so a stop is never turned into carrying on.
-const DECISION_RESULTS: Readonly<Record<string, string>> = {
-  approve: "approved",
-  reject: "rejected",
-  revise: "revised",
-  "gate-start": "awaiting-approval",
-  skip: "skipped",
-};
-
-function ownedTransitionStep(subcommand: string, stageArg: string | undefined): string {
+// (#1593): written out in full, so nothing is left to fill in. `next` names the
+// stage's next step with the context this call cannot carry (the person's
+// reply, the Unit, the reason), so a decision the person already gave is
+// recorded by the step it prints rather than by a report rebuilt from here. A
+// pause keeps its own step, so a stop is never turned into carrying on.
+function ownedTransitionStep(subcommand: string): string {
   const orchestrate = aidlcToolInvocation("orchestrate");
-  const next = `\`${orchestrate} next\`: it names this stage's next step and checks it. `;
+  const next = `\`${orchestrate} next\`: it names this stage's next step, and when the person already ` +
+    "gave their decision, the step that records it with their reply. ";
   if (subcommand === "park") {
     return `If the person asked to stop, run \`${orchestrate} park --person-asked\`; if not, run ${next}`;
   }
-  const result = DECISION_RESULTS[subcommand];
-  const stage = stageArg !== undefined && SLUG_RE.test(stageArg) && findStageBySlug(stageArg) ? stageArg : null;
-  if (result === undefined || stage === null) return `Run ${next}`;
-  const reason = result === "skipped" ? " --reason '<their words>'" : "";
-  return `Run ${next}If the person already gave that decision in their own reply, the step that records it is ` +
-    `\`${orchestrate} report --stage ${stage} --result ${result}${reason}\`. `;
+  return `Run ${next}`;
 }
 
 if (import.meta.main) {

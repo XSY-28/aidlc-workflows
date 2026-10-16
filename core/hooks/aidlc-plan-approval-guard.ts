@@ -756,13 +756,13 @@ function noCurrentDirectiveReason(
 ): string {
   if (marker === null) {
     return activeDirectiveMarkerAbsence(projectDir, state) === "out-of-date"
-      ? "the step on record is out of date: the workflow state changed after it was issued"
-      : "no step is on record for Code Generation";
+      ? "the directive on record is out of date: the workflow state changed after it was issued"
+      : "no Code Generation directive is on record";
   }
   const outOfDate = activeDirectiveOutOfDateReason(marker);
   if (outOfDate !== null) return outOfDate;
   if (marker.version !== 2) {
-    return "the step on record was written by an older AI-DLC and carries no Plan Approval authority";
+    return "the directive on record was written by an older AI-DLC and carries no Plan Approval authority";
   }
   let name = markerStage || "another stage";
   try {
@@ -770,7 +770,7 @@ function noCurrentDirectiveReason(
   } catch {
     // No stage graph here: the slug still names the step.
   }
-  return `the step on record is ${name}, not Code Generation`;
+  return `the directive on record is for ${name}, not Code Generation`;
 }
 
 // --- Evidence gathering ---------------------------------------------------------
@@ -1820,6 +1820,10 @@ export function shellRunsHiddenCommand(command: string | null, powerShell = fals
       escaped = true;
     } else if (ch === "'") {
       singleQuoted = true;
+    } else if (!powerShell && ch === "$" && command[i + 1] === "(" && command[i + 2] === "(") {
+      // POSIX arithmetic `$((...))` runs no command; a substitution nested in
+      // it is still found as the scan goes on.
+      i += 2;
     } else if ((!powerShell && ch === "`") || (ch === "$" && command[i + 1] === "(")) {
       return true;
     }
@@ -2117,6 +2121,10 @@ async function evaluate(
     );
     return 2;
   };
+  // The call this hook refuses and the Unit its directive names, kept for the
+  // refusal count whatever refuses it, an authority failure included (#1593).
+  let refusedTarget: string | null = null;
+  let refusedUnit: string | null = null;
   let blockedMutation: {
     target: string;
     unit: string | null;
@@ -2177,6 +2185,8 @@ async function evaluate(
     if (!guardedDispatch && mutation.targets.length === 0 && !mutation.opaqueShell) {
       return 0;
     }
+    refusedTarget = mutation.targets[0] ?? (mutation.shellCommand?.trim().slice(0, 160) || null);
+    refusedUnit = activeDirective?.unit?.trim() || null;
     // What the plan never governs, at any point of Code Generation and under
     // every Guard Policy: a command the lexer read whole that names no file it
     // writes and is not AI-DLC's own (a read, a scan, a test run), and a write
@@ -2609,10 +2619,11 @@ async function evaluate(
   const prose = refusalProse(null);
   const refusedCall = guardedDispatch
     ? `dispatch:${subagentType}`
-    : blockedMutation?.target ?? toolName;
+    : `${toolName}:${blockedMutation?.target ?? refusedTarget ?? ""}`;
+  const refusedFor = blockedMutation ? blockedMutation.unit : refusedUnit;
   const repeats = state === null
     ? 0
-    : countPlanApprovalRefusal(projectDir, state, blockedMutation?.unit ?? null, prose, refusedCall);
+    : countPlanApprovalRefusal(projectDir, state, refusedFor, prose, `${refusedCall}\0${authorityFailure ?? ""}`);
   process.stderr.write(
     repeats > GUARD_REFUSAL_STREAK_CAP
       ? `${prose} This call has been refused ${repeats} times as things stand: stop retrying it and run ${nextOnItsOwn()}.\n`
