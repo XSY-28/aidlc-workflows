@@ -8224,16 +8224,19 @@ function nextEngagesWorkflow(args: string[], flags: ParsedFlags = parseNextFlags
 // the work's name). The agent's words stand only when they and its plan are
 // exactly one whole reading of their line: the engine's own parse of it, or one
 // its reading step names (their words whole, or a plan word's task under that
-// plan), with no setting of theirs left out. A tail of their words, or a plan
-// they did not name, is not one, so their line is read instead. Which is which
-// is a string comparison, never a reading of meaning.
+// plan), with no setting of theirs left out. Otherwise the request is their
+// words whole, and only the words: a plan and the settings the agent read from
+// them are its reading of what they meant, so they are kept unless the line
+// names its own (their typed plan or setting wins). A line only the agent can
+// read whole (a reading step, a flag `next` does not take) is handed back to it
+// as typed. Which is which is a string comparison, never a reading of meaning.
 function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
   if (engineSessionId === undefined || isReadOnlyEngineProbe()) return null;
   if (flags.request !== undefined) return null;
   const agentWords = flags.intent?.trim();
   const carriesNothing = Object.entries(flags).every(([key, value]) =>
     key === "scope" || key === "positionalScope" || key === "resume" || value === undefined || value === false ||
-    (agentWords !== undefined && (key === "intent" || key === "markedWords")));
+    (agentWords !== undefined && (KEPT_REQUEST_FLAGS.has(key) || key === "fences")));
   if (!carriesNothing) return null;
   const message = latestMessage(pd, engineSessionId);
   if (message === null || message.source !== "prompt") return null;
@@ -8263,25 +8266,52 @@ function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
   if (typed === null || typed.length === 0) return null;
   const argv = splitKiroCommandArgs(typed);
   const own = parseNextFlags(argv);
+  let taken = own;
   if (agentWords !== undefined) {
     if (own.intent === undefined) return null;
     const agentPlan = flags.scope ?? flags.positionalScope;
     if (wholeReadings(own).some((reading) => reading.plan === agentPlan && reading.words === agentWords)) return null;
+    if (own.readingStep === undefined && own.untakenFlag === undefined) taken = withAgentsReading(own, flags);
   }
   // A line `next` already read for this chat (the reading step over work nobody
   // has selected kept its words as a question) is not read again: the bare
   // `next` the agent runs after that step asks which work to pick up.
   if (own.intent !== undefined && wordsAlreadyRead(pd, own.intent, message.at)) return null;
   for (const key of Object.keys(flags)) delete (flags as unknown as Record<string, unknown>)[key];
-  Object.assign(flags, own);
+  Object.assign(flags, taken);
   return argv;
+}
+
+// Their line's words and settings, with the plan and settings the agent read
+// from them where the line names none of its own.
+function withAgentsReading(own: ParsedFlags, agent: ParsedFlags): ParsedFlags {
+  const read: ParsedFlags = { ...agent, ...own };
+  delete read.markedWords;
+  if (own.markedWords) read.markedWords = true;
+  if (own.scope !== undefined || own.positionalScope !== undefined) {
+    read.scope = own.scope;
+    read.positionalScope = own.positionalScope;
+  }
+  if (agent.ceremony !== undefined && own.ceremony !== undefined) read.ceremony = { ...agent.ceremony, ...own.ceremony };
+  if (agent.fences !== undefined && own.fences !== undefined) read.fences = { ...agent.fences, ...own.fences };
+  // A stage either list names is kept; one their line names on the other list wins.
+  if (agent.planChanges !== undefined && own.planChanges !== undefined) {
+    const { skip, add } = own.planChanges;
+    read.planChanges = {
+      skip: [...new Set([...skip, ...agent.planChanges.skip.filter((stage) => !add.includes(stage))])],
+      add: [...new Set([...add, ...agent.planChanges.add.filter((stage) => !skip.includes(stage))])],
+    };
+  }
+  for (const key of Object.keys(read) as (keyof ParsedFlags)[]) if (read[key] === undefined) delete read[key];
+  return read;
 }
 
 // The whole readings of a line, each a plan (or none) and the words: the
 // engine's parse of it, or the ones its reading step names. A line carrying a
-// setting has none an agent's plan and words alone could match.
+// setting has none an agent's plan and words alone could match, and a parse
+// that folded out a token of theirs is not their words whole.
 function wholeReadings(own: ParsedFlags): { plan?: string; words: string }[] {
-  const said = own.intent?.trim();
+  const said = (own.personWords ?? own.intent)?.trim();
   if (said === undefined) return [];
   const settings = Object.keys(own).filter((key) =>
     !["intent", "markedWords", "scope", "positionalScope", "readingStep", "personWords", "untakenFlag", "untakenFlagValue"]
@@ -8290,8 +8320,7 @@ function wholeReadings(own: ParsedFlags): { plan?: string; words: string }[] {
   const step = own.readingStep;
   if (step?.kind === "plan-word") return [{ plan: step.scope, words: planWordTask(step.scope, said) }, { words: said }];
   if (step !== undefined) return [{ words: said }];
-  const plan = own.scope ?? own.positionalScope;
-  return [{ plan, words: said }, ...(own.personWords === undefined ? [] : [{ plan, words: own.personWords.trim() }])];
+  return [{ plan: own.scope ?? own.positionalScope, words: said }];
 }
 
 // The task after a plan word that opens the person's sentence, as the reading
