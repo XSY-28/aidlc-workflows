@@ -8325,6 +8325,9 @@ function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
   let taken = own;
   if (agentWords !== undefined) {
     if (own.intent === undefined) return null;
+    if ((own.readingStep !== undefined || own.untakenFlag !== undefined) && lineHandedOut(pd, engineSessionId, message.id)) {
+      return null;
+    }
     const agentPlan = flags.scope ?? flags.positionalScope;
     if (wholeReadings(own).some((reading) => reading.plan === agentPlan && reading.words === agentWords)) return null;
     if (own.readingStep === undefined && own.untakenFlag === undefined) taken = withAgentsReading(own, flags);
@@ -8392,7 +8395,10 @@ function planWordTask(scope: string, said: string): string {
 // turn stayed the latest row, and the same print came back forever. The mark
 // is written whichever way the line reached `next`: the agent passed it (its
 // `next $ARGUMENTS`) or takePersonsOwnLine took it (a bare `next`). One record
-// per chat, overwritten by the next line handed out.
+// per chat, overwritten by the next line handed out. A line with words that
+// only the agent can read whole (a reading step, a flag `next` does not take)
+// is handed back to it once the same way: the corrected `next` it then sends
+// is its reading, and the line is not taken over it again.
 interface HandedOutLine {
   version: 1;
   session: string;
@@ -8408,9 +8414,11 @@ function lineHandedOut(pd: string, session: string, messageId: string): boolean 
 }
 function handOutSettingsLine(flags: ParsedFlags, pd: string): void {
   if (engineSessionId === undefined || isReadOnlyEngineProbe()) return;
-  if (typedSettingModifiers(flags).length === 0) return;
+  const handsBack = flags.readingStep !== undefined || flags.untakenFlag !== undefined;
+  if (!handsBack && typedSettingModifiers(flags).length === 0) return;
   const message = latestMessage(pd, engineSessionId);
-  if (message === null || message.source !== "prompt" || message.words !== null || message.settings.length === 0) return;
+  if (message === null || message.source !== "prompt") return;
+  if (handsBack ? message.words === null : message.words !== null || message.settings.length === 0) return;
   markLineHandedOut(pd, engineSessionId, message.id);
 }
 function markLineHandedOut(pd: string, session: string, messageId: string): void {
