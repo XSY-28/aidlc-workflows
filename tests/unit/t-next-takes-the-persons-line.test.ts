@@ -340,33 +340,47 @@ describe("next takes the person's own /aidlc line when the agent's command carri
 // but the agent passed its own rewording behind a flag it made up, and the
 // engine started the work under that. With no work yet, words that are none of
 // the readings of their line give way to it; one of those readings is kept. The
-// plan and settings the agent read from their words are its reading and stay.
+// settings the agent read from their words are its reading and stay; a plan it
+// named beside words that are not a whole reading gives way to the line's own,
+// so the person picks it at the plan question.
 describe("with no work yet, the agent's own wording gives way to the person's /aidlc line", () => {
   const THEIRS = `I want to build "Northwind Mini Bank", a small demo of a bank's core money handling. Keep the customer's own accounts apart.`;
   const AGENTS = "--description Northwind Mini Bank: a small demo of a banks core money handling. Keep the customers own accounts apart.";
 
   // The words are the line as a bare `next` reads it: the engine's one parse,
   // which keeps the apostrophes and reads the double quotes as quoting.
-  test("kiro-ide: next --scope classic '<the agent's rewording>' creates the plan it read with the person's words", async () => {
+  test("kiro-ide: next --scope classic '<the agent's rewording>' asks the plan question for the person's words", async () => {
     const proj = fresh();
     const said = await say(proj, `/aidlc ${THEIRS}`, "kiro-ide");
     expect(said.status, `${said.stdout}${said.stderr}`).toBe(0);
     const { directive, out } = await next(proj, "kiro-ide", ["--scope", "classic", AGENTS]);
-    expect(directive.message ?? "", out).toContain("intent create --scope classic --request");
+    expect(directive.kind, out).toBe("ask");
+    expect(out).not.toContain("intent create --scope classic");
     expect(out).not.toContain("--description");
     const texts = questionTexts(proj);
     expect(texts.length).toBeGreaterThan(0);
     for (const text of texts) expect(text).toContain("a bank's core money handling. Keep the customer's own accounts");
   });
 
-  test("kiro-ide: a plan the person asked for in plain words, read by the agent, is not asked again", async () => {
+  // The engine cannot tell a plan the agent read from one it made up, so with
+  // words that are not a whole reading, the plan is the person's at the question.
+  test("kiro-ide: a plan the agent names beside part of their words is the person's to pick, with every word", async () => {
     const line = "Please use the classic plan for a notes app";
     const proj = fresh();
     await say(proj, `/aidlc ${line}`, "kiro-ide");
     const { directive, out } = await next(proj, "kiro-ide", ["--scope", "classic", "--", "a notes app"]);
-    expect(directive.ask_type, out).not.toBe("scope-confirm");
-    expect(directive.message ?? "", out).toContain("intent create --scope classic --request");
+    expect(directive.kind, out).toBe("ask");
+    expect(out).not.toContain("intent create --scope classic");
     expect(questionTexts(proj)).toContain(line);
+  });
+
+  test("kiro-ide: their whole words under a plan they never named are not a reading: the plan is theirs to pick", async () => {
+    const proj = fresh();
+    await say(proj, "/aidlc build a notes app", "kiro-ide");
+    const { directive, out } = await next(proj, "kiro-ide", ["--scope", "classic", "--", "build a notes app"]);
+    expect(directive.kind, out).toBe("ask");
+    expect(out).not.toContain("intent create --scope classic");
+    expect(questionTexts(proj)).toContain("build a notes app");
   });
 
   test("kiro-ide: a setting the agent forwards with its paraphrase keeps every word of the person's line", async () => {
@@ -403,7 +417,8 @@ describe("with no work yet, the agent's own wording gives way to the person's /a
     const proj = fresh();
     await say(proj, "/aidlc Build a demo bank named Northwind Mini Bank", "kiro-ide");
     const { directive, out } = await next(proj, "kiro-ide", ["--scope", "classic", "--", "Northwind Mini Bank"]);
-    expect(directive.message ?? "", out).toContain("intent create --scope classic --request");
+    expect(directive.kind, out).toBe("ask");
+    expect(out).not.toContain("intent create --scope classic");
     const texts = questionTexts(proj);
     expect(texts).toContain("Build a demo bank named Northwind Mini Bank");
     expect(texts).not.toContain("Northwind Mini Bank");
@@ -423,8 +438,9 @@ describe("with no work yet, the agent's own wording gives way to the person's /a
     await say(proj, `/aidlc --guard.review-freeze off ${WORDS}`, "kiro-ide");
     const { directive, out } = await next(proj, "kiro-ide",
       ["--scope", "classic", "--guard.review-freeze", "off", "--", "fix the greeter"]);
-    expect(directive.message ?? "", out).toContain("intent create --scope classic --request");
-    expect(directive.message ?? "", out).toContain("--guard.review-freeze off");
+    expect(directive.kind, out).toBe("ask");
+    expect(out).not.toContain("intent create --scope classic");
+    expect(out).toContain("--guard.review-freeze off");
     expect(questionTexts(proj)).toContain(WORDS);
     expect(questionTexts(proj)).not.toContain("fix the greeter");
   });

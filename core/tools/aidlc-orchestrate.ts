@@ -8281,11 +8281,12 @@ function nextEngagesWorkflow(args: string[], flags: ParsedFlags = parseNextFlags
 // exactly one whole reading of their line: the engine's own parse of it, or one
 // its reading step names (their words whole, or a plan word's task under that
 // plan), with no setting of theirs left out. Otherwise the request is their
-// words whole, and only the words: a plan and the settings the agent read from
-// them are its reading of what they meant, so they are kept unless the line
-// names its own (their typed plan or setting wins). A line only the agent can
-// read whole (a reading step, a flag `next` does not take) is handed back to it
-// as typed. Which is which is a string comparison, never a reading of meaning.
+// words whole and the plan their line names (none: the plan question asks
+// them); the settings the agent read from their words are its reading of what
+// they meant, so they are kept unless the line names its own. A line only the
+// agent can read whole (a reading step, a flag `next` does not take) is handed
+// back to it as typed. Which is which is a string comparison, never a reading
+// of meaning.
 function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
   if (engineSessionId === undefined || isReadOnlyEngineProbe()) return null;
   if (flags.request !== undefined) return null;
@@ -8341,16 +8342,16 @@ function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
   return argv;
 }
 
-// Their line's words and settings, with the plan and settings the agent read
-// from them where the line names none of its own.
+// Their line's words, plan and settings, with the settings the agent read from
+// them where the line names none of its own. A plan the agent named is not
+// kept: with words that are not one whole reading it cannot be told from one
+// it made up, so the plan is the line's own, or the person's at the question.
 function withAgentsReading(own: ParsedFlags, agent: ParsedFlags): ParsedFlags {
   const read: ParsedFlags = { ...agent, ...own };
   delete read.markedWords;
   if (own.markedWords) read.markedWords = true;
-  if (own.scope !== undefined || own.positionalScope !== undefined) {
-    read.scope = own.scope;
-    read.positionalScope = own.positionalScope;
-  }
+  read.scope = own.scope;
+  read.positionalScope = own.positionalScope;
   if (agent.ceremony !== undefined && own.ceremony !== undefined) read.ceremony = { ...agent.ceremony, ...own.ceremony };
   if (agent.fences !== undefined && own.fences !== undefined) read.fences = { ...agent.fences, ...own.fences };
   // A stage either list names is kept; one their line names on the other list wins.
