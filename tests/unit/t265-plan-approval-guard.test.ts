@@ -4380,6 +4380,10 @@ describe("t265b #1593 a refusal while a Unit plan waits names what would let the
     expect(shellRunsHiddenCommand("Get-Content `$(Get-Date) src/app.ts", true)).toBe(false);
     expect(shellRunsHiddenCommand("Get-Content $(Get-ChildItem src)", true)).toBe(true);
     expect(shellRunsHiddenCommand(null)).toBe(false);
+    // A comment runs nothing; a substitution on the next line still does.
+    expect(shellRunsHiddenCommand("cat src/app.ts # was $(ls src)")).toBe(false);
+    expect(shellRunsHiddenCommand("cat src/app.ts # note\ncat $(ls src)")).toBe(true);
+    expect(shellRunsHiddenCommand("Get-Content src/app.ts # was `ls`", true)).toBe(false);
     // Arithmetic runs no command; a substitution inside it still does.
     expect(shellRunsHiddenCommand("echo $((1 + 2)) && cat src/app.ts")).toBe(false);
     expect(shellRunsHiddenCommand("echo $(( $(wc -l < src/app.ts) + 1 ))")).toBe(true);

@@ -2255,6 +2255,26 @@ describe("t242 state-transition ownership guard", () => {
     }
   });
 
+  test("#1593: a stage skip refused through the state tool keeps the engine's skip route", () => {
+    const project = createTestProject();
+    projects.push(project);
+    seedStateFile(project, join(FIXTURES_DIR, "state-mid-ideation.md"));
+    const said = (...rest: string[]): string => refusalText(
+      spawnSync(process.execPath, [STATE, "skip", ...rest, "--project-dir", project], {
+        timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
+        encoding: "utf-8",
+        env: { ...unownedEnv(), CLAUDE_PROJECT_DIR: project },
+      }),
+    );
+    const stage = said("feasibility");
+    expect(stage).toContain("`bun .claude/tools/aidlc-orchestrate.ts next --skip feasibility`");
+    expect(stage.indexOf("next --skip")).toBeLessThan(stage.indexOf("orchestrate.ts next`"));
+    expect(unfilledSlots(stage)).toEqual([]);
+    // A Unit's skip, or a slug that is no stage, names next alone.
+    expect(said("feasibility", "--unit", "u1")).not.toContain("--skip");
+    expect(said("not-a-stage")).not.toContain("--skip");
+  });
+
   test("#1593: a pause refused through the state tool keeps its own step, so a person's stop is not turned into carrying on", () => {
     const project = createTestProject();
     projects.push(project);
@@ -2312,8 +2332,10 @@ describe("t242 state-transition ownership guard", () => {
       env,
     });
     expect(ran.status, `${ran.stdout}${ran.stderr}`).toBe(0);
-    // The engine answers with a directive, the way a step it owns does.
+    // The engine answers with a directive, the way a step it owns does, and
+    // one the agent can act on: an error directive also exits 0.
     expect(() => JSON.parse(ran.stdout.trim()), ran.stdout).not.toThrow();
+    expect((JSON.parse(ran.stdout.trim()) as { kind?: unknown }).kind, ran.stdout).not.toBe("error");
   });
 
   test("the state CLI honors a lowered state-transition fence without corrupting JSON stdout", () => {

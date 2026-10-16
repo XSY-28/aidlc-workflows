@@ -893,7 +893,7 @@ export function main(argv: string[]): void {
           // #1593: one step written out in full, the engine's own, which names
           // and checks the stage's next move (its report, a pause, or a jump),
           // so nothing is left for the agent to fill in or guess.
-          ownedTransitionStep(subcommand) +
+          ownedTransitionStep(subcommand, args.slice(1)) +
           // The way out is named here, so the human is not told to go and find it.
           fenceSwitchSentence(pd, "state-transition"),
       );
@@ -1073,12 +1073,22 @@ export function main(argv: string[]): void {
 // reply, the Unit, the reason), so a decision the person already gave is
 // recorded by the step it prints rather than by a report rebuilt from here. A
 // pause keeps its own step, so a stop is never turned into carrying on.
-function ownedTransitionStep(subcommand: string): string {
+function ownedTransitionStep(subcommand: string, rest: string[] = []): string {
   const orchestrate = aidlcToolInvocation("orchestrate");
   const next = `\`${orchestrate} next\`: it prints this stage's next step, including the aidlc-orchestrate.ts ` +
     "report that records a decision the person already gave, with their reply. ";
   if (subcommand === "park") {
     return `If the person asked to stop, run \`${orchestrate} park --person-asked\`; if not, run ${next}`;
+  }
+  // A skip of a whole stage keeps the engine's own route for it, so the
+  // person's skip is carried out rather than the stage issued again. A Unit's
+  // skip is the engine's to make inside its own walk, which `next` prints.
+  const stage = rest[0];
+  if (
+    subcommand === "skip" && !rest.includes("--unit") && stage !== undefined &&
+    SLUG_RE.test(stage) && findStageBySlug(stage)
+  ) {
+    return `If the person asked to skip this stage, run \`${orchestrate} next --skip ${stage}\`; if not, run ${next}`;
   }
   return `Run ${next}`;
 }

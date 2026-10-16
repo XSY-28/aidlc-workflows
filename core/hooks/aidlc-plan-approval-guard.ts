@@ -597,7 +597,7 @@ export function mutationBlockReason(
   // cannot see what it runs, not because it writes (#1593): the way on for a
   // read is to name each file, which the guard reads and lets through.
   const hidden = opaqueShell && hiddenCommand
-    ? `This command runs another command inside $(...) or backticks, which the guard cannot see before it runs. ` +
+    ? "This command uses $(...) or backticks, so what it runs is not known before it runs and the guard cannot check it. " +
       "A read written out, naming each file (for example `cat src/app.ts`), runs while the plan waits. "
     : "";
   const action = hidden
@@ -1820,6 +1820,11 @@ export function shellRunsHiddenCommand(command: string | null, powerShell = fals
       escaped = true;
     } else if (ch === "'") {
       singleQuoted = true;
+    } else if (ch === "#" && (i === 0 || /\s/.test(command[i - 1] ?? ""))) {
+      // A comment runs nothing, to the end of its line.
+      const end = command.indexOf("\n", i);
+      if (end === -1) return false;
+      i = end;
     } else if (!powerShell && ch === "$" && command[i + 1] === "(" && command[i + 2] === "(") {
       // POSIX arithmetic `$((...))` runs no command; a substitution nested in
       // it is still found as the scan goes on.
@@ -1891,7 +1896,9 @@ async function mutationIntent(
       invocation.args.some((arg) => /^aidlc(?:-[A-Za-z0-9._-]+)?\.ts$/.test(basename(arg)))) ||
       (dynamic && /\baidlc\b/i.test(analysed));
     engineRefused = looksLikeEngine && opaqueShell;
-    hiddenCommand = shellRunsHiddenCommand(analysed, dialect.powerShell);
+    // The adapter's word for the shell, even when the command is not read as
+    // plain PowerShell: a backtick there escapes, it never substitutes.
+    hiddenCommand = shellRunsHiddenCommand(analysed, powerShellHint);
     // An escaped operator (`\>`, `\&`) is read as the lexer decodes it, which
     // is not trusted here; a variable, substitution or backtick (`dynamic`) can
     // hide a command or a write target, and a shell script run by name hides
