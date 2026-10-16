@@ -17,7 +17,7 @@ Skip threads with no replies, threads started by non-Copilot authors, and thread
 ## Steps, per in-scope thread
 
 1. Read the root comment and the replies. Nothing else.
-2. If the reply claims a fix, confirm the cited commit is on the PR branch (`git branch --contains`, or the PR commits list). Read only that commit's diff for the commented file or lines. Do not re-review the PR.
+2. Record the current PR head. If the reply claims a fix, confirm the cited commit is on the PR branch (`git branch --contains`, or the PR commits list). Read that commit's diff and the commented code at the recorded head, plus only definitions needed to verify the fix remains present. Do not re-review the PR.
 3. Decide:
    - **Agree.** The fix addresses the finding, or the reasoning for invalid or not-needed holds. Resolve the thread.
    - **Disagree.** The fix is partial or wrong, or the reasoning does not hold. Reply with one short comment that names the gap, and leave the thread open for another to resolve.
@@ -26,7 +26,8 @@ Skip threads with no replies, threads started by non-Copilot authors, and thread
 
 ## Rules
 
-- A resolve needs evidence: the commit SHA, the diff hunk, or the cited code. Do not resolve on trust.
+- A resolve needs evidence at the recorded PR head; a historical fix diff alone is insufficient.
+- Before resolving, confirm the PR head is still the recorded commit; if not, re-check against the new head.
 - Replies should be as concise as possible: `Agree` / `Disagree` / `Unconfirmed`, plus only the minimum evidence or gap.
 - Never push code, edit the PR, or change unrelated threads.
 - If this environment cannot resolve threads, post the "Agree" verdict as a reply and say the thread is ready for a user with privilege to resolve.
