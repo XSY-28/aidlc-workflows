@@ -10313,6 +10313,21 @@ export function refreshActiveDirectiveMarker(
   });
 }
 
+// Why readActiveDirectiveMarker found no current marker (#1593): none on disk
+// (or one that cannot be read), or one written for a state that has moved
+// since. Read only; it carries no authority and grants nothing.
+export function activeDirectiveMarkerAbsence(
+  projectDir: string,
+  stateContent: string,
+): "missing" | "out-of-date" {
+  try {
+    const marker = readActiveDirectiveMarkerRaw(activeDirectiveMarkerPath(projectDir));
+    return marker !== null && marker.state_sha256 !== stateDigest(stateContent) ? "out-of-date" : "missing";
+  } catch {
+    return "missing";
+  }
+}
+
 export function readActiveDirectiveMarker(
   projectDir: string,
   stateContent: string,

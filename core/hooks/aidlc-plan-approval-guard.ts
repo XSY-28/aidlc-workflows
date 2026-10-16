@@ -60,6 +60,7 @@
 // emits a PLAN_APPROVAL_BLOCKED audit event so the run's record shows when the
 // ordering bit; audit failures never change the decision.
 
+import { createHash } from "node:crypto";
 import {
   existsSync,
   lstatSync,
@@ -116,6 +117,7 @@ import {
   personAskedSinceGate,
   personSpokeSinceGate,
   readActiveDirectiveMarker,
+  activeDirectiveMarkerAbsence,
   spacesRoot,
   activeDirectiveOutOfDateReason,
   recordHookDrop,
@@ -268,8 +270,6 @@ const DISPATCH_TOOLS = new Set(["Task", "Agent"]);
 // re-issues it. Both fence decisions name that remedy.
 // The engine's Plan Approval question is the active directive.
 const PLAN_APPROVAL_ASK_OPEN = "the engine is asking the person to approve the plan";
-const NO_CURRENT_DIRECTIVE =
-  "the current state has no matching v2 code-generation active directive";
 const ENGINE_QUESTION_OPEN =
   "the engine is waiting for the person's answer to its recovery question";
 
@@ -692,10 +692,9 @@ function authorityBlockReason(
   if (reason === ENGINE_QUESTION_OPEN || reason === PLAN_APPROVAL_ASK_OPEN) {
     return authorityRemedy(reason, standing, asked, editingReply);
   }
-  return (
-    "Code generation cannot start because its Plan Approval authority is ambiguous or stale. " +
-    authorityRemedy(reason, standing)
-  );
+  // The reason names the authority state the guard found (#1593), so the
+  // refusal never hedges between "ambiguous" and "stale".
+  return `Code generation cannot start because ${authorityRemedy(reason, standing)}`;
 }
 
 // Where the person's approval stands for the target a stale or waiting
@@ -743,6 +742,35 @@ function planStanding(projectDir: string, marker: ActiveDirectiveMarker | null):
 function outOfDateClause(marker: ActiveDirectiveMarker): string {
   const why = activeDirectiveOutOfDateReason(marker);
   return why === null ? "" : `: ${why}`;
+}
+
+// Which authority state the guard found when no current Code Generation step is
+// on record (#1593): none, one the state has moved past, one from an older
+// AI-DLC, or another stage's. Each says which, so the agent is never sent
+// looking for a directive that is there.
+function noCurrentDirectiveReason(
+  projectDir: string,
+  state: string,
+  marker: ActiveDirectiveMarker | null,
+  markerStage: string,
+): string {
+  if (marker === null) {
+    return activeDirectiveMarkerAbsence(projectDir, state) === "out-of-date"
+      ? "the step on record is out of date: the workflow state changed after it was issued"
+      : "no step is on record for Code Generation";
+  }
+  const outOfDate = activeDirectiveOutOfDateReason(marker);
+  if (outOfDate !== null) return outOfDate;
+  if (marker.version !== 2) {
+    return "the step on record was written by an older AI-DLC and carries no Plan Approval authority";
+  }
+  let name = markerStage || "another stage";
+  try {
+    name = loadStageGraph().find((entry) => entry.slug === markerStage)?.name ?? name;
+  } catch {
+    // No stage graph here: the slug still names the step.
+  }
+  return `the step on record is ${name}, not Code Generation`;
 }
 
 // --- Evidence gathering ---------------------------------------------------------
@@ -1112,6 +1140,8 @@ interface MutationIntent {
   readable?: boolean;
   /** AI-DLC's own command that the shell reading or engineCommandAdmitted refuses. */
   engineRefused?: boolean;
+  /** A command substitution, in the dialect the command was read in (#1593). */
+  hiddenCommand?: boolean;
 }
 
 function normalizedCommandName(name: string): string {
@@ -1766,10 +1796,13 @@ function shellUsesDynamicEvaluation(command: string): boolean {
   return false;
 }
 
-// Whether the command runs a command substitution ($(...) or backticks)
-// outside single quotes: a command the shell reading cannot see before it runs.
-export function shellRunsHiddenCommand(command: string | null): boolean {
+// Whether the command runs a command substitution outside single quotes: a
+// command the shell reading cannot see before it runs. POSIX shells run one in
+// $(...) or backticks; in PowerShell `$(...)` is a subexpression and a
+// backtick only escapes the next character (or continues the line).
+export function shellRunsHiddenCommand(command: string | null, powerShell = false): boolean {
   if (command === null) return false;
+  const escapeChar = powerShell ? "`" : "\\";
   let singleQuoted = false;
   let escaped = false;
   for (let i = 0; i < command.length; i++) {
@@ -1778,11 +1811,11 @@ export function shellRunsHiddenCommand(command: string | null): boolean {
       escaped = false;
     } else if (singleQuoted) {
       if (ch === "'") singleQuoted = false;
-    } else if (ch === "\\") {
+    } else if (ch === escapeChar) {
       escaped = true;
     } else if (ch === "'") {
       singleQuoted = true;
-    } else if (ch === "`" || (ch === "$" && command[i + 1] === "(")) {
+    } else if ((!powerShell && ch === "`") || (ch === "$" && command[i + 1] === "(")) {
       return true;
     }
   }
@@ -1802,6 +1835,7 @@ async function mutationIntent(
   let shellCommand: string | null = null;
   let readable = true;
   let engineRefused = false;
+  let hiddenCommand = false;
   if (toolName === "Bash") {
     const command = toolInput?.command;
     if (typeof command !== "string") {
@@ -1848,6 +1882,7 @@ async function mutationIntent(
       invocation.args.some((arg) => /^aidlc(?:-[A-Za-z0-9._-]+)?\.ts$/.test(basename(arg)))) ||
       (dynamic && /\baidlc\b/i.test(analysed));
     engineRefused = looksLikeEngine && opaqueShell;
+    hiddenCommand = shellRunsHiddenCommand(analysed, dialect.powerShell);
     // An escaped operator (`\>`, `\&`) is read as the lexer decodes it, which
     // is not trusted here; a variable, substitution or backtick (`dynamic`) can
     // hide a command or a write target, and a shell script run by name hides
@@ -1878,6 +1913,7 @@ async function mutationIntent(
     shellCommand,
     ...(readable ? {} : { readable }),
     ...(engineRefused ? { engineRefused } : {}),
+    ...(hiddenCommand ? { hiddenCommand } : {}),
   };
 }
 
@@ -2195,7 +2231,7 @@ async function evaluate(
       activeDirective?.version !== 2 ||
       directiveStage !== GUARDED_STAGE
     ) {
-      authorityFailure = NO_CURRENT_DIRECTIVE;
+      authorityFailure = noCurrentDirectiveReason(projectDir, state, activeDirective, directiveStage);
       verdict = { block: true, mentioned: [] };
     } else if (rulesArriving !== null) {
       // The plan may be approved, but the run-stage that says how to build has
@@ -2306,7 +2342,7 @@ async function evaluate(
           target: mutation.targets[0] ?? (mutation.shellCommand ?? "").trim().slice(0, 160),
           unit: null,
           opaqueShell: mutation.targets.length === 0,
-          hiddenCommand: shellRunsHiddenCommand(mutation.shellCommand),
+          hiddenCommand: mutation.hiddenCommand === true,
           detail: null,
         };
       } else if (activeDirective.kind !== "run-stage") {
@@ -2354,7 +2390,7 @@ async function evaluate(
             target: outsideRecord ?? (mutation.shellCommand ?? "").trim().slice(0, 160),
             unit,
             opaqueShell: outsideRecord === undefined,
-            hiddenCommand: shellRunsHiddenCommand(mutation.shellCommand),
+            hiddenCommand: mutation.hiddenCommand === true,
             detail: receiptDetail([evidence], verdict.mentioned),
           };
         }
@@ -2565,13 +2601,34 @@ async function evaluate(
   }
 
   const prose = refusalProse(null);
-  const repeats = state === null ? 0 : countPlanApprovalRefusal(projectDir, state, blockedMutation?.unit ?? null, prose);
+  const refusedCall = guardedDispatch
+    ? `dispatch:${subagentType}`
+    : blockedMutation?.target ?? toolName;
+  const repeats = state === null
+    ? 0
+    : countPlanApprovalRefusal(projectDir, state, blockedMutation?.unit ?? null, prose, refusedCall);
   process.stderr.write(
     repeats > GUARD_REFUSAL_STREAK_CAP
       ? `${prose} This call has been refused ${repeats} times as things stand: stop retrying it and run ${nextOnItsOwn()}.\n`
       : `${prose}\n`,
   );
   return 2; // harness PreToolUse reject contract: exit 2 + stderr blocks
+}
+
+// The plan and unit-test instructions as they stand, so a revised plan starts a
+// new refusal count. A file not there yet hashes as empty.
+function planFilesDigest(projectDir: string, unit: string | null): string {
+  const hash = createHash("sha256");
+  const dir = codeGenerationRecordDir(projectDir, unit);
+  for (const name of ["code-generation-plan.md", "unit-test-instructions.md"]) {
+    hash.update(name);
+    try {
+      hash.update(readFileSync(join(dir, name)));
+    } catch {
+      hash.update("\0missing");
+    }
+  }
+  return hash.digest("hex");
 }
 
 // Count this refusal in the work's guard-refusals record, the way the review
@@ -2584,6 +2641,7 @@ function countPlanApprovalRefusal(
   state: string,
   unit: string | null,
   userMessage: string,
+  refusedCall: string,
 ): number {
   try {
     const stage = loadStageGraph().find((entry) => entry.slug === GUARDED_STAGE);
@@ -2599,7 +2657,13 @@ function countPlanApprovalRefusal(
       invariant: "Code generation builds only what the person approved.",
       userMessage,
       remedies: [],
-    }, snapshot.attempt, snapshot.resources);
+    }, snapshot.attempt, [
+      ...snapshot.resources,
+      // A repeat is the same call against the same plan: a different call, or
+      // a plan or instructions the person revised, starts a new count.
+      `refused:${refusedCall}`,
+      `plan:${planFilesDigest(projectDir, unit)}`,
+    ]);
     return streak.count;
   } catch {
     return 0;

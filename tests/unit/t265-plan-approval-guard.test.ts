@@ -39,6 +39,7 @@ import {
   blockReason,
   handoffBlockReason,
   mutationBlockReason,
+  shellRunsHiddenCommand,
   promptStageMarkers,
   promptUnitMarkers,
   questionsFileApproved,
@@ -4365,6 +4366,34 @@ describe("t265b #1593 a refusal while a Unit plan waits names what would let the
       }
     });
   }
+
+  // What counts as a hidden command depends on the shell the command is read
+  // in: in PowerShell a backtick escapes the next character, it runs nothing.
+  test("#1593: a hidden command is a substitution in the dialect the command is read in", () => {
+    expect(shellRunsHiddenCommand("cat $(ls src)")).toBe(true);
+    expect(shellRunsHiddenCommand("cat `ls src`")).toBe(true);
+    expect(shellRunsHiddenCommand("cat '$(ls src)' src/app.ts")).toBe(false);
+    expect(shellRunsHiddenCommand("cat src/app.ts")).toBe(false);
+    expect(shellRunsHiddenCommand("Get-Content src/My` File.txt", true)).toBe(false);
+    expect(shellRunsHiddenCommand("Get-Content `$(Get-Date) src/app.ts", true)).toBe(false);
+    expect(shellRunsHiddenCommand("Get-Content $(Get-ChildItem src)", true)).toBe(true);
+    expect(shellRunsHiddenCommand(null)).toBe(false);
+  });
+
+  test("#1593: a different refused call starts its own count, so it is never told it repeated", () => {
+    const proj = scratchProject();
+    try {
+      seedState(proj);
+      seedUnit(proj, "todo-core", { plan: true, answer: null });
+      expect(runHook(proj, WRITE(join(proj, "src", "app.ts"))).code).toBe(2);
+      expect(runHook(proj, WRITE(join(proj, "src", "app.ts"))).code).toBe(2);
+      const other = runHook(proj, WRITE(join(proj, "src", "other.ts")));
+      expect(other.code).toBe(2);
+      expect(other.stderr).not.toContain("stop retrying");
+    } finally {
+      rmSync(proj, { recursive: true, force: true });
+    }
+  });
 
   test("#1593: past the repetition cap the refusal tells the agent to stop retrying and run next, and leaves no question", () => {
     const proj = scratchProject();
