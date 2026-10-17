@@ -117,8 +117,9 @@ import {
   personAskedSinceGate,
   personSpokeSinceGate,
   readActiveDirectiveMarker,
-  activeDirectiveMarkerAbsence,
-  staleActiveDirectiveUnit,
+  activeDirectiveMarkerPath,
+  readActiveDirectiveMarkerRaw,
+  stateDigest,
   spacesRoot,
   activeDirectiveOutOfDateReason,
   recordHookDrop,
@@ -743,6 +744,30 @@ function planStanding(projectDir: string, marker: ActiveDirectiveMarker | null):
 function outOfDateClause(marker: ActiveDirectiveMarker): string {
   const why = activeDirectiveOutOfDateReason(marker);
   return why === null ? "" : `: ${why}`;
+}
+
+// Why readActiveDirectiveMarker found no current marker (#1593): none on disk
+// (or one that cannot be read), or one written for a state that has moved
+// since. Read only; it carries no authority and grants nothing.
+function activeDirectiveMarkerAbsence(projectDir: string, stateContent: string): "missing" | "out-of-date" {
+  try {
+    const marker = readActiveDirectiveMarkerRaw(activeDirectiveMarkerPath(projectDir));
+    return marker !== null && marker.state_sha256 !== stateDigest(stateContent) ? "out-of-date" : "missing";
+  } catch {
+    return "missing";
+  }
+}
+
+// The Unit a marker the state has moved past names (#1593), so a refusal it
+// leads to is counted for that Unit. Read only; it carries no authority.
+function staleActiveDirectiveUnit(projectDir: string, stateContent: string): string | null {
+  try {
+    const marker = readActiveDirectiveMarkerRaw(activeDirectiveMarkerPath(projectDir));
+    if (marker === null || marker.state_sha256 === stateDigest(stateContent)) return null;
+    return typeof marker.unit === "string" && marker.unit.trim() ? marker.unit.trim() : null;
+  } catch {
+    return null;
+  }
 }
 
 // Which authority state the guard found when no current Code Generation step is
