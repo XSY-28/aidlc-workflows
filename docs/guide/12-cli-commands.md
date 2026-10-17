@@ -1887,6 +1887,10 @@ engine proves the record exists, came through this chat, and is not spent by a
 later approval or decision, and reads none of its words; the answer is recorded
 and the person is not asked again. A refused answer names the id when such a
 message exists. The id is engine-to-agent text and is never shown to the person.
+When the answer is recorded for questions logged after that message, the output
+carries `say`, one line for the person naming those questions and the answer as
+recorded, and an `agent_note`: the agent tells them the line once, unless it
+showed them those questions before they replied.
 See [Hooks and Tools](../reference/06-hooks-and-tools.md#read-only-audit-commands) for pairing rules, ordering, and filters.
 
 ### `aidlc engine bolt set-autonomy` - change Construction approvals
@@ -2154,9 +2158,11 @@ So is `check_offer`, when a stage's review passes are spent and its reviewed wor
 changed after the last review: "Do you want me to have the new approach checked
 before you decide?"
 
-Wait for the human's **Approve** / **Request Changes** reply in that
-session, to this checkpoint question. It authorizes only the matching action;
-an unrelated reply, another session's reply, or a reply to a different question
+Wait for the human's **Approve** / **Request Changes** reply to this checkpoint
+question, in that chat or a new one: with no question of its own, a new chat's
+reply is kept for the checkpoint question another chat asked, while it is the
+newest question asked and still open. It authorizes only the matching action;
+an unrelated reply, the agent's own words, or a reply to a different question
 does not. Never pass `--user-input` the human did not choose. Run only the action
 they chose:
 
@@ -2267,9 +2273,11 @@ complete canonical `command` from the verification-command tool output into a
 code span without abbreviation, preserving any backticks with a longer delimiter.
 
 
-Wait for the human's **Approve** / **Request Changes** reply in that
-session, to this checkpoint question. It authorizes only the matching action;
-an unrelated reply, another session's reply, or a reply to a different question
+Wait for the human's **Approve** / **Request Changes** reply to this checkpoint
+question, in that chat or a new one: with no question of its own, a new chat's
+reply is kept for the checkpoint question another chat asked, while it is the
+newest question asked and still open. It authorizes only the matching action;
+an unrelated reply, the agent's own words, or a reply to a different question
 does not. Never pass `--user-input` the human did not choose. Run only the action
 they chose:
 

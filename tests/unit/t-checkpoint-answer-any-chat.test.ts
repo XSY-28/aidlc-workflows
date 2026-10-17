@@ -10,10 +10,14 @@
 // Only the newest question asked, still open, is taken: never the agent's
 // words, never a stale answer to an older question. Once the approval was
 // asked, a new chat's checkpoint step skips the learnings question the old
-// chat already asked, and the step for prose names the Unit to approve.
-// The verification command question, and a Construction policy question a
-// record carries, are answered in any chat the same way, and the step for
-// prose names the flags their answer is recorded with.
+// chat already asked, and the step for prose names the Unit to approve and
+// the two choices a typed number picks ("/aidlc 2"), none for a batch asked
+// with Request Changes alone. The verification command question, and a
+// Construction policy question a record carries, are answered in any chat
+// the same way, and the step for prose names the flags their answer is
+// recorded with. A bare `/aidlc` in a
+// new chat shows again, as it was asked, a question with no step of its own
+// that asks it again; the others come back through their own step.
 import {
   NATIVE_FIXTURE_SETUP_TIMEOUT_MS,
   NATIVE_STARTUP_TIMEOUT_MS,
@@ -64,6 +68,7 @@ function construction() {
 - **Revision Count**: 0
 - **Skeleton Stance**: off
 - **Construction Iteration**: unit-major
+- **Unit Ownership**: solo
 - **Construction Checkpoints**: enabled
 - **Construction Execution**: serial
 - **Construction Autonomy Mode**: gated
@@ -263,6 +268,18 @@ describe("t-checkpoint-answer-any-chat: what a new chat is told to do", () => {
     expect(print.message).toContain("checkpoint --action reject --unit alpha --kind unit`");
     expect(print.message).not.toContain("session you asked with");
   });
+
+  test("\"/aidlc 2\" in a new chat is Request Changes, and the step names the choices a number picks", () => {
+    const p = fixture();
+    expect(checkpoint(p, ["--action", "ask", "--session", OLD]).status).toBe(0);
+    person(p, "/aidlc 2", NEW);
+    expect(readProtectedResponse(p, NEW)?.choice).toBe("Request Changes");
+    const print = next(p, ["2"]);
+    expect(print.kind, JSON.stringify(print)).toBe("print");
+    expect(print.message).toContain(
+      "its choices are 1. Approve and 2. Request Changes; answer it through that checkpoint, never `log answer`",
+    );
+  });
 });
 
 describe("t-checkpoint-answer-any-chat: a batch checkpoint answered in a new chat", () => {
@@ -281,6 +298,30 @@ describe("t-checkpoint-answer-any-chat: a batch checkpoint answered in a new cha
       kind: "checkpoint-approval", targetDigest: protectedTargetDigest(target), choice: "Approve",
     })).not.toThrow();
   });
+
+  // Under a strict Guard Policy a batch whose files changed after its check is
+  // asked with Request Changes alone; a row from before rows named their
+  // options offered both.
+  for (const [offered, named] of [
+    ["both choices", true], ["Request Changes alone", false], ["no Options field", true],
+  ] as const) {
+    test(`"2" at a batch question with ${offered}: the step ${named ? "names" : "names no"} numbered choices`, () => {
+      const p = construction();
+      appendAuditEntry("STAGE_STARTED", { Stage: "functional-design" }, p);
+      const options: Record<string, string> = offered === "both choices" ? { Options: "Approve,Request Changes" }
+        : offered === "Request Changes alone" ? { Options: "Request Changes" } : {};
+      appendAuditEntry("DECISION_RECORDED", {
+        Checkpoint: "Swarm Batch Approval", Stage: "functional-design", "Batch number": "1", Units: "alpha, beta",
+        Fingerprint: "sha256:batch", Session: OLD, ...options,
+      }, p);
+      const print = next(p, ["2"]);
+      expect(print.kind, JSON.stringify(print)).toBe("print");
+      expect(print.message).toContain("swarm-checkpoint --action reject --batch 1 --units 'alpha, beta'`");
+      expect(print.message?.includes("its choices are 1. Approve and 2. Request Changes; answer it through that checkpoint"))
+        .toBe(named);
+      expect(print.message?.includes("1. Approve")).toBe(named);
+    });
+  }
 });
 
 // The two other questions whose answer needs the person's own reply to them,
@@ -375,5 +416,95 @@ describe("t-checkpoint-answer-any-chat: the step for prose at a verification com
     expect(print.kind, JSON.stringify(print)).toBe("print");
     expect(print.message).toContain("answer --stage functional-design --checkpoint construction-policy --field 'Construction Execution' --value swarm --details");
     expect(print.message).toContain("set-construction-execution swarm`");
+  });
+});
+
+// The person types a bare `/aidlc` in `session`, and the agent runs `next` there.
+function bare(p: string, session: string) {
+  person(p, "/aidlc", session);
+  const env: Record<string, string | undefined> = {
+    ...process.env, AIDLC_PROJECT_DIR: p, CLAUDE_PROJECT_DIR: p, AIDLC_SESSION_OVERRIDE: session, AIDLC_SESSION_OVERRIDE_SOURCE: undefined,
+  };
+  const result = runOrchestrateNext(join(AIDLC_SRC, "tools/aidlc-orchestrate.ts"), p, [], { env });
+  expect(result.directive, result.out).not.toBeNull();
+  return result.directive as {
+    kind: string; stage?: string; message?: string; narration?: string; construction_checkpoint?: { unit: string };
+  };
+}
+
+// The person picks `label` in the question box showing `question`, as Claude Code's hook passes it.
+function picked(p: string, session: string, question: string, options: string[], label: string) {
+  const env: NodeJS.ProcessEnv = { ...process.env, AIDLC_PROJECT_DIR: p, CLAUDE_PROJECT_DIR: p };
+  delete env.AIDLC_SKIP_HUMAN_PRESENCE_GUARD;
+  delete env.AIDLC_UNATTENDED;
+  const questions = [{ question, header: "Choice", multiSelect: false, options: options.map((o) => ({ label: o, description: o })) }];
+  const result = spawnSync(process.execPath, [join(AIDLC_SRC, "tools/aidlc.ts"), "engine", "hook", "record-human-turn"], {
+    timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS), encoding: "utf-8", cwd: p, env,
+    input: JSON.stringify({
+      hook_event_name: "PostToolUse", session_id: session, tool_name: "AskUserQuestion",
+      tool_input: { questions }, tool_response: { questions, answers: { [question]: label } },
+    }),
+  });
+  expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
+}
+
+describe("t-checkpoint-answer-any-chat: a bare /aidlc in a new chat", () => {
+  test("shows the stage's open chat question again, as it was asked, with its choices and its answer, and ends the turn", () => {
+    const p = construction();
+    appendAuditEntry("STAGE_STARTED", { Stage: "functional-design" }, p);
+    const asked = tool(p, "log", ["decision", "--stage", "functional-design", "--session", OLD,
+      "--decision", "Which name do you want for the module?", "--options", "core,main"]);
+    expect(asked.status, asked.out).toBe(0);
+    const shown = bare(p, NEW);
+    expect(shown.kind, JSON.stringify(shown)).toBe("print");
+    expect(shown.message).toContain('"Which name do you want for the module?"');
+    expect(shown.message).toContain('"core", "main"');
+    expect(shown.message).toContain("end your turn");
+    expect(shown.message).toContain("answer --stage functional-design --details");
+    expect(shown.narration).toContain("Picking up where we left off");
+  });
+
+  test("a Construction policy question comes back in its own words, so the pick in its question box answers it", () => {
+    const p = askedInOldChat("Construction policy");
+    const shown = bare(p, NEW);
+    expect(shown.kind, JSON.stringify(shown)).toBe("print");
+    // Verbatim: the box that shows it again pairs with the question by its text or its two exact choices.
+    expect(shown.message).toContain('"Build the Units in parallel?"');
+    expect(shown.message).toContain("--checkpoint construction-policy --field 'Construction Execution' --value swarm");
+    picked(p, NEW, "Build the Units in parallel?", ["Approve", "Request Changes"], "Approve");
+    expect(readProtectedResponse(p, NEW)?.choice).toBe("Approve");
+    const recorded = answer(p, "Construction policy", NEW);
+    expect(recorded.status, recorded.out).toBe(0);
+  });
+
+  test("a question its stage's questions file still holds is asked again by the stage's own step, from the file", () => {
+    // A guided batch: logged as its question numbers and every option shown, its questions in the file.
+    const p = construction();
+    appendAuditEntry("STAGE_STARTED", { Stage: "functional-design" }, p);
+    const dir = join(seededRecordDir(p), "construction", "alpha", "functional-design");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "functional-design-questions.md"),
+      "# Questions\n\n## Q1\n\nWhich store?\n\nA. Files\nB. A database\n\n[Answer]: \n\n## Q2\n\nWho signs in?\n\nC. Anyone\nD. Members\n\n[Answer]: \n");
+    const asked = tool(p, "log", ["decision", "--stage", "functional-design", "--session", OLD,
+      "--decision", "Q1,Q2", "--options", "A,B,C,D"]);
+    expect(asked.status, asked.out).toBe(0);
+    // They replied in the old chat, which ended before the answers were written down.
+    person(p, "Q1: B, Q2: D", OLD);
+    const resumed = bare(p, NEW) as { kind: string; kept_replies?: { replies: unknown[] } };
+    expect(resumed.kind, JSON.stringify(resumed)).toBe("run-stage");
+    expect(JSON.stringify(resumed.kept_replies?.replies ?? [])).toContain("Q1: B, Q2: D");
+  });
+
+  test("a verification command question is asked again by its own step, not shown from its row", () => {
+    const p = askedInOldChat("verification command");
+    const resumed = bare(p, NEW);
+    expect(resumed.kind, JSON.stringify(resumed)).toBe("run-stage");
+  });
+
+  test("a Unit checkpoint question is asked again by its checkpoint step", () => {
+    const p = fixture();
+    expect(checkpoint(p, ["--action", "ask", "--session", OLD]).status).toBe(0);
+    const resumed = bare(p, NEW);
+    expect(resumed.construction_checkpoint?.unit, JSON.stringify(resumed)).toBe("alpha");
   });
 });
