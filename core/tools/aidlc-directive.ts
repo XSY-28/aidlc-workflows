@@ -728,6 +728,14 @@ export interface UnitHandoffAskDirective extends AskDirectiveBase {
   choices: AskChoice[];
 }
 
+// A team's Unit the home turned down, at the end of its build: back to Code
+// Generation, or not now.
+export interface UnitTurnedDownAskDirective extends AskDirectiveBase {
+  ask_type: "unit-turned-down";
+  response_route: "command";
+  choices: AskChoice[];
+}
+
 // The end of a Unit's build: push it home, or not now.
 export interface UnitPushAskDirective extends AskDirectiveBase {
   ask_type: "unit-push";
@@ -845,6 +853,7 @@ export type AskDirective =
   | UnitTakeAskDirective
   | UnitPushAskDirective
   | UnitHandoffAskDirective
+  | UnitTurnedDownAskDirective
   | UnitAmendAskDirective
   | UnitSignoffAskDirective
   | NewWorkRoutingAskDirective
@@ -920,6 +929,9 @@ export interface NoticeDirective {
   message: string;
   // For the agent: the commands for what the person may say back to the board.
   board_note?: string;
+  // For the agent: each offer the board makes the person, in their words as a
+  // question, with the choices and what each runs.
+  offers?: Array<{ question: string; choices: Array<{ label: string; command?: string; recommended?: true }> }>;
 }
 
 // The Directive union — the engine emits exactly one of these per `next`.
@@ -1135,7 +1147,7 @@ const PRINT_FIELDS = ["kind", "message", "next_stage", "document_note"] as const
 const ERROR_FIELDS = ["kind", "message"] as const;
 const DONE_FIELDS = ["kind", "reason", "workflow_continues", "done_note"] as const;
 const PARKED_FIELDS = ["kind", "reason", "stage"] as const;
-const NOTICE_FIELDS = ["kind", "message", "board_note"] as const;
+const NOTICE_FIELDS = ["kind", "message", "board_note", "offers"] as const;
 
 // `narration` is legal on EVERY kind, so it is folded into each allowed-key set
 // centrally rather than repeated in eleven literals. A presentation field carries no
@@ -1467,7 +1479,7 @@ export function ceremonyNote(state: "on" | "off"): string {
 // the numbers: a reply of "2" is read against this order, and the agent
 // renders nothing of its own. One builder, so every question has one shape.
 // Engine questions answered by running the picked choice's command.
-const COMMAND_CHOICE_ASKS = new Set(["construction-staffing", "repos-manifest", "unit-assignment", "unit-take", "unit-push", "unit-handoff", "unit-amend", "unit-signoff"]);
+const COMMAND_CHOICE_ASKS = new Set(["construction-staffing", "repos-manifest", "unit-assignment", "unit-take", "unit-push", "unit-handoff", "unit-turned-down", "unit-amend", "unit-signoff"]);
 
 export interface AskChoice {
   label: string;
@@ -2093,6 +2105,7 @@ export function validateDirective(obj: unknown): ValidationResult {
     case "notice":
       checkString(o, "message", kind, errors);
       if (o.board_note !== undefined) checkString(o, "board_note", kind, errors);
+      if (o.offers !== undefined && !Array.isArray(o.offers)) errors.push(`${kind}: offers must be an array`);
       break;
     // No default: the union is exhaustive — every member of DirectiveKind has a
     // case above. TS flags a missing case at compile time if a kind is added.
