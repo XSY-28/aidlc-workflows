@@ -198,6 +198,52 @@ process.stdout.write(JSON.stringify(value));
     expect(identityDiscussion).toEqual({ ...discussion, comments: [discussion.comments[0]] });
   });
 
+  test("discussion retries unavailable authority and never records it as verified no-write access", () => {
+    const root = mkdtempSync(join(tmpdir(), "aidlc-discussion-permission-"));
+    try {
+      const mode = join(root, "mode");
+      const counter = join(root, "counter");
+      const fakeGh = writeGhFixture(join(root, "gh"), `
+const { readFileSync, writeFileSync, existsSync } = require("node:fs");
+const args = process.argv.slice(2).join(" ");
+const mode = readFileSync(${JSON.stringify(mode)}, "utf8");
+if (args.includes("/permission")) {
+  const count = (existsSync(${JSON.stringify(counter)}) ? Number(readFileSync(${JSON.stringify(counter)}, "utf8")) : 0) + 1;
+  writeFileSync(${JSON.stringify(counter)}, String(count));
+  if (mode === "malformed") { process.stdout.write("{}"); process.exit(0); }
+  if (mode === "persistent" || count === 1) process.exit(1);
+  process.stdout.write(JSON.stringify({ permission: "admin" }));
+} else if (args.includes("issues/42/comments")) {
+  process.stdout.write(JSON.stringify([[{ id: 17, user: { login: "owner" }, author_association: "NONE",
+    body: "Keep this advisory.", created_at: "2026-10-19T00:00:00Z", updated_at: "2026-10-19T00:00:00Z" }]]));
+} else {
+  process.stdout.write("[[]]");
+}
+`);
+      for (const scenario of ["recovered", "persistent", "malformed"]) {
+        writeFileSync(mode, scenario);
+        writeFileSync(counter, "0");
+        const output = join(root, `${scenario}.json`);
+        const current = join(root, `${scenario}-current.json`);
+        const identity = join(root, `${scenario}-identity.json`);
+        const collect = () => buildDiscussion("acme/repo", 42, HEAD, output, current, identity, fakeGh);
+        if (scenario === "recovered") {
+          collect();
+          expect(JSON.parse(readFileSync(output, "utf8")).comments[0].actor.maintainer).toBe(true);
+          expect(readFileSync(counter, "utf8")).toBe("2");
+          const verified = readFileSync(identity, "utf8");
+          collect();
+          expect(readFileSync(identity, "utf8")).toBe(verified);
+          expect(readFileSync(counter, "utf8")).toBe("3");
+        } else {
+          expect(collect).toThrow("Could not verify repository write permission");
+          expect(readFileSync(counter, "utf8")).toBe("3");
+          for (const path of [output, current, identity]) expect(existsSync(path)).toBe(false);
+        }
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test("discussion identifies maintainer authority and separates current-head AI reviews", () => {
     const user = (login: string) => ({ login });
     const comment = (

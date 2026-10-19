@@ -49,6 +49,10 @@ product check, merge-queue verification or ruleset activation is added.
 Prior judgments in PR comments and reviews appear as AIDA's interpretation, with
 a link to the maintainer's own words and without re-asking the question.
 Maintainer attribution uses the ledger's repository write-permission check.
+Unavailable permission lookups are retried up to three times. If GitHub still
+cannot confirm access, context collection stops before model calls; unknown
+authority is never recorded as verified lack of permission. Rerun the review
+when GitHub is available again.
 Product generation or validation failures do not prevent
 the technical review from publishing; product details yield to technical findings
 when the comment reaches GitHub's size limit.

@@ -773,7 +773,8 @@ export function buildDiscussion(
   const comments = paginatedRecords(`repos/${repository}/issues/${pullRequest}/comments`, ghExecutable);
   const logins = new Set([...reviews, ...reviewComments, ...comments]
     .map(value => actor(value.user, value.author_association).login));
-  const maintainers = new Set([...logins].filter(login => actorHasWrite(repository, login, ghExecutable)));
+  const maintainers = new Set([...logins].filter(login =>
+    actorHasWrite(repository, login, ghExecutable, { requireVerified: true })));
   const normalized = normalizeDiscussion(
     pullRequest,
     head,
