@@ -27,6 +27,7 @@ export const UNIT_VERBS = [
   "propose",
   "publish",
   "push",
+  "rebase",
   "release",
   "sign-off",
   "status",
