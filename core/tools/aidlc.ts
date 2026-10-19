@@ -13,6 +13,7 @@ import {
   parseDispatcherPluginCommand,
   parseDispatcherWorkspaceCommand,
   type RouteNamespaceName,
+  UNIT_VERBS,
 } from "./aidlc-command.ts";
 import {
   cmd,
@@ -217,36 +218,9 @@ export const SYSTEM_NAMESPACE_HELP: NamespaceHelpOptions = {
   header: "Operations on this user's aidlc installation; never system-wide (root only with --allow-root):",
 };
 
-// The unit tool's verbs, routed at both doors: `aidlc unit`, which people and
-// scripts type, and `aidlc engine unit`, the form aidlcToolInvocation prints for
-// the agent on a native install. The tool's own list is UNIT_VERBS in
-// aidlc-unit.ts; the dispatcher does not load that module, so the two are held
-// together by t-unit-native-commands.
-const UNIT_VERBS = [
-  "adopt",
-  "amend",
-  "assign",
-  "claim",
-  "gate",
-  "hand-off",
-  "land",
-  "lead-sign-off",
-  "merge-status",
-  "merged",
-  "participate",
-  "pin",
-  "progress",
-  "propose",
-  "publish",
-  "push",
-  "release",
-  "sign-off",
-  "status",
-  "take",
-  "take-in",
-  "turned-down",
-] as const;
-
+// The unit tool's verbs (UNIT_VERBS, aidlc-command.ts) are routed at both
+// doors: `aidlc unit`, which people and scripts type, and `aidlc engine unit`,
+// the form aidlcToolInvocation prints for the agent on a native install.
 const UNIT_FORMS = [
   "unit adopt <unit>",
   "unit amend <unit> --input <file> --answer <approve|reject> --person-words <text>",

@@ -159,6 +159,7 @@ import {
   resolveTestingPosture,
 } from "./aidlc-testing-posture.ts";
 import { aidlcEngineCommand, aidlcToolInvocation, isCompiledExecutable } from "./aidlc-runtime-paths.ts";
+import { UNIT_VERBS } from "./aidlc-command.ts";
 
 const CLAIM_FILE = ".aidlc-unit-claim.json";
 const ZERO_OID = "0000000000000000000000000000000000000000";
@@ -5847,14 +5848,6 @@ function participate(projectDir?: string): void {
 }
 
 let projectDir: string | undefined;
-
-// Every verb main runs. The dispatcher routes the same list (aidlc.ts, the unit
-// routes), and t-unit-native-commands holds the two together.
-export const UNIT_VERBS = [
-  "assign", "take", "push", "hand-off", "progress", "take-in", "propose", "amend", "lead-sign-off", "sign-off",
-  "turned-down", "merged", "adopt", "claim", "release", "participate", "publish", "pin", "gate", "land",
-  "merge-status", "status",
-] as const;
 
 export function main(argv: string[]): void {
   const args = [...argv];

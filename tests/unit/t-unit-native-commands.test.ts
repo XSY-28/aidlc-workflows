@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveAction, TOOLS } from "../../core/tools/aidlc.ts";
 import { aidlcDispatcherInvocation, aidlcInvocation } from "../../core/tools/aidlc-runtime-paths.ts";
-import { UNIT_VERBS } from "../../core/tools/aidlc-unit.ts";
+import { UNIT_VERBS } from "../../core/tools/aidlc-command.ts";
 
 const TOOLS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "core", "tools");
 

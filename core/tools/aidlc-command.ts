@@ -8,6 +8,33 @@ import {
   heading,
 } from "./aidlc-color.ts";
 
+// Every verb the unit tool runs (aidlc-unit.ts main), routed at both doors of
+// the dispatcher (aidlc.ts): `aidlc unit` and `aidlc engine unit`.
+export const UNIT_VERBS = [
+  "adopt",
+  "amend",
+  "assign",
+  "claim",
+  "gate",
+  "hand-off",
+  "land",
+  "lead-sign-off",
+  "merge-status",
+  "merged",
+  "participate",
+  "pin",
+  "progress",
+  "propose",
+  "publish",
+  "push",
+  "release",
+  "sign-off",
+  "status",
+  "take",
+  "take-in",
+  "turned-down",
+] as const;
+
 export const ROUTE_NAMESPACE_DECLARATIONS = {
   public: { trustedPrefix: false },
   engine: { trustedPrefix: true },
