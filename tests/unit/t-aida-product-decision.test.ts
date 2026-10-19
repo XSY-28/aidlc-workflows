@@ -8,6 +8,7 @@ import { type Assessment, validateAssessment } from "../../.github/scripts/ai-pr
 import {
   type ChangedFileManifest, type StructuredReview, assertReviewBodyMarkers,
   enforceDecision, labelsForOutcome, renderReview,
+  normalizeDiscussion, authoritativeDiscussion,
 } from "../../.github/scripts/ai-pr-review.ts";
 import { REPO_ROOT } from "../harness/fixtures.ts";
 import { posixShellPath } from "../harness/git-bash.ts";
@@ -24,6 +25,7 @@ const CHOICE = {
   before: "Teams configure projects with JSON.",
   after: "Teams can maintain YAML project files.",
   question: "Should YAML become a supported project format?",
+  decision: null,
   paths: ["core/new-format.ts"],
 };
 const assessment = (): Assessment => ({
@@ -63,6 +65,61 @@ describe("advisory product decisions", () => {
     expect(payload.body).toContain("No product change identified.");
     expect(payload.body).toContain(product.summary);
     expect(payload.event).toBe("COMMENT");
+  });
+
+  test("ordinary comments and formal reviews preserve a maintainer's decision without re-asking", () => {
+    for (const kind of ["comment", "review"] as const) {
+      const entry = { id: 17, user: { login: "owner" }, author_association: "OWNER",
+        body: "Yes, support YAML alongside JSON.", created_at: "2026-10-19T00:00:00Z",
+        updated_at: "2026-10-19T00:00:00Z", submitted_at: "2026-10-19T00:00:00Z", state: "COMMENTED" };
+      const discussion = normalizeDiscussion(42, HEAD, kind === "review" ? [entry] : [], [],
+        kind === "comment" ? [entry] : []).discussion;
+      const decided = { ...assessment(), decisions: [{ ...CHOICE, question: null,
+        decision: { summary: entry.body, source: { kind, id: 17 } } }] };
+      const product = validateAssessment(decided, MANIFEST, discussion);
+      const payload = renderReview(review(), CONTEXT, product);
+      expect(payload.body).toContain(`Decision: ${entry.body}`);
+      expect(payload.body).not.toContain("Question:");
+      expect(payload.body).toContain(`${kind} #17`);
+      expect(payload.body).toContain(kind === "comment" ? "(#issuecomment-17)" : "(#pullrequestreview-17)");
+      expect(payload.body).toContain("owner");
+      const identity = authoritativeDiscussion(discussion);
+      const revised = normalizeDiscussion(42, HEAD, kind === "review" ? [{ ...entry, body: "Do not ship YAML." }] : [], [],
+        kind === "comment" ? [{ ...entry, body: "Do not ship YAML." }] : []).discussion;
+      expect(authoritativeDiscussion(revised)).not.toEqual(identity);
+      expect(() => validateAssessment(decided, MANIFEST)).toThrow();
+      const outsider = normalizeDiscussion(42, HEAD, kind === "review" ? [{ ...entry, author_association: "NONE" }] : [], [],
+        kind === "comment" ? [{ ...entry, author_association: "NONE" }] : []).discussion;
+      expect(() => validateAssessment(decided, MANIFEST, outsider)).toThrow();
+      const outsiderEdit = normalizeDiscussion(42, HEAD, kind === "review" ? [{ ...entry, body: "Approved!", author_association: "NONE" }] : [], [],
+        kind === "comment" ? [{ ...entry, body: "Approved!", author_association: "NONE" }] : []).discussion;
+      expect(authoritativeDiscussion(outsiderEdit)).toEqual(authoritativeDiscussion(outsider));
+    }
+  });
+
+  test("product details cannot exhaust the publication budget or hide a technical finding", () => {
+    const technical = review();
+    technical.decision = { actor: "author", action: "change", rationale: "Restore the supported input." };
+    technical.findings = [{ priority: "P1", category: "contracts", title: "Existing projects fail",
+      evidence: [{ source: "DIFF", path: "core/new-format.ts", line: 1, side: "RIGHT" }],
+      problem: "Existing JSON is rejected.", impact: "Projects cannot load.", requiredCorrection: "Restore JSON support." }];
+    const large = { ...assessment(), decisions: Array.from({ length: 10 }, () => ({
+      ...CHOICE, change: "&".repeat(1000), before: "&".repeat(1000),
+      after: "&".repeat(1000), question: "&".repeat(1000),
+    })) };
+    expect(Buffer.byteLength(JSON.stringify(large))).toBeLessThan(50_000);
+    const payload = renderReview(enforceDecision(technical), CONTEXT, validateAssessment(large, MANIFEST));
+    expect(Buffer.byteLength(payload.body)).toBeLessThanOrEqual(65_536);
+    expect(payload.body).toContain("Product details omitted");
+    expect(payload.body).toContain("P1: Existing projects fail");
+    expect(payload.body).toContain("decision=author/change");
+    expect(() => assertReviewBodyMarkers(payload.body)).not.toThrow();
+    const full = review();
+    full.residualRisk = "";
+    full.residualRisk = "x".repeat(65_536 - Buffer.byteLength(renderReview(full, CONTEXT).body));
+    const unchanged = renderReview(full, CONTEXT).body;
+    expect(Buffer.byteLength(unchanged)).toBe(65_536);
+    expect(renderReview(full, CONTEXT, validateAssessment(assessment(), MANIFEST)).body).toBe(unchanged);
   });
 
   test("product advice cannot clear a real P1 technical finding", () => {
@@ -127,9 +184,27 @@ describe("advisory product decisions", () => {
         expect(payload.body).toContain(CHOICE.question);
         expect(JSON.parse(readFileSync(join(root, "decision.json"), "utf8")).action).toBe("merge");
       }
-      writeFileSync(join(root, "product.json"), JSON.stringify({ ...assessment(), head: BASE }));
-      const stale = spawnSync(process.execPath, args, { encoding: "utf8", timeout: 30_000 });
-      expect(stale.status).not.toBe(0);
+      const discussion = normalizeDiscussion(42, HEAD, [], [], [{
+        id: 17, user: { login: "owner" }, author_association: "OWNER", body: "Support YAML.",
+        created_at: "2026-10-19T00:00:00Z", updated_at: "2026-10-19T00:00:00Z",
+      }]).discussion;
+      writeFileSync(join(root, "discussion.json"), JSON.stringify(discussion));
+      writeFileSync(join(root, "product.json"), JSON.stringify({ ...assessment(), decisions: [{ ...CHOICE, question: null,
+        decision: { summary: "Support YAML.", source: { kind: "comment", id: 17 } } }] }));
+      const decided = spawnSync(process.execPath, [...args, "--discussion", join(root, "discussion.json")],
+        { encoding: "utf8", timeout: 30_000 });
+      expect(decided.status, decided.stderr).toBe(0);
+      expect(JSON.parse(readFileSync(join(root, "out.json"), "utf8")).body).toContain("Decision: Support YAML.");
+      for (const invalid of [JSON.stringify({ ...assessment(), head: BASE }), "{broken JSON", null]) {
+        if (invalid === null) rmSync(join(root, "product.json"));
+        else writeFileSync(join(root, "product.json"), invalid);
+        const result = spawnSync(process.execPath, args, { encoding: "utf8", timeout: 30_000 });
+        expect(result.status, result.stderr).toBe(0);
+        const payload = JSON.parse(readFileSync(join(root, "out.json"), "utf8"));
+        expect(payload.body).toContain("Product assessment unavailable");
+        expect(payload.body).toContain("decision=maintainer/merge");
+        expect(payload.event).toBe("COMMENT");
+      }
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
@@ -187,7 +262,7 @@ describe("the product pass shares AIDA's existing run", () => {
 
   test("the product pass uses the same runner and survives publication retries", () => {
     const model = step("Run review passes sequentially");
-    const start = model.indexOf('product_prompt="');
+    const start = model.indexOf("# Product assessment is optional");
     expect(start).toBeGreaterThan(-1);
     const route = model.slice(start, model.indexOf('aidlc_prompt="', start));
     const stub = 'run_model() { printf "%s\\n" "$2"; }\ncat() { :; }\njq() { :; }\n';
@@ -197,6 +272,26 @@ describe("the product pass shares AIDA's existing run", () => {
     expect(workflow.jobs.review.steps.filter(step => step.run?.includes("npm install --global"))).toHaveLength(1);
     expect(workflow.jobs.review.steps.find(step => step.name === "Run review passes sequentially")?.env).not.toHaveProperty("GH_TOKEN");
     expect(model).toContain('--product .ai-pr-review-final/product.json');
+    expect(model).toContain('--discussion .ai-review-context/discussion.json');
     expect(step("Publish SHA-bound review")).toContain('--product .ai-pr-review-final/product.json');
+    expect(step("Publish SHA-bound review")).toContain('--discussion .ai-review-context/discussion.json');
+  });
+
+  test("a product provider timeout or setup failure does not abort the technical passes", () => {
+    const model = step("Run review passes sequentially");
+    const start = model.indexOf("# Product assessment is optional");
+    expect(start).toBeGreaterThan(-1);
+    const route = model.slice(start, model.indexOf('aidlc_prompt="', start));
+    for (const stub of [
+      "run_model() { return 124; }; cat() { :; }; jq() { :; };",
+      "run_model() { printf 'should not run'; }; cat() { return 1; }; jq() { :; };",
+    ]) {
+      const result = spawnSync(posixShellPath(), ["-c", `set -e\n${stub}\n${route}\nprintf 'technical review continues'`],
+        { encoding: "utf8", cwd: tmpdir() });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("Product assessment unavailable");
+      expect(result.stdout).toContain("technical review continues");
+      expect(result.stdout).not.toContain("should not run");
+    }
   });
 });

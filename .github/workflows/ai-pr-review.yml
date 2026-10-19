@@ -532,16 +532,27 @@ jobs:
             '.marker == $marker and .status == "complete"' .ai-review-lenses/security.json >/dev/null \
             || { echo "::error::security lens did not complete its inspection"; exit 1; }
 
-          product_prompt="$(cat .ai-review-controls/prompts/ai-product-decision.md)"
-          product_schema="$(jq -c . .ai-review-controls/prompts/ai-product-decision-schema.json)"
-          run_model \
-            "sol" \
-            "Product decision" \
-            "high" \
-            50000 \
-            ".ai-pr-review-final/product.json" \
-            "$product_prompt" \
-            "$product_schema"
+          # Product assessment is optional; its failure must not lose technical findings.
+          set +e
+          (
+            set -e
+            product_prompt="$(cat .ai-review-controls/prompts/ai-product-decision.md)"
+            product_schema="$(jq -c . .ai-review-controls/prompts/ai-product-decision-schema.json)"
+            run_model \
+              "sol" \
+              "Product decision" \
+              "high" \
+              50000 \
+              ".ai-pr-review-final/product.json" \
+              "$product_prompt" \
+              "$product_schema"
+          )
+          product_status=$?
+          set -e
+          if [ "$product_status" -ne 0 ]; then
+            rm -f .ai-pr-review-final/product.json
+            echo "::warning::Product assessment unavailable; continuing the technical review"
+          fi
 
           aidlc_prompt="$(
             cat \
@@ -627,6 +638,7 @@ jobs:
             --context-id "${{ steps.context.outputs.context_id }}" \
             --input .ai-pr-review-final/review.md \
             --product .ai-pr-review-final/product.json \
+            --discussion .ai-review-context/discussion.json \
             --manifest .ai-review-context/changed-files.json \
             --metadata .ai-review-context/pr.json \
             --output .ai-pr-review-final/review.json \
@@ -699,6 +711,7 @@ jobs:
               --context-id "$CONTEXT_ID" \
               --input .ai-pr-review-final/review.md \
               --product .ai-pr-review-final/product.json \
+              --discussion .ai-review-context/discussion.json \
               --manifest .ai-review-context/changed-files.json \
               --metadata .ai-review-context/pr.json \
               --output .ai-pr-review-final/review.json \

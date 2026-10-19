@@ -46,6 +46,10 @@ Internal changes and fixes restoring a contract can report no product change.
 Product advice does not affect technical finding severity or the next-action
 labels. A maintainer decides in the PR discussion; no approval command, required
 product check, merge-queue verification or ruleset activation is added.
+Prior judgments in PR comments and reviews appear as sourced decisions, without
+re-asking the question. Product generation or validation failures do not prevent
+the technical review from publishing; product details yield to technical findings
+when the comment reaches GitHub's size limit.
 
 Respond to the findings and fix failing checks. AIDA reports an advisory next
 decision: `author/change` asks the author to address gaps; `maintainer/merge`

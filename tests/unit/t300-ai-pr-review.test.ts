@@ -165,6 +165,8 @@ if (args.includes("pulls/42/reviews")) {
     path: "core/example.ts", line: 42, side: "RIGHT", commit_id: "${HEAD}",
     in_reply_to_id: null
   }]];
+} else if (args.includes("issues/42/comments")) {
+  value = [[comment(7, "owner", "OWNER", "Ship this as advisory.")]];
 } else {
   throw new Error("unexpected gh invocation: " + args);
 }
@@ -177,11 +179,14 @@ process.stdout.write(JSON.stringify(value));
     expect(discussion.reviews.map((entry: { id: number }) => entry.id)).toEqual([2]);
     expect(discussion.reviews[0]).not.toHaveProperty("state");
     expect(discussion.reviewComments[0].actor.maintainer).toBe(true);
+    expect(discussion.comments[0].body).toBe("Ship this as advisory.");
+    expect(discussion.comments[0].actor.maintainer).toBe(true);
     expect(Object.keys(discussion)).toEqual([
       "version",
       "pullRequest",
       "reviews",
       "reviewComments",
+      "comments",
     ]);
     expect(currentReviews.map((entry: { id: number }) => entry.id)).toEqual([3]);
     expect(identityDiscussion).toEqual(discussion);

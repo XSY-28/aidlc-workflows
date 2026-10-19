@@ -40,6 +40,7 @@
           "before",
           "after",
           "question",
+          "decision",
           "paths"
         ],
         "properties": {
@@ -59,9 +60,31 @@
             "maxLength": 1000
           },
           "question": {
-            "type": "string",
+            "type": ["string", "null"],
             "minLength": 1,
             "maxLength": 1000
+          },
+          "decision": {
+            "anyOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["summary", "source"],
+                "properties": {
+                  "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
+                  "source": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "id"],
+                    "properties": {
+                      "kind": { "type": "string", "enum": ["comment", "review", "review-comment"] },
+                      "id": { "type": "integer", "minimum": 1 }
+                    }
+                  }
+                }
+              }
+            ]
           },
           "paths": {
             "type": "array",
