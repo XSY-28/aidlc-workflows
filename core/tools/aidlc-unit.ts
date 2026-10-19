@@ -183,14 +183,40 @@ function git(projectDir: string, args: string[], env?: NodeJS.ProcessEnv): GitRe
     cwd: projectDir,
     encoding: "utf-8",
     env: { ...process.env, ...(quiet ? quietEnv(projectDir) : {}), ...env },
-    ...(quiet ? { timeout: args[0] === "ls-remote" ? QUIET_READ_TIMEOUT_MS : QUIET_WRITE_CEILING_MS } : {}),
+    // A quiet call is a process group of its own, so its time limit ends git's transport (ssh, the http helper) too.
+    ...(quiet
+      ? { timeout: args[0] === "ls-remote" ? QUIET_READ_TIMEOUT_MS : QUIET_WRITE_CEILING_MS, detached: process.platform !== "win32" }
+      : {}),
   });
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") endLeftBehind(result.pid);
   return {
     ok: result.status === 0,
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
     code: result.status ?? 1,
   };
+}
+
+// What a git stopped at its time limit started and left running: its process
+// group; on Windows, which has none of git's own, each process it started, by
+// parent, unless its id already names another process.
+function endLeftBehind(pid: number): void {
+  if (process.platform !== "win32") {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // Nothing of it is left.
+    }
+    return;
+  }
+  spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+    `if (-not (Get-Process -Id ${pid} -ErrorAction SilentlyContinue)) { function End($p) { ` +
+    `Get-CimInstance Win32_Process -Filter "ParentProcessId=$p" | ForEach-Object { End $_.ProcessId; ` +
+    `Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }; End ${pid} }`], {
+    stdio: "ignore",
+    windowsHide: true,
+    timeout: QUIET_READ_TIMEOUT_MS * 3,
+  });
 }
 
 function localGit(
