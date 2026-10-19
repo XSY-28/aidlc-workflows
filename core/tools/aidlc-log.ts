@@ -254,6 +254,7 @@ import {
   recordPlanApprovalReceipt,
 } from "./aidlc-testing-posture.js";
 import { aidlcDispatcherInvocation, entrySkillInvocation, swarmUnitTestCommand } from "./aidlc-runtime-paths.ts";
+import { unitBuildOf } from "./aidlc-unit-teams.ts";
 import {
   APPROVAL_GATE_CHOICES,
   SUMMARY_CONFIRMATION_CHOICES,
@@ -277,14 +278,29 @@ function unitManifestRefusal(
   manifestPath: string,
   manifest: { reason: string; unrecordedRepo?: string },
   rewrite: string,
+  build = false,
 ): string {
   if (manifest.unrecordedRepo !== undefined) {
     const repo = manifest.unrecordedRepo;
+    // A Unit's build: the home decided its Units, and a repo it changes is fine (decision 5).
+    if (build) {
+      return `unit "${unit}"'s source manifest at ${manifestPath} names repo ${JSON.stringify(repo)}, which the home's plan did not list. ` +
+        `Run \`${aidlcDispatcherInvocation(`intent add-repo ${repo}`)}\` and say its line once, then request the review again. ` +
+        "Do not rewrite the manifest to drop a repo the code was written in.";
+    }
     return `unit "${unit}"'s source manifest at ${manifestPath} names repo ${JSON.stringify(repo)}, which this piece of work does not record. ` +
       `Ask the person whether this work also touches ${repo}; if it does, run \`${aidlcDispatcherInvocation(`intent add-repo ${repo}`)}\` ` +
       "(it says what that means for the plan), then request the review again. Do not rewrite the manifest to drop a repo the code was written in.";
   }
   return `unit "${unit}" has no valid source manifest at ${manifestPath} (${manifest.reason}). ${rewrite}`;
+}
+
+function isUnitBuild(projectDir: string, intent?: string, space?: string): boolean {
+  try {
+    return unitBuildOf(readStateFile(projectDir, intent, space)) !== null;
+  } catch {
+    return false;
+  }
 }
 
 function unknownCheckpointMessage(checkpoint: string, accepted: readonly string[]): string {
@@ -3402,6 +3418,7 @@ function handleReview(args: string[]): void {
           manifestPath,
           manifest,
           "Write the manifest listing every application-source path the reviewer will inspect, then dispatch the review.",
+          isUnitBuild(pd, intent, space),
         )}`,
       );
     }
@@ -4232,6 +4249,7 @@ function handleReview(args: string[]): void {
             manifestPath,
             manifest,
             "Write the manifest listing every application-source path this unit created or modified, including shell- or generator-written files, then request and record the review again.",
+            isUnitBuild(pd, intent, space),
           )}`,
         );
       }
