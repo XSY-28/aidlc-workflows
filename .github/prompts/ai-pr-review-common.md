@@ -81,6 +81,11 @@ an adversary.
 
 ## What counts as a problem
 
+The separate product pass identifies features and product choices for the
+maintainer in an advisory section. A missing product approval is not, by itself,
+a technical finding. Continue reviewing actual correctness, compatibility,
+security and direction defects; product advice does not clear those findings.
+
 In scope: what a person meets in a normal run on a supported harness and
 platform, including a fresh project, a team clone, an upgrade, a resumed
 session, a second chat on the same work, and Windows or CRLF checkouts.

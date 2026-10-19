@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { type Assessment as ProductAssessment, validateAssessment } from "./ai-product-decision.ts";
 import {
   acceptedRisks,
   deriveDecision,
@@ -1822,7 +1823,11 @@ export function assertReviewBodyMarkers(body: string): void {
   }
 }
 
-export function renderReview(review: StructuredReview, contextId: string): ReviewPayload {
+export function renderReview(
+  review: StructuredReview,
+  contextId: string,
+  product?: ProductAssessment,
+): ReviewPayload {
   if (!/^[0-9a-f]{64}$/.test(contextId)) {
     throw new Error("context id must be a lowercase SHA-256 digest");
   }
@@ -1862,6 +1867,32 @@ export function renderReview(review: StructuredReview, contextId: string): Revie
     "Validation performed:",
     ...review.validation.map(item => `- ${markdownText(item)}`),
   ];
+  if (product) {
+    lines.push(
+      "",
+      "## Product Decision (advisory)",
+      "",
+      "This advice does not block merge or change the technical verdict. The maintainer decides in the PR discussion; no approval command is required.",
+      "",
+      product.status === "no-product-change" ? "No product change identified." : "Product choices for the maintainer:",
+      "",
+      markdownText(product.summary),
+    );
+    for (const choice of product.decisions) {
+      lines.push(
+        "",
+        `**${markdownText(choice.change)}**`,
+        "",
+        `Before: ${markdownText(choice.before)}`,
+        "",
+        `After: ${markdownText(choice.after)}`,
+        "",
+        `Question: ${markdownText(choice.question)}`,
+        "",
+        `Files: ${choice.paths.map(path => `<code>${codeText(path)}</code>`).join(", ")}`,
+      );
+    }
+  }
   const appendFinding = (finding: Finding): void => {
     lines.push(
       "",
@@ -2104,7 +2135,10 @@ function main(): void {
     } else {
       review = enforceDecision(parseStructuredReview(lastValidateInput, base, head, manifest, metadata, scope, securityCited));
     }
-    const payload = renderReview(review, contextId);
+    const product = args.includes("--product")
+      ? validateAssessment(JSON.parse(readFileSync(argValue(args, "--product"), "utf8")), manifest)
+      : undefined;
+    const payload = renderReview(review, contextId, product);
     writeFileSync(output, `${JSON.stringify(payload, null, 2)}\n`);
     if (args.includes("--decision-output")) {
       writeFileSync(
