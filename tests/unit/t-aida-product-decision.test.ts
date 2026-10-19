@@ -11,11 +11,12 @@ import {
   normalizeDiscussion, authoritativeDiscussion,
 } from "../../.github/scripts/ai-pr-review.ts";
 import { REPO_ROOT } from "../harness/fixtures.ts";
-import { posixShellPath } from "../harness/git-bash.ts";
+import { gitBashPath } from "../harness/git-bash.ts";
 
 const BASE = "b".repeat(40);
 const HEAD = "a".repeat(40);
 const CONTEXT = "c".repeat(64);
+const workflowShell = (): string => process.platform === "win32" ? gitBashPath() : "bash";
 const MANIFEST: ChangedFileManifest = {
   base: BASE, head: HEAD,
   files: [{ path: "core/new-format.ts", status: "A", added: [{ start: 1, end: 20 }], deleted: [], fileLevelEvidence: false }],
@@ -181,7 +182,7 @@ describe("advisory product decisions", () => {
       const start = workflow.indexOf("          mkdir -p .ai-review-controls/prompts");
       const snapshot = workflow.slice(start, workflow.indexOf('          echo "::notice::AI review controls from', start));
       cpSync(join(REPO_ROOT, ".github"), join(root, ".github"), { recursive: true });
-      const copied = spawnSync(posixShellPath(), ["-c", snapshot], { cwd: root, encoding: "utf8" });
+      const copied = spawnSync(workflowShell(), ["-c", snapshot], { cwd: root, encoding: "utf8" });
       expect(copied.status, copied.stderr).toBe(0);
       for (const [name, data] of Object.entries({ "review.json": review(), "product.json": assessment(),
         "manifest.json": MANIFEST, "metadata.json": { title: "Support YAML projects", body: "Add a project format." } })) {
@@ -249,7 +250,7 @@ describe("the product pass shares AIDA's existing run", () => {
     const start = context.indexOf('if [ "$head_repo" != "$REPO" ]; then');
     expect(start).toBeGreaterThan(-1);
     const forkCheck = context.slice(start, context.indexOf("git fetch --no-tags", start));
-    const result = spawnSync(posixShellPath(), ["-c", `${forkCheck}\nprintf 'would run the model'`], {
+    const result = spawnSync(workflowShell(), ["-c", `${forkCheck}\nprintf 'would run the model'`], {
       encoding: "utf8", env: { ...process.env, head_repo: "contributor/fork", REPO: "awslabs/aidlc-workflows", GITHUB_OUTPUT: "/dev/null" },
     });
     expect(result.status, result.stderr).toBe(0);
@@ -264,7 +265,7 @@ describe("the product pass shares AIDA's existing run", () => {
     for (const path of [".github/scripts/ai-product-decision.ts", ".github/prompts/ai-product-decision.md",
       ".github/prompts/ai-product-decision-schema.json"]) {
       for (const event of ["pull_request", "workflow_dispatch"]) {
-        const result = spawnSync(posixShellPath(), ["-c",
+        const result = spawnSync(workflowShell(), ["-c",
           `git() { printf '%s\\n' "$CHANGED_PATH"; }\n${controls}\nprintf 'controls=%s' "$control_change"`], {
           encoding: "utf8", env: { ...process.env, CHANGED_PATH: path, EVENT_NAME: event, GITHUB_OUTPUT: "/dev/null" },
         });
@@ -281,7 +282,7 @@ describe("the product pass shares AIDA's existing run", () => {
     expect(start).toBeGreaterThan(-1);
     const route = model.slice(start, model.indexOf('aidlc_prompt="', start));
     const stub = 'run_model() { printf "%s\\n" "$2"; }\ncat() { :; }\njq() { :; }\n';
-    const result = spawnSync(posixShellPath(), ["-c", `${stub}${route}`], { encoding: "utf8" });
+    const result = spawnSync(workflowShell(), ["-c", `${stub}${route}`], { encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.trim()).toBe("Product decision");
     expect(workflow.jobs.review.steps.filter(step => step.run?.includes("npm install --global"))).toHaveLength(1);
@@ -301,7 +302,7 @@ describe("the product pass shares AIDA's existing run", () => {
       "run_model() { return 124; }; cat() { :; }; jq() { :; };",
       "run_model() { printf 'should not run'; }; cat() { return 1; }; jq() { :; };",
     ]) {
-      const result = spawnSync(posixShellPath(), ["-c", `set -e\n${stub}\n${route}\nprintf 'technical review continues'`],
+      const result = spawnSync(workflowShell(), ["-c", `set -e\n${stub}\n${route}\nprintf 'technical review continues'`],
         { encoding: "utf8", cwd: tmpdir() });
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain("Product assessment unavailable");
