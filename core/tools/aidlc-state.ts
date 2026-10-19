@@ -1077,12 +1077,10 @@ export function main(argv: string[]): void {
 const DECISION_VERBS = new Set(["approve", "reject", "revise", "gate-start"]);
 
 function ownedTransitionStep(subcommand: string, rest: string[] = []): string {
-  // The selector the refused call was given (the tool takes it off its own
-  // arguments first), so the step acts on the same project from the same folder.
-  const argv = process.argv;
-  const at = argv.indexOf("--project-dir");
-  const named = at >= 0 ? argv[at + 1] : argv.find((arg) => arg.startsWith("--project-dir="))?.slice("--project-dir=".length);
-  const project = named ? ` --project-dir ${shellArg(named)}` : "";
+  // The selector the refused call was given, as this tool parsed it (after a
+  // host such as Kiro's Command Prompt rejoined its words), so the step acts on
+  // the same project from the same folder.
+  const project = projectDir ? ` --project-dir ${shellArg(projectDir)}` : "";
   const orchestrate = aidlcToolInvocation("orchestrate");
   const step = (args: string): string => `\`${orchestrate} ${args}${project}\``;
   const next = `${step("next")}: it prints this stage's next step. `;

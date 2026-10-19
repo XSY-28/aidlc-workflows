@@ -1851,7 +1851,7 @@ export function shellRunsHiddenCommand(command: string | null, powerShell = fals
       doubleQuoted = !doubleQuoted;
     } else if (ch === "'" && !doubleQuoted) {
       singleQuoted = true;
-    } else if (ch === "#" && !doubleQuoted && (i === 0 || /\s/.test(command[i - 1] ?? ""))) {
+    } else if (ch === "#" && !doubleQuoted && (i === 0 || /[\s;&|(]/.test(command[i - 1] ?? ""))) {
       // A comment runs nothing, to the end of its line.
       const end = command.indexOf("\n", i);
       if (end === -1) return false;
