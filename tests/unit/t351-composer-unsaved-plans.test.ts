@@ -483,6 +483,40 @@ describe("t351 (4) next carries the plan's typed changes and checks every echoed
     expect(previewed).toBe(executed.filter((n) => !n.startsWith("0.")).length);
   });
 
+  test("an empty --skip or --add list changes nothing, and the plan is still created", () => {
+    const proj = installedProject();
+    const forms: Array<[string[], string]> = [
+      [["--skip", "", "--add", "intent-capture"], "--add intent-capture"],
+      [["--skip", "--add", "intent-capture"], "--add intent-capture"],
+      [["--add", "intent-capture", "--skip"], "--add intent-capture"],
+      [["--skip", "deployment-pipeline", "--add", ""], "--skip deployment-pipeline"],
+      [["--skip", "deployment-pipeline", "--add"], "--skip deployment-pipeline"],
+    ];
+    for (const [lists, carried] of forms) {
+      const d = nextDirective(proj, ["--scope", "express", ...lists, "--", "fix the parser"]);
+      expect(d.kind, lists.join(" ")).toBe("print");
+      const creation = [...d.message.matchAll(/`([^`]*)`/g)].map((m) => m[1]).find((span) => span.includes("--scope express"));
+      expect(creation, d.message).toContain(carried);
+      expect(creation, d.message).not.toContain(carried.startsWith("--add") ? "--skip" : "--add");
+    }
+  });
+
+  test("a --skip or --add naming no stage, with no other list naming one, is refused as before and starts nothing", () => {
+    const proj = installedProject();
+    expect(runTool(proj, "aidlc-utility.ts", ["intent-create", "--scope", "bugfix"]).status).toBe(0);
+    const forms: Array<[string[], string]> = [
+      [["--skip"], "--skip requires <stage,...>."],
+      [["--skip", ""], `--skip requires stage slugs; "" is not a stage.`],
+      [["--add"], "--add requires <stage,...>."],
+      [["--skip", "", "--add", ""], `--skip requires stage slugs; "" is not a stage.`],
+    ];
+    for (const [lists, message] of forms) {
+      const d = nextDirective(proj, lists);
+      expect(d.kind, lists.join(" ")).toBe("error");
+      expect(d.message).toBe(message);
+    }
+  });
+
   test("hostile depth, test-strategy, and stage values never reach a command", () => {
     const proj = createTestProject();
     tempDirs.push(proj);

@@ -5,10 +5,11 @@
 // plugin, and a base builds on core alone (#2693). Plugin sync composes the
 // bases first, then the plugins built on them, whatever their names and
 // whatever order the hosts run their session-start hooks in. A plugin whose
-// base is missing, outside its range or built on another plugin, or that names
-// two bases, is held with one line: said once by sync, kept by plugin list and
-// doctor, while every other plugin still composes. A held plugin composed
-// before stays as it was, and its line says so.
+// base is missing, outside its range, built on another plugin or lacks a stage
+// the plugin's scopes include, or that names two bases, is held with one line:
+// said once by sync, kept by plugin list and doctor, while every other plugin
+// still composes. A held plugin composed before stays as it was, and its line
+// says so.
 //
 // Mechanism: cli. Tiny plugins are built with the shipped builder into temp
 // roots; each case copies dist/claude into a fresh project with a fixture
@@ -34,11 +35,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { projectionPluginRoot, readPluginTargets } from "../../dist/claude/.claude/tools/aidlc-plugin-emit.ts";
+import { quoteCommandArgument } from "../../core/tools/aidlc-runtime-paths.ts";
 
 setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
 const REPO_ROOT = resolve(import.meta.dir, "../..");
 const TOOLS = join(REPO_ROOT, "dist", "claude", ".claude", "tools");
+const TARGETS = readPluginTargets(join(TOOLS, "data", "plugin-targets.json"));
 const HARNESSES = ["claude", "codex", "copilot", "cursor", "kiro", "kiro-ide", "opencode"] as const;
 const scratch = mkdtempSync(join(tmpdir(), "aidlc-t354-"));
 let counter = 0;
@@ -71,6 +75,12 @@ type PluginSpec = {
   dependencies?: string[];
   requires?: string[];
   consumes?: string[];
+  // More stages like the example one, each producing <slug>-output.
+  stages?: string[];
+  // The example scope's include_stages; the example stage leaves the scope
+  // when `includesOnly` is set.
+  includes?: string[];
+  includesOnly?: boolean;
   harness?: (typeof HARNESSES)[number];
 };
 
@@ -102,7 +112,21 @@ function plugin(spec: PluginSpec): string {
       `consumes:\n${spec.consumes.map((artifact) => `  - artifact: ${artifact}\n    required: true`).join("\n")}`,
     );
   }
+  for (const slug of spec.stages ?? []) {
+    writeFileSync(
+      join(root, "stages", "construction", `${slug}.md`),
+      stage.replaceAll(`${spec.name}-example-stage`, slug).replaceAll(`${spec.name}-example-output`, `${slug}-output`),
+    );
+  }
+  if (spec.includesOnly) stage = stage.replace(`scopes:\n  - ${spec.name}-example\n`, "scopes: []\n");
   writeFileSync(stagePath, stage);
+  if (spec.includes) {
+    const scopePath = join(root, "scopes", `${spec.name}-example.md`);
+    writeFileSync(
+      scopePath,
+      readFileSync(scopePath, "utf-8").replace("runner: true", `runner: true\ninclude_stages: [${spec.includes.join(", ")}]`),
+    );
+  }
   const out = join(dir, "build");
   const built = spawnSync(
     process.execPath,
@@ -110,7 +134,7 @@ function plugin(spec: PluginSpec): string {
     { encoding: "utf-8", timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS), env: cleanEnv({}) },
   );
   expect(built.status, built.stdout + built.stderr).toBe(0);
-  return out;
+  return projectionPluginRoot(out, TARGETS[spec.harness ?? "claude"]);
 }
 
 // What alpha (the team plugin) is in most cases: it builds on zeta, orders its
@@ -147,7 +171,8 @@ function project(installed: Installed): Project {
 function setInstalled(target: Project, installed: Installed): void {
   const plugins: Record<string, unknown> = {};
   for (const [name, entry] of Object.entries(installed)) {
-    plugins[`aidlc-${name}@aidlc-plugins`] = [
+    // Built by the shipped builder, so the host lists it under its own names.
+    plugins[`${name}@${name}`] = [
       { scope: "user", installPath: entry.root, version: entry.version ?? "0.1.0" },
     ];
   }
@@ -212,6 +237,23 @@ function before(numbers: Record<string, string>, first: string, second: string):
   const [a, b] = [numbers[first], numbers[second]].map((value) => value.split(".").map(Number));
   return a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
 }
+
+// alpha's prose contribution to a core stage, so "what alpha adds" can be read
+// in that stage's source.
+const CONTRIBUTION = [
+  "---",
+  "target: build-and-test",
+  "plugin: alpha",
+  "fragments:",
+  "  - anchor: end-of-steps",
+  "    order: 100",
+  "---",
+  "",
+  "## fragment: end-of-steps",
+  "",
+  "ALPHA-CONTRIBUTION: check the alpha things.",
+  "",
+].join("\n");
 
 const ZETA = (): string => plugin({ name: "zeta" });
 
@@ -422,41 +464,161 @@ describe("t354 session-start hooks need no order", () => {
     expect(ran.stdout).toContain("alpha is not composed: it builds on zeta, which builds on omega.");
   });
 
-  test("on Kiro CLI, which composes only when the person runs sync, the wait names the next plugin sync", () => {
-    const base = fresh("kiro-project");
-    const dir = join(base, "project");
-    mkdirSync(dir, { recursive: true });
-    cpSync(join(REPO_ROOT, "dist", "kiro", ".kiro"), join(dir, ".kiro"), { recursive: true });
-    const team = plugin({
-      name: "alpha",
-      dependencies: ["core", "zeta@^0.1.0"],
-      requires: ["zeta-example-stage"],
-      harness: "kiro",
+  // Kiro CLI and opencode run no compose hook (opencode reads no hooks.json).
+  test.each([["kiro", ".kiro"], ["opencode", ".aidlc"]] as const)(
+    "on %s, which composes only when the person runs sync, the wait names the sync command",
+    (harness, leaf) => {
+      const base = fresh(`${harness}-project`);
+      const dir = join(base, "project");
+      mkdirSync(dir, { recursive: true });
+      cpSync(join(REPO_ROOT, "dist", harness, leaf), join(dir, leaf), { recursive: true });
+      const team = plugin({
+        name: "alpha",
+        dependencies: ["core", "zeta@^0.1.0"],
+        requires: ["zeta-example-stage"],
+        harness,
+      });
+      const ran = spawnSync(process.execPath, [join(dir, leaf, "tools", "aidlc-plugin.ts"), "sync"], {
+        cwd: dir,
+        encoding: "utf-8",
+        timeout: remainingOperationTimeoutMs(NATIVE_FIXTURE_SETUP_TIMEOUT_MS),
+        env: cleanEnv({
+          AIDLC_PLUGIN_ROOT: team,
+          AIDLC_PROJECT_DIR: dir,
+          AIDLC_HARNESS_DIR: leaf,
+          AIDLC_HARNESS_NAME: harness,
+        }),
+      });
+      expect(ran.status, ran.stdout + ran.stderr).toBe(0);
+      expect(ran.stdout).toContain(
+        "alpha is not composed: it needs zeta ^0.1.0, which this project does not have yet. If zeta is installed, " +
+          `alpha composes when you run \`bun ${leaf}/tools/aidlc.ts engine plugin sync --plugin-root ${quoteCommandArgument(team)}\` ` +
+          "after zeta composes; if not, install zeta.",
+      );
+    },
+  );
+
+  // opencode and Copilot share .aidlc; the install's harness.json says which,
+  // so the sync the person types needs only the plugin's folder.
+  test.each(["opencode", "copilot"] as const)("on %s, a sync typed with only --plugin-root composes", (harness) => {
+    const dir = join(fresh(`${harness}-typed`), "project");
+    cpSync(join(REPO_ROOT, "dist", harness), dir, { recursive: true });
+    const built = plugin({ name: "alpha", harness });
+    const ran = spawnSync(
+      process.execPath,
+      [join(dir, ".aidlc", "tools", "aidlc.ts"), "engine", "plugin", "sync", "--plugin-root", built],
+      {
+        cwd: dir,
+        encoding: "utf-8",
+        timeout: remainingOperationTimeoutMs(NATIVE_FIXTURE_SETUP_TIMEOUT_MS),
+        env: cleanEnv({}),
+      },
+    );
+    expect(ran.status, ran.stdout + ran.stderr).toBe(0);
+    expect(existsSync(join(dir, ".aidlc", "tools", "data", "plugin-compose-alpha.json"))).toBe(true);
+  });
+});
+
+const INIT = ["workspace-scaffold", "workspace-detection", "state-init"];
+
+// The stages a scope runs, from the project's compiled grid; null when the
+// grid has no column for it.
+function column(target: Project, scope: string): string[] | null {
+  const grid = JSON.parse(
+    readFileSync(join(target.dir, ".claude", "tools", "data", "scope-grid.json"), "utf-8"),
+  ) as Record<string, { stages: Record<string, string> }>;
+  const stages = grid[scope]?.stages;
+  return stages ? Object.keys(stages).filter((slug) => stages[slug] === "EXECUTE") : null;
+}
+
+// zeta at a version, with the stages it has besides its example stage.
+function zetaWith(version: string, stages: string[]): Installed[string] {
+  return { root: plugin({ name: "zeta", version, stages }), version };
+}
+
+describe("t354 a team scope runs the base stages it includes", () => {
+  test("the team scope runs them, and the base's stages and scope stay as they were (the reporter's case B)", () => {
+    const target = project({
+      alpha: { root: alpha({ includes: ["zeta-intake"] }) },
+      zeta: zetaWith("0.1.0", ["zeta-intake", "zeta-research"]),
     });
-    const ran = spawnSync(process.execPath, [join(dir, ".kiro", "tools", "aidlc-plugin.ts"), "sync"], {
-      cwd: dir,
-      encoding: "utf-8",
-      timeout: remainingOperationTimeoutMs(NATIVE_FIXTURE_SETUP_TIMEOUT_MS),
-      env: cleanEnv({
-        AIDLC_PLUGIN_ROOT: team,
-        AIDLC_PROJECT_DIR: dir,
-        AIDLC_HARNESS_DIR: ".kiro",
-        AIDLC_HARNESS_NAME: "kiro",
-      }),
+    const ran = sync(target);
+    expect(ran.status, ran.stdout + ran.stderr).toBe(0);
+    expect(ran.stdout.trim()).toBe("plugin sync complete: 2 plugin(s)");
+    expect(column(target, "alpha-example")).toEqual([...INIT, "zeta-intake", "alpha-example-stage"]);
+    expect(column(target, "zeta-example")).toEqual([...INIT, "zeta-example-stage", "zeta-intake", "zeta-research"]);
+    const intake = join(target.dir, ".claude", "aidlc-common", "stages", "construction", "zeta-intake.md");
+    expect(readFileSync(intake, "utf-8")).not.toContain("alpha-example");
+  });
+
+  test("a base that no longer has an included stage holds the team plugin, with one line naming every stage", () => {
+    const target = project({
+      alpha: { root: alpha({ includes: ["zeta-intake", "zeta-research"] }) },
+      zeta: zetaWith("0.1.1", ["zeta-intake-v2"]),
     });
+    const ran = sync(target);
+    const line = "alpha is not composed: it needs zeta-intake and zeta-research for its alpha-example scope, which zeta 0.1.1 does not have. Install a version of zeta that has them, or a version of alpha made for zeta 0.1.1.";
+    expect(ran.status, ran.stdout + ran.stderr).toBe(0);
+    expect(ran.stdout).toContain(line);
+    expect(statusOf(target, "zeta")?.state).toBe("current");
+    expect(statusOf(target, "alpha")).toEqual(expect.objectContaining({ state: "dependency-unmet", message: line }));
+  });
+
+  test("composed before: the team plugin stays, its scope runs without the stage, the line is said once, and the old column is not kept", () => {
+    const team = alpha({ includes: ["zeta-intake"], includesOnly: true });
+    const target = project({ alpha: { root: team }, zeta: zetaWith("0.1.0", ["zeta-intake"]) });
+    expect(sync(target).status).toBe(0);
+    expect(column(target, "alpha-example")).toEqual([...INIT, "zeta-intake"]);
+    setInstalled(target, { alpha: { root: team }, zeta: zetaWith("0.1.1", ["zeta-intake-v2"]) });
+    const ran = sync(target);
+    const line = "alpha stays as composed before, but it needs zeta-intake for its alpha-example scope, which zeta 0.1.1 does not have, so alpha-example runs without it. Install a version of zeta that has it, or a version of alpha made for zeta 0.1.1.";
+    expect(ran.status, ran.stdout + ran.stderr).toBe(0);
+    expect(ran.stdout).toContain(line);
+    expect(stamp(target, "alpha")?.version).toBe("0.1.0");
+    expect(stamp(target, "zeta")?.version).toBe("0.1.1");
+    // Only include_stages put alpha-example in the grid, so it is no
+    // composer-authored scope whose old column a recompile keeps.
+    expect(column(target, "alpha-example") ?? []).not.toContain("zeta-intake");
+    expect(existsSync(join(target.dir, "aidlc", "scopes", "alpha-example.md"))).toBe(false);
+    const again = sync(target);
+    expect(again.status, again.stdout + again.stderr).toBe(0);
+    expect(again.stdout).not.toContain("alpha");
+    expect(statusOf(target, "alpha")?.message).toBe(line);
+  });
+
+  test("with no host plugin list, the check reads the stages the base composed in the project", () => {
+    const held = project({});
+    expect(sync(held, { hookRoot: zetaWith("0.1.1", ["zeta-intake-v2"]).root, hostList: false }).status).toBe(0);
+    const ran = sync(held, { hookRoot: alpha({ includes: ["zeta-intake"] }), hostList: false });
     expect(ran.status, ran.stdout + ran.stderr).toBe(0);
     expect(ran.stdout).toContain(
-      "alpha is not composed: it needs zeta ^0.1.0, which this project does not have yet. If zeta is installed, alpha composes at the next plugin sync after zeta; if not, install zeta.",
+      "alpha is not composed: it needs zeta-intake for its alpha-example scope, which zeta 0.1.1 does not have. Install a version of zeta that has it, or a version of alpha made for zeta 0.1.1.",
     );
+
+    const composed = project({});
+    expect(sync(composed, { hookRoot: zetaWith("0.1.0", ["zeta-intake"]).root, hostList: false }).status).toBe(0);
+    const fits = sync(composed, { hookRoot: alpha({ includes: ["zeta-intake"] }), hostList: false });
+    expect(fits.status, fits.stdout + fits.stderr).toBe(0);
+    expect(fits.stdout).not.toContain("alpha is not composed");
+    expect(column(composed, "alpha-example")).toEqual([...INIT, "zeta-intake", "alpha-example-stage"]);
+  });
+
+  test("a base outside the range says only the range line", () => {
+    const target = project({ alpha: { root: alpha({ includes: ["zeta-intake"] }) }, zeta: zetaWith("0.2.0", []) });
+    const ran = sync(target);
+    expect(ran.status, ran.stdout + ran.stderr).toBe(0);
+    expect(ran.stdout).toContain("alpha is not composed: it needs zeta ^0.1.0, and zeta 0.2.0 is installed.");
+    expect(ran.stdout).not.toContain("zeta-intake");
   });
 });
 
 describe("t354 the build carries the plugin's own manifest", () => {
-  test("every harness projection has .aidlc-plugin/plugin.json, and no host manifest has dependencies", () => {
+  test("every harness projection has .aidlc-plugin/plugin.json and the scope's include_stages, and no host manifest has dependencies", () => {
     for (const harness of HARNESSES) {
-      const out = plugin({ name: "alpha", dependencies: ["core", "zeta@^0.1.0"], harness });
+      const out = plugin({ name: "alpha", dependencies: ["core", "zeta@^0.1.0"], includes: ["zeta-intake"], harness });
       const carried = JSON.parse(readFileSync(join(out, ".aidlc-plugin", "plugin.json"), "utf-8")) as { dependencies?: unknown };
       expect(carried.dependencies, harness).toEqual(["core", "zeta@^0.1.0"]);
+      expect(readFileSync(join(out, "scopes", "alpha-example.md"), "utf-8"), harness).toContain("include_stages: [zeta-intake]");
       for (const entry of readdirSync(out)) {
         const hostManifest = join(out, entry, "plugin.json");
         if (entry === ".aidlc-plugin" || !existsSync(hostManifest)) continue;
@@ -472,20 +634,6 @@ describe("t354 the build carries the plugin's own manifest", () => {
 // runs) until its base is on again; one line says so at that select, then
 // silence; turning the base back on brings it back at the next session start.
 describe("t354 turning a base off pauses the plugin built on it", () => {
-  const CONTRIBUTION = [
-    "---",
-    "target: build-and-test",
-    "plugin: alpha",
-    "fragments:",
-    "  - anchor: end-of-steps",
-    "    order: 100",
-    "---",
-    "",
-    "## fragment: end-of-steps",
-    "",
-    "ALPHA-CONTRIBUTION: check the alpha things.",
-    "",
-  ].join("\n");
   const PAUSE_LINE =
     "zeta is off. alpha builds on zeta, so alpha is paused until zeta is on again. To turn alpha off as well: /aidlc plugin select aidlc.";
 
@@ -597,10 +745,39 @@ describe("t354 turning a base off pauses the plugin built on it", () => {
     const off = select(target, "aidlc,zeta");
     expect(off.status, off.stdout + off.stderr).toBe(0);
     expect(off.stdout).toContain(
-      "Stripped merged contributions of disabled plugin(s): alpha (re-enabling restores them on the next session start)",
+      "What alpha added to other stages and agents is taken out; turn alpha back on and it returns at the next session start.",
     );
     expect(off.stdout).not.toContain("paused");
   });
+
+  test.each([["kiro", ".kiro"], ["opencode", ".aidlc"]] as const)(
+    "on %s, turning a plugin off names the sync command that brings back what it added",
+    (harness, leaf) => {
+      const dir = join(fresh(`${harness}-off`), "project");
+      mkdirSync(dir, { recursive: true });
+      cpSync(join(REPO_ROOT, "dist", harness, leaf), join(dir, leaf), { recursive: true });
+      const built = plugin({ name: "alpha", harness });
+      mkdirSync(join(built, "contributions", "construction"), { recursive: true });
+      writeFileSync(join(built, "contributions", "construction", "build-and-test.md"), CONTRIBUTION);
+      const run = (tool: string, args: string[], extra: Record<string, string> = {}): Ran => {
+        const result = spawnSync(process.execPath, [join(dir, leaf, "tools", tool), ...args], {
+          cwd: dir,
+          encoding: "utf-8",
+          timeout: remainingOperationTimeoutMs(NATIVE_FIXTURE_SETUP_TIMEOUT_MS),
+          env: cleanEnv({ AIDLC_PROJECT_DIR: dir, AIDLC_HARNESS_DIR: leaf, AIDLC_HARNESS_NAME: harness, ...extra }),
+        });
+        return { status: result.status, stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
+      };
+      const synced = run("aidlc-plugin.ts", ["sync"], { AIDLC_PLUGIN_ROOT: built });
+      expect(synced.status, synced.stdout + synced.stderr).toBe(0);
+      const off = run("aidlc.ts", ["engine", "plugin", "select", "aidlc"]);
+      expect(off.status, off.stdout + off.stderr).toBe(0);
+      expect(off.stdout).toContain(
+        "What alpha added to other stages and agents is taken out; turn alpha back on and it returns when you run " +
+          `\`bun ${leaf}/tools/aidlc.ts engine plugin sync --plugin-root <alpha's folder>\`.`,
+      );
+    },
+  );
 
   test("turning zeta back on brings alpha back at the next session start, with nothing else to do", () => {
     const target = composedPair();
@@ -608,6 +785,10 @@ describe("t354 turning a base off pauses the plugin built on it", () => {
     const back = select(target, "aidlc,alpha,zeta");
     expect(back.status, back.stdout + back.stderr).toBe(0);
     expect(back.stdout).not.toContain("paused");
+    expect(back.stdout).toContain(
+      "zeta is on again, so alpha runs again; anything alpha adds to other stages and agents comes back at the next session start.",
+    );
+    expect(select(target, "aidlc,alpha,zeta").stdout).not.toContain("is on again");
     expect(stageEnabled(target, "alpha-example-stage")).toBe(true);
     const synced = sync(target);
     expect(synced.status, synced.stdout + synced.stderr).toBe(0);
@@ -667,5 +848,254 @@ describe("t354 turning a base off pauses the plugin built on it", () => {
     expect(said).toContain('owned by plugin "alpha"');
     expect(said).toContain("alpha builds on zeta");
     expect(selection(target)).toBeUndefined();
+  });
+});
+
+// Kiro CLI and opencode keep no list of the plugins installed, so every line
+// that sends the person to sync names the plugin's folder; in a project with
+// more than one harness, the native aidlc also names the harness.
+describe("t354 every line that sends the person to sync names a command that works there", () => {
+  // A copy of `tree`/<harness> with alpha, which adds to build-and-test,
+  // composed from its folder, and a runner for that copy's own tools in the
+  // person's shell: no plugin folder or harness in the environment.
+  function composedAlpha(harness: "kiro" | "opencode", leaf: string, tree = "dist") {
+    const dir = join(fresh(`${harness}-sync`), "project");
+    mkdirSync(dir, { recursive: true });
+    cpSync(join(REPO_ROOT, tree, harness, leaf), join(dir, leaf), { recursive: true });
+    const built = plugin({ name: "alpha", harness });
+    mkdirSync(join(built, "contributions", "construction"), { recursive: true });
+    writeFileSync(join(built, "contributions", "construction", "build-and-test.md"), CONTRIBUTION);
+    const run = (tool: string, args: string[]): Ran => {
+      const result = spawnSync(process.execPath, [join(dir, leaf, "tools", tool), ...args], {
+        cwd: dir,
+        encoding: "utf-8",
+        timeout: remainingOperationTimeoutMs(NATIVE_FIXTURE_SETUP_TIMEOUT_MS),
+        env: cleanEnv({}),
+      });
+      return { status: result.status, stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
+    };
+    const synced = run("aidlc.ts", ["engine", "plugin", "sync", "--plugin-root", built]);
+    expect(synced.status, synced.stdout + synced.stderr).toBe(0);
+    return { dir, built, run };
+  }
+
+  test.each([["kiro", ".kiro"], ["opencode", ".aidlc"]] as const)(
+    "on %s, a sync with no folder says nothing synced and names each composed plugin's folder command",
+    (harness, leaf) => {
+      const { run } = composedAlpha(harness, leaf);
+      const bare = run("aidlc.ts", ["engine", "plugin", "sync"]);
+      expect(bare.status).toBe(1);
+      expect(bare.stderr).toContain(
+        "Nothing synced: this tool keeps no list of your plugins, so name each one's folder: " +
+          `\`bun ${leaf}/tools/aidlc.ts engine plugin sync --plugin-root <alpha's folder>\`.`,
+      );
+    },
+  );
+
+  test("on Kiro CLI's copied install, the chat sync says the same with no folder and composes with one", () => {
+    const { dir, built, run } = composedAlpha("kiro", ".kiro");
+    const bare = run("aidlc-utility.ts", ["plugin-sync"]);
+    expect(bare.status, bare.stdout + bare.stderr).toBe(0);
+    expect(bare.stdout).toContain(
+      "Nothing synced: this tool keeps no list of your plugins, so name each one's folder: " +
+        "`bun .kiro/tools/aidlc.ts engine plugin sync --plugin-root <alpha's folder>`.",
+    );
+    const stage = join(dir, ".kiro", "aidlc-common", "stages", "construction", "build-and-test.md");
+    writeFileSync(stage, readFileSync(join(REPO_ROOT, "dist", "kiro", ".kiro", "aidlc-common", "stages", "construction", "build-and-test.md")));
+    rmSync(join(dir, ".kiro", "tools", "data", "plugin-contrib-alpha.json"), { force: true });
+    const withFolder = run("aidlc-utility.ts", ["plugin-sync", "--plugin-root", built]);
+    expect(withFolder.status, withFolder.stdout + withFolder.stderr).toBe(0);
+    expect(withFolder.stdout).toContain("plugin sync complete: 1 plugin(s)");
+    expect(readFileSync(stage, "utf-8")).toContain("ALPHA-CONTRIBUTION");
+  });
+
+  test("on Kiro CLI, a sync refused over a changed file names the folder it ran with", () => {
+    const { dir, built, run } = composedAlpha("kiro", ".kiro");
+    const owned = join(dir, ".kiro", "aidlc-common", "stages", "construction", "alpha-example-stage.md");
+    writeFileSync(owned, `${readFileSync(owned, "utf-8")}\nlocal edit\n`);
+    const refused = run("aidlc.ts", ["engine", "plugin", "sync", "--plugin-root", built]);
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain(
+      `then run \`bun .kiro/tools/aidlc.ts engine plugin sync --plugin-root ${quoteCommandArgument(built)}\` again`,
+    );
+  });
+
+  test("on Kiro CLI, a sync that leaves a plugin uncomposed names that plugin's folder command", () => {
+    const dir = join(fresh("kiro-uncomposed"), "project");
+    mkdirSync(dir, { recursive: true });
+    cpSync(join(REPO_ROOT, "dist", "kiro", ".kiro"), join(dir, ".kiro"), { recursive: true });
+    const built = plugin({ name: "alpha", harness: "kiro" });
+    mkdirSync(join(built, "contributions", "construction"), { recursive: true });
+    writeFileSync(join(built, "contributions", "construction", "build-and-test.md"), CONTRIBUTION);
+    // A compose hook that merges nothing stands in for a composition lost
+    // after the sync committed: alpha's record of what it added never lands.
+    writeFileSync(join(built, "hooks", "compose.ts"), "export async function compose(): Promise<void> {}\n");
+    const ran = spawnSync(
+      process.execPath,
+      [join(dir, ".kiro", "tools", "aidlc.ts"), "engine", "plugin", "sync", "--plugin-root", built],
+      { cwd: dir, encoding: "utf-8", timeout: remainingOperationTimeoutMs(NATIVE_FIXTURE_SETUP_TIMEOUT_MS), env: cleanEnv({}) },
+    );
+    expect(ran.status).toBe(1);
+    expect(String(ran.stderr)).toContain(
+      "plugin sync finished but alpha is not composed; " +
+        `run bun .kiro/tools/aidlc.ts engine plugin sync --plugin-root ${quoteCommandArgument(built)} again`,
+    );
+  });
+
+  test("on Kiro CLI, doctor's fix for what a refresh took out names the folder command", () => {
+    const { dir, run } = composedAlpha("kiro", ".kiro");
+    const stock = join(REPO_ROOT, "dist", "kiro", ".kiro");
+    for (const rel of [join("tools", "data", "stage-graph.json"), join("aidlc-common", "stages", "construction", "build-and-test.md")]) {
+      writeFileSync(join(dir, ".kiro", rel), readFileSync(join(stock, rel)));
+    }
+    const doctor = run("aidlc.ts", ["doctor", "--json"]);
+    const checks = (JSON.parse(doctor.stdout) as { data: { checks: Array<{ label: string; pass: boolean; fix?: string }> } }).data.checks;
+    const surface = checks.find((check) => check.label.startsWith("Composed plugin surface"));
+    expect(surface?.pass).toBe(false);
+    expect(surface?.fix).toContain("then re-run `bun .kiro/tools/aidlc.ts engine plugin sync --plugin-root <alpha's folder>`.");
+    const uncompiled = checks.find((check) => check.label.startsWith("Uncompiled stage files"));
+    expect(uncompiled?.label).toContain(
+      "plugin-owned files alpha-example-stage (alpha) require `bun .kiro/tools/aidlc.ts engine plugin sync --plugin-root <alpha's folder>`",
+    );
+  });
+
+  // The native aidlc picks the first harness installed, so with a second one
+  // here the command names Kiro CLI's; with one it needs nothing more.
+  test.each([["one harness folder", false], ["a .claude folder too", true]] as const)(
+    "the native aidlc's command with %s",
+    (_, withClaude) => {
+      const { dir, run } = composedAlpha("kiro", ".kiro", "dist-release");
+      if (withClaude) {
+        cpSync(join(REPO_ROOT, "dist-release", "claude", ".claude"), join(dir, ".claude"), { recursive: true });
+      }
+      const off = run("aidlc.ts", ["engine", "plugin", "select", "aidlc"]);
+      expect(off.status, off.stdout + off.stderr).toBe(0);
+      expect(off.stdout).toContain(
+        `turn alpha back on and it returns when you run \`aidlc engine plugin sync${withClaude ? " --harness-dir .kiro" : ""} ` +
+          "--plugin-root <alpha's folder>`.",
+      );
+    },
+  );
+
+  test("native Claude Code's changed-file refusal stays the bare command, with a .kiro folder beside it", () => {
+    const dir = join(fresh("claude-native"), "project");
+    mkdirSync(dir, { recursive: true });
+    for (const [harness, leaf] of [["claude", ".claude"], ["kiro", ".kiro"]]) {
+      cpSync(join(REPO_ROOT, "dist-release", harness, leaf), join(dir, leaf), { recursive: true });
+    }
+    const built = plugin({ name: "alpha" });
+    const sync = (): Ran => {
+      const result = spawnSync(
+        process.execPath,
+        [join(dir, ".claude", "tools", "aidlc.ts"), "engine", "plugin", "sync", "--plugin-root", built],
+        {
+          cwd: dir,
+          encoding: "utf-8",
+          timeout: remainingOperationTimeoutMs(NATIVE_FIXTURE_SETUP_TIMEOUT_MS),
+          env: cleanEnv({ AIDLC_CLAUDE_PLUGIN_REGISTRY: join(dir, "no-registry.json") }),
+        },
+      );
+      return { status: result.status, stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
+    };
+    const composed = sync();
+    expect(composed.status, composed.stdout + composed.stderr).toBe(0);
+    const owned = join(dir, ".claude", "aidlc-common", "stages", "construction", "alpha-example-stage.md");
+    writeFileSync(owned, `${readFileSync(owned, "utf-8")}\nlocal edit\n`);
+    const refused = sync();
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain("then run `aidlc engine plugin sync` again; it puts the plugin's own version back.");
+  });
+});
+
+// Kiro CLI and opencode compose only when the person runs sync, so the change
+// that turns a paused plugin's base back on names that sync, once.
+describe("t354 turning a paused plugin's base back on says how the plugin comes back", () => {
+  // A copy of dist/<harness> (with dist/claude beside it when `withClaude`)
+  // with zeta and alpha, which builds on zeta and adds to build-and-test,
+  // composed from their folders; HOME is a scratch folder, so config writes no
+  // settings outside the test. `run` calls the tools of `via`, the harness's
+  // own by default.
+  function composedPair(harness: "kiro" | "opencode", leaf: string, withClaude = false) {
+    const base = fresh(`${harness}-resume`);
+    const dir = join(base, "project");
+    const home = join(base, "home");
+    mkdirSync(home, { recursive: true });
+    if (withClaude) cpSync(join(REPO_ROOT, "dist", "claude"), dir, { recursive: true });
+    cpSync(join(REPO_ROOT, "dist", harness), dir, { recursive: true });
+    const zeta = plugin({ name: "zeta", harness });
+    const team = alpha({ harness });
+    mkdirSync(join(team, "contributions", "construction"), { recursive: true });
+    writeFileSync(join(team, "contributions", "construction", "build-and-test.md"), CONTRIBUTION);
+    const run = (args: string[], via = leaf): Ran => {
+      const result = spawnSync(process.execPath, [join(dir, via, "tools", "aidlc.ts"), ...args], {
+        cwd: dir,
+        encoding: "utf-8",
+        timeout: remainingOperationTimeoutMs(NATIVE_FIXTURE_SETUP_TIMEOUT_MS),
+        env: cleanEnv({ HOME: home }),
+      });
+      return { status: result.status, stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
+    };
+    for (const root of [zeta, team]) {
+      const synced = run(["engine", "plugin", "sync", "--plugin-root", root]);
+      expect(synced.status, synced.stdout + synced.stderr).toBe(0);
+    }
+    return run;
+  }
+  const backLine = (leaf: string): string =>
+    "zeta is on again, so alpha runs again; anything alpha adds to other stages and agents comes back when you run " +
+    `\`bun ${leaf}/tools/aidlc.ts engine plugin sync --plugin-root <alpha's folder>\`.`;
+
+  test.each([["kiro", ".kiro"], ["opencode", ".aidlc"]] as const)(
+    "on %s, the select that turns zeta back on names the sync once",
+    (harness, leaf) => {
+      const run = composedPair(harness, leaf);
+      const paused = run(["engine", "plugin", "select", "aidlc,alpha"]);
+      expect(paused.status, paused.stdout + paused.stderr).toBe(0);
+      const back = run(["engine", "plugin", "select", "aidlc,alpha,zeta"]);
+      expect(back.status, back.stdout + back.stderr).toBe(0);
+      expect(back.stdout).toContain(backLine(leaf));
+      expect(run(["engine", "plugin", "select", "aidlc,alpha,zeta"]).stdout).not.toContain("is on again");
+    },
+  );
+
+  test("on Kiro CLI, config project --plugins says it too", () => {
+    const run = composedPair("kiro", ".kiro");
+    const recorded = run(["config", "--from", join(REPO_ROOT, "dist", "kiro"), "--force", "--yes"]);
+    expect(recorded.status, recorded.stdout + recorded.stderr).toBe(0);
+    const paused = run(["config", "project", "--plugins", "aidlc,alpha", "--yes"]);
+    expect(paused.status, paused.stdout + paused.stderr).toBe(0);
+    const back = run(["config", "project", "--plugins", "aidlc,alpha,zeta", "--yes"]);
+    expect(back.status, back.stdout + back.stderr).toBe(0);
+    expect(back.stdout).toContain(backLine(".kiro"));
+  });
+
+  // "all" is the undo the tool prints after a pause from an all-on selection.
+  test.each([[["--plugins", "all"]], [["--reset"]]] as const)(
+    "on Kiro CLI, config project %p turns zeta back on and says it too",
+    (form) => {
+      const run = composedPair("kiro", ".kiro");
+      const recorded = run(["config", "--from", join(REPO_ROOT, "dist", "kiro"), "--force", "--yes"]);
+      expect(recorded.status, recorded.stdout + recorded.stderr).toBe(0);
+      const paused = run(["config", "project", "--plugins", "aidlc,alpha", "--yes"]);
+      expect(paused.status, paused.stdout + paused.stderr).toBe(0);
+      const back = run(["config", "project", ...form, "--yes"]);
+      expect(back.status, back.stdout + back.stderr).toBe(0);
+      expect(back.stdout).toContain(backLine(".kiro"));
+    },
+  );
+
+  test("with .claude beside .kiro, config run from Claude Code's tool for Kiro CLI names Kiro CLI's folder", () => {
+    const run = composedPair("kiro", ".kiro", true);
+    const kiro = run(["config", "--from", join(REPO_ROOT, "dist", "kiro"), "--harness", "kiro", "--force", "--yes"]);
+    expect(kiro.status, kiro.stdout + kiro.stderr).toBe(0);
+    const claude = run(["config", "--from", join(REPO_ROOT, "dist", "claude"), "--harness", "claude", "--force", "--yes"], ".claude");
+    expect(claude.status, claude.stdout + claude.stderr).toBe(0);
+    const paused = run(["config", "project", "--plugins", "aidlc,alpha", "--harness", "kiro", "--yes"], ".claude");
+    expect(paused.status, paused.stdout + paused.stderr).toBe(0);
+    const back = run(["config", "project", "--plugins", "aidlc,alpha,zeta", "--harness", "kiro", "--yes"], ".claude");
+    expect(back.status, back.stdout + back.stderr).toBe(0);
+    expect(back.stdout).toContain(
+      "comes back when you run `bun .claude/tools/aidlc.ts engine plugin sync --harness-dir .kiro --plugin-root <alpha's folder>`.",
+    );
   });
 });

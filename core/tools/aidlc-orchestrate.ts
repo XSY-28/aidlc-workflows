@@ -95,6 +95,7 @@ import {
   writeSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { CONFIG_SECTIONS } from "./aidlc-command.ts";
 import { fileURLToPath } from "node:url";
 import {
   deleteQuestion,
@@ -122,7 +123,7 @@ import {
   takeRestartRequest,
 } from "./aidlc-question-store.ts";
 import { latestMessage, noReplySince } from "./aidlc-message-store.ts";
-import { aidlcEntryWords, APPROVAL_GATE_CHOICES, pickerOffersChoices } from "./aidlc-reply-reader.ts";
+import { aidlcEntryWords, APPROVAL_GATE_CHOICES, protectedChoices } from "./aidlc-reply-reader.ts";
 import {
   type AskDirective,
   type Directive,
@@ -425,6 +426,8 @@ import {
   withdrawProtectedReplyWords,
   writeActiveDirectiveMarker,
   writeEngineFileNoFollow,
+  ANSWER_TEXT_DIR,
+  writeRecordFileNoFollow,
   type PlanApprovalLegacyOfferCandidate,
   workspaceCommandUtilityArgv,
   workspaceRecordExists,
@@ -558,6 +561,7 @@ import {
   planApprovalMemoryLockRefusal,
   settingsKeptSince,
   settingTheirs,
+  settleGuardPolicyConflict,
   switchKeptForNextWork,
   resolvePlanApprovalSetting,
 } from "./aidlc-guard-switch.ts";
@@ -3514,15 +3518,15 @@ function openQuestionAnswer(stage: string, block: string): string {
       ? [`${aidlcToolInvocation("bolt")} swarm-checkpoint`,
         batch && units ? ` --batch ${shellArg(batch)} --units ${shellArg(units)}` : ""]
       : [null, ""];
-  // A question that needs the person's own reply offers Approve and Request
-  // Changes, numbered as the human-turn hook reads a number typed for them, so
-  // "/aidlc 2" reads in a chat that never saw it asked. A batch whose files
-  // changed after its check (strict) offers Request Changes alone and gets no
-  // number; a row from before rows named their options offered both.
+  // A question that needs the person's own reply names the choices it
+  // offered, numbered as the human-turn hook reads a number typed for them
+  // (protectedQuestionPick), so "/aidlc 2" reads in a chat that never saw it
+  // asked. A row from before rows named their options offered both.
   const options = questionOptions(block);
-  const numbered = options.length === 0 || pickerOffersChoices(options, APPROVAL_GATE_CHOICES)
-    ? `its choices are ${APPROVAL_GATE_CHOICES.map((choice, at) => `${at + 1}. ${choice}`).join(" and ")}; `
-    : "";
+  const offered = options.length === 0 ? APPROVAL_GATE_CHOICES : protectedChoices(options);
+  const numbered = offered === null ? ""
+    : `${offered.length === 1 ? "its one choice is" : "its choices are"} ` +
+      `${offered.map((choice, at) => `${at + 1}. ${choice}`).join(" and ")}; `;
   // The verification command and a Construction policy question name their
   // own flags and the setter an approval runs; the command itself stays in its
   // file, never on a shell line.
@@ -4019,8 +4023,8 @@ function constructionStaffingAsk(
     ) {
       sayWithStepOnce(
         projectDir,
-        "Each team builds its Unit start to finish and approves it after every stage. To approve once at the " +
-          "end of each Unit instead, say so before the first Unit is built.",
+        "Each team will approve its Unit after every stage. Do you want them to approve once at the end of each " +
+          "Unit instead? I'd keep after every stage, so a wrong turn is caught at the stage where it happens.",
       );
     }
     return null;
@@ -4079,6 +4083,25 @@ function reclassifyCommand(projectDir: string, type: "greenfield" | "brownfield"
     ? ` --intent ${shellArg(selection.intent)} --space ${shellArg(selection.space)}`
     : "";
   return `${aidlcDispatcherInvocation("workspace reclassify")} --project-type ${type}${target}`;
+}
+
+// The answer text file the words a project-type change was said in go to.
+const PROJECT_TYPE_WORDS_FILE = `${ANSWER_TEXT_DIR}/project-type-words.txt`;
+
+// The words a project-type change was said in, on the reclassify step: the
+// words `next` was given, in the work's answer text file so no shell reads them
+// on the way; otherwise the slot the agent fills with the person's words, and
+// the sentence that says so.
+function projectTypeWordsArg(projectDir: string, words: string | undefined): { arg: string; fill: string } {
+  const slot = { arg: ` --person-words '${PERSON_WORDS_SLOT}'`, fill: `${PERSON_WORDS_FILL},` };
+  const root = recordDir(projectDir);
+  if (!words?.trim() || root === null || isReadOnlyEngineProbe()) return slot;
+  try {
+    writeRecordFileNoFollow(root, PROJECT_TYPE_WORDS_FILE, words);
+  } catch {
+    return slot;
+  }
+  return { arg: ` --person-words-file ${PROJECT_TYPE_WORDS_FILE}`, fill: "" };
 }
 
 // True when `--project-type` is the whole request: nothing else for routing
@@ -4481,7 +4504,7 @@ function staleStateVersionError(stateContent: string): string | null {
 function parkedDirective(
   reason: string,
   stage: string,
-  narration = `Pausing here with everything saved. Run \`${entrySkillInvocation()} --resume\` when you want to pick it back up.`,
+  narration = pausedLine(stagePlace(stage)),
 ): ParkedDirective {
   return {
     kind: "parked",
@@ -4493,24 +4516,57 @@ function parkedDirective(
   };
 }
 
+// What the person hears when the work stops: where it stands (no place when
+// none is known), that it is saved, and the way back. In this chat their own
+// words pick it up; a new chat may not have AI-DLC loaded yet, so there the
+// entry word with --resume does.
+function pausedLine(place: string, lead = "Paused"): string {
+  return `${lead}${place ? ` at ${place}` : ""} with everything saved. Pick it back up any time here, or with ${entrySkillInvocation()} --resume in a new chat.`;
+}
+
+// A stage, and the Unit it is for, as the person knows them.
+function stagePlace(stage: string, unit?: string): string {
+  const name = stageLabel(nodeForSlug(stage), stage);
+  return name === null ? "" : `${name}${unit && validateUnitName(unit) === null ? ` for ${unit}` : ""}`;
+}
+
+// Where a Unit-by-Unit walk stands: the Unit's stage, the summary confirmation
+// after one, or the Unit's checkpoint. A paused walk and a block whose Units
+// are all covered name no place.
+function walkStepPlace(step: UnitMajorWalkStep): string {
+  return step.kind === "work"
+    ? `${step.stage.name} for ${step.unit}`
+    : step.kind === "summary"
+      ? `the summary confirmation of ${step.stage.name} for ${step.unit}`
+      : step.kind === "checkpoint"
+        ? `the Unit checkpoint for ${step.unit}`
+        : "";
+}
+
 // The `parked` a workflow answers with, naming where it resumes. Under the
 // unit-major walk Current Stage stays on the block's first stage, so name the
-// live (stage, Unit) beat instead (#1411).
+// live (stage, Unit) beat instead (#1411), and say the walk's own step: a
+// Unit's summary or checkpoint is no work beat.
 function workflowParkedDirective(
   pd: string,
   stateContent: string,
   parkedAt: string,
+  lead?: string,
 ): ParkedDirective {
   const scope = getField(stateContent, "Scope")?.trim() ?? "";
-  const beat = scope ? unitMajorWorkBeat(pd, scope, stateContent, parkedAt) : null;
+  const walk = scope ? unitMajorWalkBeat(pd, scope, stateContent, parkedAt) : null;
+  const narration = pausedLine(walk === null ? stagePlace(parkedAt) : walkStepPlace(walk.step), lead);
+  const beat = walk?.step.kind === "work" ? walk.step : null;
   return beat
     ? parkedDirective(
         `Workflow parked at "${beat.stage.slug}" for unit "${beat.unit}". Resume with ${entrySkillInvocation()} --resume.`,
         beat.stage.slug,
+        narration,
       )
     : parkedDirective(
         `Workflow parked at "${parkedAt}". Resume with ${entrySkillInvocation()} --resume.`,
         parkedAt,
+        narration,
       );
 }
 
@@ -4545,15 +4601,7 @@ function withWorkPicksUpLine<T extends Directive>(
   const current = (getField(stateContent, "Current Stage") ?? "").trim();
   const walk = scope ? unitMajorWalkBeat(pd, scope, stateContent, current) : null;
   if (onlyOnWalk && walk === null) return directive;
-  const at = walk === null
-    ? nodeForSlug(current)?.name ?? ""
-    : walk.step.kind === "work"
-      ? `${walk.step.stage.name} for ${walk.step.unit}`
-      : walk.step.kind === "summary"
-        ? `the summary confirmation of ${walk.step.stage.name} for ${walk.step.unit}`
-        : walk.step.kind === "checkpoint"
-          ? `the Unit checkpoint for ${walk.step.unit}`
-          : "";
+  const at = walk === null ? nodeForSlug(current)?.name ?? "" : walkStepPlace(walk.step);
   if (at) (directive as { narration?: string }).narration = `The work picks up at ${at}.`;
   return directive;
 }
@@ -4600,7 +4648,7 @@ function resumeOnYes(): string {
 
 // The `parked` a successful park answers with. A team Unit checkout parks
 // only its Unit, locally, so it names the Unit.
-function parkedAfterPark(pd: string, parkStdout: string): ParkedDirective {
+function parkedAfterPark(pd: string, parkStdout: string, lead?: string): ParkedDirective {
   const stateContent = loadStateFileIfPresent(pd);
   let parkedUnit: string | undefined;
   try {
@@ -4608,15 +4656,17 @@ function parkedAfterPark(pd: string, parkStdout: string): ParkedDirective {
     if (result.checkout_local === true && typeof result.unit === "string") parkedUnit = result.unit;
   } catch { /* the workflow park result carries no Unit */ }
   if (parkedUnit !== undefined) {
+    const stage = (stateContent ? getField(stateContent, "Current Stage") : null) ?? "functional-design";
     return parkedDirective(
       `Unit "${parkedUnit}" is parked in this checkout. Resume with ${entrySkillInvocation()} --resume.`,
-      (stateContent ? getField(stateContent, "Current Stage") : null) ?? "functional-design",
+      stage,
+      pausedLine(stagePlace(stage, parkedUnit), lead),
     );
   }
   const parkedAt = stateContent ? (getField(stateContent, "Parked At Stage") ?? "").trim() : "";
   return stateContent
-    ? workflowParkedDirective(pd, stateContent, parkedAt)
-    : parkedDirective(`Workflow parked at "${parkedAt}". Resume with ${entrySkillInvocation()} --resume.`, parkedAt);
+    ? workflowParkedDirective(pd, stateContent, parkedAt, lead)
+    : parkedDirective(`Workflow parked at "${parkedAt}". Resume with ${entrySkillInvocation()} --resume.`, parkedAt, pausedLine(stagePlace(parkedAt), lead));
 }
 
 // "Approve, but let's stop there for today": the approval is recorded, then
@@ -4633,11 +4683,11 @@ function parkAfterApproval(pd: string, slug: string, attended: boolean, unit?: s
   } catch {
     return null;
   }
-  const parked = parkedAfterPark(pd, result);
+  const parked = parkedAfterPark(pd, result, "Approved, and paused");
   return parkedDirective(
     `Approved "${slug}"${unit ? ` for unit "${unit}"` : ""}. ${parked.reason}`,
     parked.stage,
-    `Approved, and paused here with everything saved. Run \`${entrySkillInvocation()} --resume\` when you want to pick it back up.`,
+    parked.narration,
   );
 }
 
@@ -4796,14 +4846,6 @@ export interface ParsedFlags {
   retiredOnly?: boolean;
 }
 
-const CONFIG_SECTIONS = [
-  "models",
-  "runtime",
-  "providers",
-  "trust",
-  "flags",
-  "project",
-] as const;
 type ConfigSection = (typeof CONFIG_SECTIONS)[number];
 
 // Extract the flags the `next` decision rule consumes. --project-dir is pulled
@@ -4942,6 +4984,7 @@ export function parseNextFlags(argv: string[]): ParsedFlags {
   // only the tokens in front of the `--` mark, so neither the mark nor a word
   // behind it is ever a flag's value.
   const read = readNextTokens(args);
+  let emptyList: string | undefined;
   for (const { role, token: a, value } of read.tokens) {
     if (role === "word") {
       // Among the person's own words a flag-shaped token is one of their words,
@@ -5080,17 +5123,19 @@ export function parseNextFlags(argv: string[]): ParsedFlags {
       }
     } else if (a === "--skip" || a === "--add") {
       // Stage slugs echoed into the creation command: each must name a stage.
-      if (value === undefined) {
-        flags.parseError = `${a} requires <stage,...>.`;
+      // An empty list (`--skip ''`, or no value) changes nothing beside a list
+      // that names a stage, and is refused alone (after this loop).
+      const slugs = splitSlugList(value);
+      const unknown = slugs.find((slug) => nodeForSlug(slug) === undefined);
+      if (unknown !== undefined) {
+        flags.parseError = `${a} requires stage slugs; "${unknown}" is not a stage.`;
+      } else if (slugs.length > 0) {
+        flags.planChanges ??= { skip: [], add: [] };
+        flags.planChanges[a === "--skip" ? "skip" : "add"].push(...slugs);
       } else {
-        const slugs = splitSlugList(value);
-        const unknown = slugs.find((slug) => nodeForSlug(slug) === undefined);
-        if (slugs.length === 0 || unknown !== undefined) {
-          flags.parseError = `${a} requires stage slugs; "${unknown ?? value}" is not a stage.`;
-        } else {
-          flags.planChanges ??= { skip: [], add: [] };
-          flags.planChanges[a === "--skip" ? "skip" : "add"].push(...slugs);
-        }
+        emptyList ??= value === undefined
+          ? `${a} requires <stage,...>.`
+          : `${a} requires stage slugs; "${value}" is not a stage.`;
       }
     } else if (a === "--plan-name") {
       // Echoed into the creation command, so only a plain kebab name passes.
@@ -5195,6 +5240,9 @@ export function parseNextFlags(argv: string[]): ParsedFlags {
       wordTokens.push(a);
     }
   }
+  // With no list naming a stage, the line would run as bare `next` and start
+  // the stage they may have asked to skip.
+  if (emptyList !== undefined && flags.planChanges === undefined) flags.parseError ??= emptyList;
   const literalIntent = read.literal !== null;
   if (read.literal !== null) {
     intentWords.push(...read.literal);
@@ -9209,6 +9257,13 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
   }
 
   const pd = resolveProjectDir(projectDir);
+  // Two policy lines that disagree are settled before the state is read, so
+  // this step and every check after it read the one kept. Its line, when there
+  // is one, rides with the step as a settled gate's does (a step in parts too).
+  const settledPolicy = isReadOnlyEngineProbe() ? null : settleGuardPolicyConflict(pd, {
+    intent: engineSelection(pd).intent ?? undefined, space: engineSelection(pd).space,
+  });
+  if (settledPolicy?.line) settledNotices.push(settledPolicy.line);
   const stateContent = loadStateFileIfPresent(pd);
   activeRetiredGuardPolicyNotice = stateContent === null ? null : retiredGuardPolicyNotice(pd, stateContent);
   // Runtime state-version guard (see staleStateVersionError): refuse to advance
@@ -9376,9 +9431,11 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
     const alone = projectTypeIsWholeRequest(flags);
     if (alone || !projectTypeRecordedAsPersons(stateContent, flags.projectType)) {
       // Said with more of a request, the reclassify directive says to run
-      // the same `next` again so the rest of the request is carried on.
+      // the same `next` again so the rest of the request is carried on. The
+      // words it was said in are recorded beside the change.
+      const words = projectTypeWordsArg(pd, flags.intent);
       emit(printDirective(
-        `Run \`${reclassifyCommand(pd, flags.projectType)}${alone ? "" : " --then-rerun"}\` ` +
+        `Run \`${reclassifyCommand(pd, flags.projectType)}${words.arg}${alone ? "" : " --then-rerun"}\`${words.fill} ` +
           "and act on the directive it returns.",
       ));
       return;
@@ -9416,9 +9473,11 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
     !flags.phase &&
     existsSync(unitParkedPath(pd))
   ) {
+    const stage = getField(stateContent!, "Current Stage") ?? "functional-design";
     emit(parkedDirective(
       `Unit "${unitScope.unit}" is parked in this checkout. Resume with ${entrySkillInvocation()} --resume.`,
-      getField(stateContent!, "Current Stage") ?? "functional-design",
+      stage,
+      pausedLine(stagePlace(stage, unitScope.unit)),
     ));
     return;
   }
@@ -15151,7 +15210,9 @@ function addReviewCheckOffer(
 // notice speaks about the EFFECTIVE policy: a memory layer holding strict wins
 // over the retired line, lowers nothing, and would refuse the relaxed setting
 // the notice recommends, so in that case there is nothing to announce. An
-// unreadable policy is the strictest policy and announces nothing either.
+// unreadable policy is the strictest policy and announces nothing either. Two
+// lines that disagree reach here only when settleGuardPolicyConflict could not
+// record its settling: said as what is in force, with nothing asked.
 function retiredGuardPolicyNotice(projectDir: string, stateContent: string): string | null {
   let value: GuardPolicy;
   try {
@@ -15159,8 +15220,7 @@ function retiredGuardPolicyNotice(projectDir: string, stateContent: string): str
     if (resolution.memoryStrict !== null) return null;
     if (resolution.conflict !== undefined) {
       return "This work has two settings for how closely AI-DLC checks changes, and they disagree, so AI-DLC " +
-        "checks everything for now. Do you want it to keep checking everything, carry on with a note when " +
-        "something you approved changes, or also skip some of its own checks? I'll ask again until you choose.";
+        "checks everything for now.";
     }
     if (guardPolicyStateField(stateContent) !== CHANGE_CONTROL_FIELD) return null;
     value = resolution.value;

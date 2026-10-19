@@ -2626,14 +2626,22 @@ function handleAnswer(args: string[]): void {
       // asked since). A question asked after it waits for the next reply,
       // unless the person's message that answered it arrived before it was
       // logged: then the agent names that message instead of asking again.
+      // The steps for a reply the hooks missed hold only when the person's
+      // reply did not answer this question: said bare beside a message that
+      // did, they told the person an answer that had arrived was lost.
       const late = messagesBeforeQuestion(pd, flags.stage, flags.unit);
+      const missed = unattendedHumanPresenceHint(pd);
+      if (late.length > 0) {
+        error(
+          `Cannot record this answer: the question was logged after the person's reply. ${lateQuestionHint(late)}` +
+            (missed === "" ? "" : ` If no message of theirs answers it:${missed}`),
+        );
+      }
       error(
-        (late.length > 0
-          ? `Cannot record this answer: the question was logged after the person's reply. ${lateQuestionHint(late)}`
-          : "Cannot record this answer because no new human reply has arrived for the question. "
-            + "Wait for the human to type an answer, then try again."
-            + commandTurnHint(pd))
-          + unattendedHumanPresenceHint(pd),
+        "Cannot record this answer because no new human reply has arrived for the question. "
+          + "Wait for the human to type an answer, then try again."
+          + commandTurnHint(pd)
+          + missed,
       );
     }
     // Where the person replied in a picker, an answer none of their picks
@@ -4104,7 +4112,7 @@ function handleReview(args: string[]): void {
     // A Unit of a parallel batch, reviewed in its worktree: the reviewer runs the
     // tests the person approved through AI-DLC's own check, as its worker does.
     const swarmUnit = flags.stage === "code-generation" && flags.unit ? swarmWorkerWorktreeMeta(pd) : null;
-    // On Kiro (kiro-ide), with the reviewer read-scope preview feature on, this
+    // On Kiro (kiro-ide), while the reviewer read-scope check holds, this
     // review's reviewer is dispatched as a copy that carries its read scope; a
     // replaced request's copy goes with it.
     if (replaces !== null) removeReviewCopy(pd, replaces);
@@ -4752,7 +4760,7 @@ function handleReview(args: string[]): void {
   // the reviewer-scope hook reads it. Remove that one too, when it is this
   // review's own record; another Unit's review keeps its window.
   removeParentReviewerDispatch(pd, { reviewer: flags.reviewer, stage: flags.stage, unit: flags.unit });
-  // The verdict closes the request, so its reviewer copy (Kiro preview) goes too.
+  // The verdict closes the request, so its reviewer copy (Kiro) goes too.
   removeReviewCopy(pd, fields["Request Id"]);
 
   const agentNote = recorded.context === undefined

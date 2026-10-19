@@ -1029,7 +1029,12 @@ This stage has a **two-part structure**: planning followed by generation.
    Code Generation completion gate, a Unit checkpoint, or a swarm batch
    checkpoint), while the plan is still the one approved before, `next` first
    returns `revise` with the person's words from that gate, so the question
-   that follows shows the revised plan. Re-running `next`, or a
+   that follows shows the revised plan. Reopening the step through
+   `/aidlc --stage code-generation` (`Reopen: jump`) starts a fresh attempt
+   and asks about the plan as it stands, without requiring an arbitrary edit.
+   Redo (`Reopen: redo`) starts the step again, including its plan, before
+   asking for approval. `Reopen: change` and a gate's Request Changes still
+   return `revise` with the person's feedback. Re-running `next`, or a
    reissued directive for the same target and attempt, never reopens it, and
    neither does whatever the engine said in between: a chat that compacted, a
    piece of work parked and resumed, or a guard-recovery question. `next` reads
@@ -1097,7 +1102,7 @@ This stage has a **two-part structure**: planning followed by generation.
      hashes. Contextual dependencies do not receive additional target markers.
    - Design artifacts for the CURRENT UNIT ONLY (not all units)
    - A 1-2 line summary of each inception-phase artifact with its file path
-     (requirements summary, stories summary, app design summary) -- the
+     (requirements summary, stories summary, domain design summary) -- the
      subagent can Read specific files if it needs full content
    - The current plan and unit-test-instructions.md, which that
      output already carries using the approval-content projection: the plan

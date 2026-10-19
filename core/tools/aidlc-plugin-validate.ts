@@ -2,7 +2,7 @@
 // Offline validator for an authored AIDLC plugin repository.
 //
 // This tool deliberately resolves everything from <plugin-root> plus assets
-// bundled beside the running tool. It does not require an AIDLC project,
+// bundled with the running tool (bundledPluginData). It does not require an AIDLC project,
 // framework checkout, network access, or installed harness.
 
 import {
@@ -30,6 +30,7 @@ import {
   type ValidationContext,
   validateStageFrontmatter,
 } from "./aidlc-stage-schema.ts";
+import { resolveHarnessPath } from "./aidlc-runtime-paths.ts";
 
 export type PluginValidationRule =
   | "plugin-root"
@@ -37,6 +38,7 @@ export type PluginValidationRule =
   | "manifest-json"
   | "manifest-shape"
   | "manifest-name"
+  | "manifest-marketplace"
   | "content-symlink"
   | "stage-frontmatter"
   | "stage-schema"
@@ -48,10 +50,13 @@ export type PluginValidationRule =
   | "scope-owner"
   | "scope-depth"
   | "scope-keywords"
+  | "scope-include"
   | "agent-frontmatter"
   | "agent-filename"
   | "agent-name"
   | "agent-owner"
+  | "base-reference"
+  | "base-root"
   | "duplicate-artifact-producer"
   | "artifact-namespace"
   | "contribution-target"
@@ -100,6 +105,8 @@ export interface PluginValidationOptions {
   composeTemplatePath?: string;
   coreStageSlugs?: Iterable<string>;
   coreAgentSlugs?: Iterable<string>;
+  // The author's own checkout of the base plugin (--with): its agents count.
+  baseRoot?: string;
 }
 
 type MutableFindings = {
@@ -109,6 +116,8 @@ type MutableFindings = {
 
 type ManifestResult = {
   pluginName: string;
+  // undefined when the manifest cannot say (its own finding already does).
+  base?: PluginDependency | null;
 };
 
 const MANIFEST_REL = join(".aidlc-plugin", "plugin.json");
@@ -263,6 +272,38 @@ export function assertSupportedPluginContributionPaths(
   throw new Error(
     `${manifestFile}: ${issues.map((issue) => issue.message).join("; ")}`,
   );
+}
+
+// A host keeps what it installs under the catalogue's and the plugin's names
+// (Codex: plugins/cache/<marketplace>/<plugin>/), so each is one path segment.
+export function hostIdSegment(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
+}
+
+// The one rule for the catalogue a plugin someone else builds is listed in:
+// any name its author chooses outside AI-DLC's own aidlc namespace (a second
+// "aidlc-plugins" catalogue replaces ours in Claude Code). Validate reports it
+// and the emitter refuses it before writing anything.
+export function pluginMarketplaceIssue(
+  aidlc: unknown,
+): { message: string; fix: string } | null {
+  if (!isPlainRecord(aidlc) || aidlc.marketplace === undefined) return null;
+  const name = aidlc.marketplace;
+  if (typeof name !== "string" || !hostIdSegment(name)) {
+    return {
+      message: `marketplace name ${JSON.stringify(name)} must be one name a host can keep as a folder: letters, digits, ".", "_" or "-", starting with a letter or digit`,
+      fix: 'Set "aidlc": {"marketplace": "<name>"}, such as "acme-aidlc-plugins", or leave it out to use the plugin\'s own name.',
+    };
+  }
+  // Claude Code tells catalogues apart only up to letter case.
+  const folded = name.toLowerCase();
+  if (folded === "aidlc" || folded.startsWith("aidlc-")) {
+    return {
+      message: `marketplace name "${name}" is AI-DLC's own: "aidlc" and names starting "aidlc-" are kept for the plugins AI-DLC ships`,
+      fix: 'Name the marketplace for your organisation or team, such as "acme-aidlc-plugins".',
+    };
+  }
+  return null;
 }
 
 export type PluginDependency = { name: string; range: string | null };
@@ -436,32 +477,25 @@ function validatePluginContentSymlinks(
   }
 }
 
-export function bundledPluginComposeTemplatePath(): string {
-  const candidates = [
-    join(
-      import.meta.dir,
-      "data",
-      "plugin-hooks-template",
-      "compose.ts",
-    ),
-    join(
-      import.meta.dir,
-      "..",
-      "..",
-      "scripts",
-      "plugin-hooks-template",
-      "compose.ts",
-    ),
-  ];
+// Where the plugin authoring tools read their bundled data: the running
+// harness tree's tools/data, which resolveHarnessPath finds beside the tool in
+// a Bun install and in the runtime a compiled aidlc ships beside itself, else
+// the repository checkout's own copy.
+export function bundledPluginData(segments: string[], checkoutCopy?: string): string {
+  const candidates = [resolveHarnessPath(["tools", "data", ...segments])];
+  if (checkoutCopy) candidates.push(checkoutCopy);
   return candidates.find(existsSync) ?? candidates[0];
 }
 
-function pluginAuthoringContext(): PluginAuthoringContext {
-  const bundled = join(
-    import.meta.dir,
-    "data",
-    "plugin-authoring-context.json",
+export function bundledPluginComposeTemplatePath(): string {
+  return bundledPluginData(
+    ["plugin-hooks-template", "compose.ts"],
+    join(import.meta.dir, "..", "..", "scripts", "plugin-hooks-template", "compose.ts"),
   );
+}
+
+function pluginAuthoringContext(): PluginAuthoringContext {
+  const bundled = bundledPluginData(["plugin-authoring-context.json"]);
   try {
     const parsed = JSON.parse(readFileSync(bundled, "utf-8")) as unknown;
     if (
@@ -493,18 +527,147 @@ function pluginAuthoringContext(): PluginAuthoringContext {
   };
 }
 
-function pluginAgentRoster(root: string): string[] {
-  const pluginAgents = scanPluginFiles(join(root, "agents")).files
+function ownAgents(root: string): string[] {
+  return scanPluginFiles(join(root, "agents")).files
     .filter((file) => file.endsWith("-agent.md"))
     .map((file) => basename(file, ".md"));
+}
+
+// A stage file's stem is its slug (the stage-filename rule).
+export function pluginStageSlugs(root: string): string[] {
+  return scanPluginFiles(join(root, "stages")).files
+    .filter((file) => file.endsWith(".md"))
+    .map((file) => basename(file, ".md"));
+}
+
+// The base stages each of a plugin's scopes runs (`include_stages:`), for
+// plugin sync, which holds a plugin whose base lacks one.
+export function scopeIncludes(root: string): Array<{ scope: string; stages: string[] }> {
+  return scanPluginFiles(join(root, "scopes")).files
+    .filter((file) => file.endsWith(".md"))
+    .flatMap((file) => {
+      const frontmatter = frontmatterBlock(readFileSync(file, "utf-8")) ?? "";
+      const stages = listField(frontmatter, "include_stages");
+      return stages.length > 0 ? [{ scope: scalarField(frontmatter, "name") || basename(file, ".md"), stages }] : [];
+    });
+}
+
+function pluginAgentRoster(root: string): string[] {
   return [
     ...new Set([
       ...pluginAuthoringContext().agents,
-      ...pluginAgents,
+      ...ownAgents(root),
       "orchestrator",
     ]),
   ].sort();
 }
+
+// The agents and stages of the --with checkout, which must be the base the
+// manifest names: null when it is not (with a finding) or the manifest cannot say.
+function baseRootCheckout(
+  baseRoot: string,
+  base: PluginDependency | null | undefined,
+  findings: MutableFindings,
+): { agents: string[]; stages: string[] } | null {
+  if (base === undefined) return null;
+  const at = resolve(baseRoot);
+  let name: unknown;
+  try {
+    name = (JSON.parse(readFileSync(join(at, MANIFEST_REL), "utf-8")) as { name?: unknown }).name;
+  } catch {
+    name = undefined;
+  }
+  const file = MANIFEST_REL.split(sep).join("/");
+  if (base === null) {
+    addError(
+      findings,
+      file,
+      "base-root",
+      `--with names ${at}, but this plugin builds on core alone`,
+      `Add its base to dependencies, such as "${typeof name === "string" && name ? name : "<base>"}@^1.2.0", or leave out --with.`,
+    );
+    return null;
+  }
+  if (name !== base.name) {
+    addError(
+      findings,
+      file,
+      "base-root",
+      `--with names ${at}, which is not ${base.name}, the base this plugin builds on`,
+      `Pass the root of your ${base.name} checkout.`,
+    );
+    return null;
+  }
+  return { agents: ownAgents(at), stages: pluginStageSlugs(at) };
+}
+
+// A name only the base could supply: said once, and checked with --with.
+function addBaseReference(
+  findings: MutableFindings,
+  file: string,
+  kind: "agent" | "stage",
+  name: string,
+  base: string,
+): void {
+  addWarning(
+    findings,
+    file,
+    "base-reference",
+    `${kind} "${name}" is not checked: it would come from ${base}, the base this plugin builds on`,
+    `Run validate again with --with <path to your ${base} checkout> to check it.`,
+  );
+}
+
+// The agent fields Rule 9 of validateStageFrontmatter checks, as [field, agent].
+function stageAgentReferences(stage: Record<string, unknown>): Array<[string, string]> {
+  const pairs: Array<[string, unknown]> = [
+    ["lead_agent", stage.lead_agent],
+    ...(Array.isArray(stage.support_agents) ? stage.support_agents : []).map(
+      (agent): [string, unknown] => ["support_agents", agent],
+    ),
+    ["reviewer", stage.reviewer],
+  ];
+  return pairs.filter((pair): pair is [string, string] => typeof pair[1] === "string");
+}
+
+// Who can supply a stage or agent this plugin names: core, the plugin itself,
+// or, by its name, its declared base. When the plugin's and the base's names
+// prefix one another, the longer prefix owns the name. The one reading of it,
+// for stage fields and a scope's include_stages.
+function referenceSource(
+  name: string,
+  from: {
+    plugin: string;
+    base: string | null;
+    core: ReadonlySet<string>;
+    own: ReadonlySet<string>;
+  },
+): "core" | "own" | "base" | "undeclared" {
+  if (from.own.has(name)) return "own";
+  if (from.core.has(name)) return "core";
+  if (from.base === null || !name.startsWith(`${from.base}-`)) return "undeclared";
+  return from.plugin.length > from.base.length && name.startsWith(`${from.plugin}-`)
+    ? "undeclared"
+    : "base";
+}
+
+// --with checks a base's agents, not its stages, so only the agent line offers it.
+const UNDECLARED_FIX = {
+  agent:
+    'If another plugin ships it, add that plugin to dependencies next to "core", as "<base>@^1.2.0", then check it with --with <path to your checkout of it>; otherwise correct the name.',
+  stage:
+    'If another plugin ships it, add that plugin to dependencies next to "core", as "<base>@^1.2.0"; otherwise correct the name.',
+};
+
+type StageNames = {
+  // The declared base: null when the plugin builds on core alone, undefined
+  // when its manifest cannot say.
+  base: string | null | undefined;
+  // The base's checkout (--with) is in the agent roster.
+  baseChecked: boolean;
+  coreStages: ReadonlySet<string>;
+  coreAgents: ReadonlySet<string>;
+};
 
 function stageBodyAfterFrontmatter(raw: string): string {
   return raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/)?.[1] ?? "";
@@ -638,9 +801,10 @@ function validateManifest(
       );
     }
   }
-  const base = readPluginBase(manifest.dependencies, declaredName);
-  if ("problem" in base) {
-    const { problem } = base;
+  const read = readPluginBase(manifest.dependencies, declaredName);
+  const base = "problem" in read ? undefined : read.base;
+  if ("problem" in read) {
+    const { problem } = read;
     addError(
       findings,
       displayFile,
@@ -664,7 +828,7 @@ function validateManifest(
       "manifest aidlc must be an object",
       'Add "aidlc": {"contributes": {...}}.',
     );
-    return { pluginName: declaredName };
+    return { pluginName: declaredName, base };
   }
   if (!isPlainRecord(manifest.aidlc.contributes)) {
     addError(
@@ -674,7 +838,12 @@ function validateManifest(
       "manifest aidlc.contributes must be an object",
       "Map each shipped subtree to its plugin-relative directory.",
     );
-    return { pluginName: declaredName };
+    return { pluginName: declaredName, base };
+  }
+
+  const marketplace = pluginMarketplaceIssue(manifest.aidlc);
+  if (marketplace) {
+    addError(findings, displayFile, "manifest-marketplace", marketplace.message, marketplace.fix);
   }
 
   for (const issue of contributionPathIssues(manifest.aidlc.contributes)) {
@@ -687,19 +856,22 @@ function validateManifest(
     );
   }
 
-  return { pluginName: declaredName };
+  return { pluginName: declaredName, base };
 }
 
 function validateStages(
   root: string,
   pluginName: string,
   findings: MutableFindings,
-  context?: ValidationContext,
+  context: ValidationContext | undefined,
+  names: StageNames,
 ): void {
   const artifactProducers = new Map<
     string,
     Array<{ file: string; slug: string }>
   >();
+  const ownStages = new Set(pluginStageSlugs(root));
+  const ownAgentNames = new Set(ownAgents(root));
   for (const file of scanPluginFiles(join(root, "stages")).files.filter((path) =>
     path.endsWith(".md"),
   )) {
@@ -718,7 +890,44 @@ function validateStages(
       continue;
     }
 
-    const validation = validateStageFrontmatter(parsed, context);
+    // An agent outside the roster: the base's, without its checkout, is said
+    // once and not checked; another plugin's, in a plugin that declares no
+    // base, is one error naming the step. Either one replaces Rule 9's line.
+    const from = { plugin: pluginName, base: names.base ?? null };
+    const accepted: string[] = [];
+    const undeclared = (reference: string, kind: "agent" | "stage"): void =>
+      addError(
+        findings,
+        displayFile,
+        "base-reference",
+        `${reference} is not a core ${kind} or one of ${pluginName}'s own`,
+        UNDECLARED_FIX[kind],
+      );
+    for (const [field, agent] of stageAgentReferences(parsed)) {
+      if (!context?.agents || context.agents.includes(agent) || accepted.includes(agent)) continue;
+      const source = referenceSource(agent, { ...from, core: names.coreAgents, own: ownAgentNames });
+      if (source === "base" && names.base && !names.baseChecked) {
+        accepted.push(agent);
+        addBaseReference(findings, displayFile, "agent", agent, names.base);
+      } else if (source === "undeclared" && names.base === null) {
+        accepted.push(agent);
+        undeclared(`${field} "${agent}"`, "agent");
+      }
+    }
+    if (names.base === null && Array.isArray(parsed.requires_stage)) {
+      for (const stage of new Set(parsed.requires_stage)) {
+        if (
+          typeof stage === "string" &&
+          referenceSource(stage, { ...from, core: names.coreStages, own: ownStages }) === "undeclared"
+        ) {
+          undeclared(`requires_stage "${stage}"`, "stage");
+        }
+      }
+    }
+    const validation = validateStageFrontmatter(
+      parsed,
+      accepted.length > 0 ? { agents: [...(context?.agents ?? []), ...accepted] } : context,
+    );
     if (!validation.valid) {
       for (const error of validation.errors) {
         addError(
@@ -895,8 +1104,14 @@ function validateScopes(
   root: string,
   pluginName: string,
   findings: MutableFindings,
+  base: PluginDependency | null | undefined,
+  baseStages: string[] | null,
+  coreStageSlugs?: Iterable<string>,
 ): void {
   const prefix = `${pluginName}-`;
+  const ownStages = new Set(pluginStageSlugs(root));
+  const coreStages = new Set(coreStageSlugs ?? pluginAuthoringContext().stages);
+  const checkoutStages = baseStages === null ? null : new Set(baseStages);
   for (const file of scanPluginFiles(join(root, "scopes")).files.filter((path) =>
     path.endsWith(".md"),
   )) {
@@ -967,6 +1182,56 @@ function validateScopes(
         "declared keywords must parse to a non-empty block or flow list",
         "Add at least one keyword using `keywords: [value]` or indented `- value` entries.",
       );
+    }
+    const includes = listField(frontmatter, "include_stages");
+    if (/^include_stages\s*:/m.test(frontmatter) && includes.length === 0) {
+      addError(
+        findings,
+        displayFile,
+        "scope-include",
+        "declared include_stages must parse to a non-empty block or flow list",
+        "Name the base stages this scope runs using `include_stages: [slug]` or indented `- slug` entries.",
+      );
+    }
+    // A scope includes its base's stages only: its own stages join through
+    // their scopes: list and a core stage through a contribution, as before.
+    for (const slug of includes) {
+      const refuse = (message: string, fix: string): void =>
+        addError(findings, displayFile, "scope-include", message, fix);
+      const source = referenceSource(slug, {
+        plugin: pluginName,
+        base: base?.name ?? null,
+        core: coreStages,
+        own: ownStages,
+      });
+      if (source === "core") {
+        refuse(`include_stages names "${slug}", a core stage`, "Put a core stage in this scope with a contribution's adds.scopes.");
+      } else if (source === "own") {
+        refuse(`include_stages names "${slug}", this plugin's own stage`, `List ${name || stem} in that stage's scopes: instead.`);
+      } else if (base === null) {
+        refuse(
+          `include_stages names "${slug}", but this plugin builds on core alone`,
+          'include_stages takes the stages of the base plugin you build on: name it in dependencies, such as "<base>@^1.2.0".',
+        );
+      } else if (base) {
+        if (!slug.startsWith(`${base.name}-`)) {
+          // Compose refuses a plugin stage whose slug lacks "<plugin>-", so no
+          // installed stage of the base has this name. Any other name is the
+          // checkout's to decide (the base may ship one with this plugin's
+          // longer prefix).
+          refuse(
+            `include_stages names "${slug}", which cannot be a stage of ${base.name}: ${base.name}'s stage slugs start with "${base.name}-"`,
+            `Name a stage of ${base.name}.`,
+          );
+        } else if (checkoutStages === null) {
+          addBaseReference(findings, displayFile, "stage", slug, base.name);
+        } else if (!checkoutStages.has(slug)) {
+          refuse(
+            `include_stages names "${slug}", which your ${base.name} checkout has no stage for`,
+            `Name a stage of ${base.name}, or pass a checkout of the ${base.name} version this plugin is for.`,
+          );
+        }
+      }
     }
   }
 }
@@ -1136,16 +1401,26 @@ export function validatePluginRoot(
     };
   }
 
-  const { pluginName } = validateManifest(root, findings);
+  const { pluginName, base } = validateManifest(root, findings);
   validatePluginContentSymlinks(root, findings);
+  const context = options.stageContext ?? { agents: pluginAgentRoster(root) };
+  const baseCheckout = options.baseRoot === undefined
+    ? null
+    : baseRootCheckout(options.baseRoot, base, findings);
   validateStages(
     root,
     pluginName,
     findings,
-    options.stageContext ?? { agents: pluginAgentRoster(root) },
+    baseCheckout ? { agents: [...(context.agents ?? []), ...baseCheckout.agents] } : context,
+    {
+      base: base === undefined ? undefined : (base?.name ?? null),
+      baseChecked: baseCheckout !== null,
+      coreStages: new Set(options.coreStageSlugs ?? pluginAuthoringContext().stages),
+      coreAgents: new Set(options.coreAgentSlugs ?? pluginAuthoringContext().agents),
+    },
   );
   validateContributions(root, pluginName, findings, options.coreStageSlugs, options.coreAgentSlugs);
-  validateScopes(root, pluginName, findings);
+  validateScopes(root, pluginName, findings, base, baseCheckout?.stages ?? null, options.coreStageSlugs);
   validateAgents(root, pluginName, findings);
   validateTools(root, findings);
   const composeHook = validateComposeHook(
@@ -1204,26 +1479,30 @@ export function formatPluginValidation(
 }
 
 const USAGE =
-  "Usage: bun <tools-dir>/aidlc-plugin-validate.ts <plugin-root> [--json]";
+  "Usage: bun <tools-dir>/aidlc-plugin-validate.ts <plugin-root> [--with <base-root>] [--json]";
 
 export function main(argv: string[]): number {
   if (argv.includes("--help") || argv.includes("-h")) {
     process.stdout.write(`${USAGE}\n`);
     return 0;
   }
-  const jsonArgs = argv.filter((arg) => arg === "--json");
-  const positional = argv.filter((arg) => arg !== "--json");
+  const withAt = argv.indexOf("--with");
+  const baseRoot = withAt < 0 ? undefined : argv[withAt + 1];
+  const rest = withAt < 0 ? argv : argv.filter((_, index) => index !== withAt && index !== withAt + 1);
+  const jsonArgs = rest.filter((arg) => arg === "--json");
+  const positional = rest.filter((arg) => arg !== "--json");
   if (
     positional.length !== 1 ||
     jsonArgs.length > 1 ||
-    argv.some((arg) => arg.startsWith("-") && arg !== "--json")
+    (withAt >= 0 && (!baseRoot || baseRoot.startsWith("-"))) ||
+    rest.some((arg) => arg.startsWith("-") && arg !== "--json")
   ) {
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
 
   const pluginRoot = positional[0];
-  const result = validatePluginRoot(pluginRoot);
+  const result = validatePluginRoot(pluginRoot, { baseRoot });
   if (jsonArgs.length === 1) {
     process.stdout.write(`${JSON.stringify(pluginValidationJson(result))}\n`);
   } else {

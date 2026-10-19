@@ -2274,6 +2274,11 @@ describe("t342 a unit-major recovery keeps every Unit's finished work", () => {
       `## Steps\n\n${steps.map((step) => `- [ ] ${step}`).join("\n")}\n\n${renderTestingContract(resolveTestingPosture(p))}`);
     writeFileSync(join(dir, "unit-test-instructions.md"), "# Unit Test Instructions\n\nRun `bun test src/parts.test.ts`.\n");
     expect(next(p)).toMatchObject({ kind: "ask", ask_type: "plan-approval", unit });
+    approveCurrentPlan(p);
+    return planFile;
+  }
+
+  function approveCurrentPlan(p: string) {
     hookCall(p, [join(AIDLC_SRC, "tools/aidlc.ts"), "engine", "hook", "record-human-turn"], {
       hook_event_name: "UserPromptSubmit", prompt: "approve",
     });
@@ -2284,7 +2289,6 @@ describe("t342 a unit-major recovery keeps every Unit's finished work", () => {
     ], env);
     expect(recorded.status, recorded.out).toBe(0);
     expect(next(p).plan_approval).toEqual({ status: "approved" });
-    return planFile;
   }
 
   // beta's Code Generation as #1586 resumes it: beta started the step, the
@@ -2383,7 +2387,22 @@ describe("t342 a unit-major recovery keeps every Unit's finished work", () => {
     // alpha redoes its step and its checkpoint first, then beta starts its own over.
     cover(p, "alpha", ["code-generation"]);
     approve(p, "alpha");
-    redoneFromStart(p, "every unit");
+    const planFile = join(codeGenerationRecordDir(p, "beta"), "code-generation-plan.md");
+    const original = readFileSync(planFile, "utf-8");
+    expect(original).toContain("- [x] Step 1:");
+    expect(next(p)).toMatchObject({ kind: "ask", ask_type: "plan-approval", unit: "beta" });
+    expect(readFileSync(planFile, "utf-8")).toBe(original);
+    approveCurrentPlan(p);
+    const brief = tool(p, "testing-posture", ["brief", "--unit", "beta"]);
+    expect(brief.status, brief.out).toBe(0);
+    hookCall(p, [join(AIDLC_SRC, "hooks/aidlc-plan-approval-guard.ts")], {
+      hook_event_name: "PreToolUse", tool_name: "Task",
+      tool_input: { subagent_type: "aidlc-developer-agent", prompt: brief.stdout },
+    });
+    const restarted = readFileSync(planFile, "utf-8");
+    expect(restarted).not.toContain("- [x]");
+    expect(restarted.match(/^- \[ \] Step /gm)).toHaveLength(4);
+    expect(next(p).narration ?? "").not.toContain("Picking up");
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   test("unit-major Redo before any Unit has finished work keeps the stage redo", () => {
@@ -3293,5 +3312,31 @@ describe("t342 status names the Unit's step and a typed switch says where the wo
     const directive = result.directive as { kind: string; narration?: string };
     expect(directive.kind).toBe("print");
     expect(directive.narration).toBe("The work picks up at the Unit checkpoint for beta.");
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
+  function parkedLine(p: string): string {
+    const result = spawnSync(process.execPath, [ORCH, "park", "--project-dir", p], {
+      timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS), encoding: "utf-8",
+    });
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
+    const parked = JSON.parse(result.stdout.trim()) as { kind: string; narration?: string };
+    expect(parked.kind).toBe("parked");
+    return parked.narration ?? "";
+  }
+
+  // The park line says where the work stands the way the walk does: Current
+  // Stage stays on the block's first stage, so it is never what is named.
+  test("a park names the Unit's stage on a work step and the Unit's checkpoint at its checkpoint", () => {
+    expect(parkedLine(betaAtCodeGeneration())).toBe(
+      "Paused at Code Generation for beta with everything saved. Pick it back up any time here, or with /aidlc --resume in a new chat.",
+    );
+    const p = fixture();
+    cover(p, "alpha");
+    approve(p, "alpha");
+    cover(p, "beta");
+    expect(next(p).construction_checkpoint?.unit).toBe("beta");
+    expect(parkedLine(p)).toBe(
+      "Paused at the Unit checkpoint for beta with everything saved. Pick it back up any time here, or with /aidlc --resume in a new chat.",
+    );
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 });

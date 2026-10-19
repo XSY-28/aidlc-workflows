@@ -374,6 +374,17 @@ export type HarnessManifest = {
   plugin?: {
     /** Host plugin-manifest dir name (for example ".claude-plugin" or ".cursor-plugin"). */
     manifestDir: string;
+    /**
+     * Where the host reads a plugin catalogue (`marketplace.json`) when the
+     * person adds the projection as a marketplace. Defaults to `manifestDir`.
+     */
+    marketplaceDir?: string;
+    /**
+     * Whether the host adds a folder of plugins as one marketplace from that
+     * catalogue, so AI-DLC's own plugins share one there. Defaults to true for
+     * "store" and "cursor" kinds; a folder drop has no catalogue.
+     */
+    hostCatalogue?: boolean;
     /** Host-specific plugin hook projection shape. */
     kind: "store" | "kiro" | "kiro-ide" | "cursor";
     /**

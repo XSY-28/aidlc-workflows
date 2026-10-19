@@ -624,6 +624,9 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
       for (const token of [
         "Only the person parks: never park on your own to hand them a decision",
         "Carry on with the next stage, or ask your question and wait for their answer in this conversation.",
+        // An agent that has driven many stages in one turn must not invent a
+        // check-in about carrying on; its own real questions stay allowed.
+        "Never ask the person whether to continue, pause or take a break, however long the run has been; they can say stop at any time.",
       ]) {
         if (!body.includes(token)) failures.push(`${rel}  missing: ${token}`);
       }

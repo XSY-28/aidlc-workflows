@@ -93,7 +93,9 @@ attestation flags.
 It installs
 versions under `${XDG_DATA_HOME:-$HOME/.local/share}/aidlc/versions/` and
 writes `$HOME/.local/bin/aidlc`, a small launcher that runs the active version,
-by default.
+by default. AI-DLC's own plugin catalogue sits beside the versions, at
+`${XDG_DATA_HOME:-$HOME/.local/share}/aidlc/plugins/`; the installer prints its
+full path (see [Plugins](#plugins)).
 
 The installer does not edit a shell startup file unless
 `--profile <absolute-path-under-$HOME>` is explicit. That option writes or
@@ -116,7 +118,8 @@ Remove-Item -Recurse -Force $download
 ```
 
 Windows installs versions under `%LOCALAPPDATA%\aidlc\versions\` and keeps a
-stable `%LOCALAPPDATA%\aidlc\bin\aidlc.cmd` shim. After successful verification
+stable `%LOCALAPPDATA%\aidlc\bin\aidlc.cmd` shim, with AI-DLC's own plugin
+catalogue in `%LOCALAPPDATA%\aidlc\plugins\`. After successful verification
 and installation, the installer registers that bin directory in the current
 account's persistent User PATH, preserving existing entries and avoiding
 duplicates on reruns. It also updates the current PowerShell process and
@@ -438,8 +441,9 @@ the session's own model access (for example `model access comes with your GitHub
 Copilot session`); `aidlc config providers` records Amazon Bedrock there if you
 bring your own (on Cursor, only the IDE takes Bedrock keys). On GitHub Copilot, Cursor, and Kiro IDE the Models row
 reads `[ok]` and names the host, for example `every agent uses your GitHub
-Copilot session's model and effort`: those hosts cannot pin an agent's model or
-effort, so there is no policy to ask for, and a recorded one is named as not
+Copilot session's model and effort`: a preset changes nothing on those hosts
+(on Kiro only one agent's own model and effort apply), so there is no policy to
+ask for, and a recorded one is named as not
 applying there. See [Choosing a Model and Effort](#choosing-a-model-and-effort).
 Runtime leads with the immediate action and points to
 `aidlc config runtime --show` for diagnostics. The closing ledger is a compact
@@ -517,7 +521,12 @@ any setup step still outstanding); `--json` and `--quiet` output are unchanged.
 
 `--show --json` prints every agent's effective model, effort, and provenance.
 `--check` is the CI inverse and exits non-zero when the recorded policy is not
-fully reflected in the harness surfaces.
+fully reflected in the harness surfaces. On Kiro IDE, Cursor and GitHub Copilot,
+where a preset changes nothing, a recorded effort it cannot write is left to the
+session, as in `aidlc doctor`, and does not fail the check. On Cursor and GitHub
+Copilot, where the session sets every agent's model and effort, a clean check
+says so, as `aidlc doctor` does, instead of calling the recorded policy
+reflected.
 
 Model and flag policy resolves leaf-by-leaf through this hierarchy:
 
@@ -593,14 +602,17 @@ explicit group dials have no Kiro surface, and a per-agent model exception
 carries its effort through the project's `chat.modelDefaults`, which then
 replaces your personal effort map in that project. An effort set on Kiro CLI
 without a model is kept for other tools, and the command says so in one line.
-Kiro IDE, Cursor, and GitHub Copilot cannot portably pin
-agent models or effort, so setup records no preset there. A model or effort you
-set anyway is kept for teammates on tools that apply it, writes no inert keys,
-and the command says in one line that this tool uses the model you choose in its
-own model picker. On those three, every agent uses the session's model and
-effort: the setup check and `aidlc doctor` say so instead of asking for a
-policy, and doctor warns only about an agent model recorded for that harness
-by name.
+Kiro IDE, Cursor, and GitHub Copilot have no surface for a preset or a group
+effort, so setup records no preset there. On Kiro, `aidlc config models --agent`
+still sets one agent's own model and effort
+([One agent on its own model and effort](harnesses/kiro-ide.md#one-agent-on-its-own-model-and-effort)).
+On Cursor and Copilot a model or effort you set anyway is kept for teammates on
+tools that apply it, writes no inert keys, and the command says in one line that
+this tool uses the model you choose in its own model picker. On those three,
+every agent uses the session's model and effort (on Kiro, unless a model or
+effort is set for that agent): the setup check and `aidlc doctor` say so
+instead of asking for a policy, and doctor warns only about an agent model
+recorded for that harness by name.
 
 Model policy is agent-scoped. Stage files never carry model or effort keys;
 scopes continue to own stage criticality.
@@ -612,10 +624,12 @@ Claude Opus 4.8. Where you set the model and effort depends on the harness:
 
 - **GitHub Copilot, Cursor, and Kiro IDE:** in the host, for the whole session.
   Every agent uses the model and effort of the chat you run `/aidlc` in, and
-  nothing AI-DLC records changes that. On Kiro IDE, a `model:` line you add
-  to an agent's `.md` file by hand changes that agent until the next refresh
-  (see [Customization](13-customization.md)); on Copilot such a pin is not
-  portable, because the CLI and VS Code read model names differently.
+  nothing AI-DLC records changes that, except on Kiro, where
+  `aidlc config models --agent` sets one agent's own model and effort
+  ([One agent on its own model and effort](harnesses/kiro-ide.md#one-agent-on-its-own-model-and-effort));
+  set it there rather than with a `model:` line by hand, which
+  `aidlc config models --check` reports as drift. On Copilot a `model:` pin in an agent's `.md` file
+  is not portable, because the CLI and VS Code read model names differently.
 - **Claude Code, Codex CLI, and opencode:** the session's model and effort
   drive the conductor and every agent that inherits; `aidlc config models`
   can set agent efforts (the `balanced` preset sets them to medium) and
@@ -639,7 +653,8 @@ model, without Opus:
   what the `balanced` preset gives agents on harnesses that can set them.
 - **Raise effort only for a stage that needs it,** for example Code Generation
   on a hard Unit, then lower it again. On GitHub Copilot, Cursor, Kiro IDE,
-  and Kiro CLI that is the session's effort. On Claude Code, Codex CLI, and
+  and Kiro CLI that is the session's effort (on Kiro IDE, unless an effort is
+  set for the developer agent). On Claude Code, Codex CLI, and
   opencode, Code Generation runs on the developer agent, which follows the
   session only while no preset or effort is recorded for it. Otherwise its
   effort is the recorded one: to raise it, record it, for example
@@ -1668,6 +1683,32 @@ verifies the signed provenance and rejects a failed verification.
 
 ## Plugins
 
+AI-DLC's own plugins (test-pro and those that follow) share one `aidlc-plugins`
+catalogue, which a native install keeps at one path across releases:
+`${XDG_DATA_HOME:-$HOME/.local/share}/aidlc/plugins/` on Linux and macOS,
+`%LOCALAPPDATA%\aidlc\plugins\` on Windows. The installer prints the full path
+after it installs, and `aidlc doctor --verbose` names it under Machine. Add it
+once to your tool:
+
+```bash
+/plugin marketplace add <path>          # Claude Code
+codex plugin marketplace add <path>     # Codex CLI
+```
+
+Install, `aidlc update`, `aidlc use <version>` and `aidlc rollback` refresh the
+catalogue from the release they make active, writing it whole and then swapping
+it in, so the tool never reads half of one. After an update, the tool's own
+marketplace update (`/plugin marketplace update aidlc-plugins` in Claude Code)
+reads the new plugin versions from the same path. If the folder cannot be
+replaced, the command still succeeds, the folder keeps the earlier catalogue,
+and one line says why and what to do: on Windows, when a program may hold a
+file in it, close Claude Code and Codex and run `aidlc use <version>`; for any
+other cause, such as a full disk, fix that and run it. A file you put in the
+folder yourself is never replaced; the line names it instead. A machine that updated to this release
+with an earlier release's `aidlc update` gets the folder at its next `aidlc
+use <version>` or update. The source checkout's `dist/plugins/` and the copy
+runtime's `plugins/` are the same catalogue for the copy channel.
+
 `aidlc doctor` reports installed-versus-composed plugin state. Plugin changes
 are project configuration and converge through `aidlc config`; there is no
 separate public plugin command.
@@ -1915,7 +1956,9 @@ New installations record a full per-version `installed-files.json` inventory,
 whose hash is stored in `version.json`. Older installations use their verified
 runtime inventory where available, plus the plugin folders their release
 unpacked beside it, which carry the marker the release build wrote; other files
-without ownership evidence are kept. A shell completion counts as AI-DLC's when
+without ownership evidence are kept. The plugin catalogue's own record lists
+the files its last refresh wrote: those go, and anything else you put in that
+folder is kept. A shell completion counts as AI-DLC's when
 it is exactly what an AI-DLC release renders, so the completions an earlier
 release wrote while it updated to this one are removed, and an edited one is
 kept.

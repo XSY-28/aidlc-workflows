@@ -74,6 +74,9 @@ import {
   exactOptionPick,
   formatReceivedReply,
   isNonAnswer,
+  offeredProtectedChoices,
+  type ProtectedChoice,
+  protectedChoiceDigests,
   stripRecommendedDecorator,
 } from "./aidlc-reply-reader.ts";
 export {
@@ -732,6 +735,13 @@ export function pausedLine(plugin: string, base: string, offCommand: string | nu
     (offCommand === null
       ? `To turn ${plugin} off as well, select the plugins you want on.`
       : `To turn ${plugin} off as well: ${offCommand}.`);
+}
+
+/** The one line a selection change says, once, when it turns `plugin`'s base
+ *  back on; `when` is when what the plugin adds comes back (`nextCompose`).
+ *  No record says whether a paused plugin added anything, hence "anything". */
+export function resumedLine(plugin: string, base: string, when: string): string {
+  return `${base} is on again, so ${plugin} runs again; anything ${plugin} adds to other stages and agents comes back ${when}.`;
 }
 
 /** The base a composed plugin builds on, from its stamp in `dataDir`. */
@@ -2218,6 +2228,24 @@ export function claudeTranscriptOrigin(transcriptPath: unknown, promptId: unknow
     return { kind: "host", reason: turnOrigin ?? (typeof origin === "string" ? origin : "system"), source: "record" };
   }
   return { kind: "person", source: "record" };
+}
+
+// Who wrote a message Claude Code fed into a running turn. The transcript keeps
+// it as an attachment entry, not a user row: {type: "attachment", attachment:
+// {type: "queued_command", origin: {kind}}} (measured 2.1.296: `human` for what
+// the person typed while the agent worked; a background task's notice, a
+// coordinator or peer agent and an auto-continuation carry their own kind).
+// Null for any other entry and for one with no origin (older builds).
+const CLAUDE_QUEUED_HOST_ORIGINS = new Set(["task-notification", "coordinator", "peer", "auto-continuation"]);
+export function claudeQueuedMessageOrigin(entry: Record<string, unknown>): "person" | "host" | null {
+  const attachment = entry.type === "attachment" ? entry.attachment : undefined;
+  if (attachment === null || typeof attachment !== "object") return null;
+  const queued = attachment as Record<string, unknown>;
+  const origin = queued.type === "queued_command" && queued.origin !== null && typeof queued.origin === "object"
+    ? (queued.origin as Record<string, unknown>).kind
+    : undefined;
+  if (origin === "human") return "person";
+  return typeof origin === "string" && CLAUDE_QUEUED_HOST_ORIGINS.has(origin) ? "host" : null;
 }
 
 // Kiro's plain-text hook channel must carry UTF-8 without terminal protocol
@@ -5084,7 +5112,7 @@ export interface ProtectedQuestion {
   challengeId: string;
   target: Record<string, unknown>;
   targetDigest: string;
-  options: [string, string];
+  options: string[];
   promptDigest?: string;
   /** Set after the first reply read under this question: a plain yes answers only the first. */
   replied?: true;
@@ -5097,7 +5125,7 @@ export interface ProtectedResponse {
   version: 1;
   session: string;
   challengeId: string;
-  /** Older records named a choice the hook read; the conductor's choice decides now. */
+  /** The offered choice the person's latest reply picked exactly, read by the hook; the other is refused. */
   choice?: "Approve" | "Request Changes";
   responseSha256: string;
   /** Every message the person typed under this question, in order, verbatim. */
@@ -5444,24 +5472,24 @@ export function protectedTargetDigest(target: Record<string, unknown>): string {
 /** One session mailbox, exclusive with Plan Approval, replaced under the audit lock. */
 export function mintProtectedQuestion(
   projectDir: string,
-  question: Pick<ProtectedQuestion, "kind" | "session" | "target" | "promptDigest">,
+  question: Pick<ProtectedQuestion, "kind" | "session" | "target" | "promptDigest"> & { choices?: readonly ProtectedChoice[] },
 ): ProtectedQuestion {
   if (!question.session.trim() || question.session !== question.session.trim() || !runtimeSessionSegment(question.session)) {
     throw new Error("Protected question requires a nonblank session ID.");
   }
+  const { choices, ...asked } = question;
+  const options = protectedChoiceDigests(choices);
   return withAuditLock(projectDir, () => {
     ensurePlanApprovalRuntimeDir(projectDir);
     removeRuntimeFile(planApprovalChallengePath(projectDir, question.session));
     removeRuntimeFile(planApprovalResponsePath(projectDir, question.session));
     consumeProtectedQuestion(projectDir, question.session);
     const challenge: ProtectedQuestion = {
-      ...question,
+      ...asked,
       version: 1,
       challengeId: randomBytes(16).toString("hex"),
       targetDigest: protectedTargetDigest(question.target),
-      options: ["approve", "request changes"].map((option) =>
-        createHash("sha256").update(option, "utf-8").digest("hex"),
-      ) as [string, string],
+      options,
     };
     writeFileAtomic(protectedQuestionPath(projectDir, question.session), `${JSON.stringify(challenge, null, 2)}\n`);
     return challenge;
@@ -5477,8 +5505,7 @@ export function readProtectedQuestion(projectDir: string, session: string): Prot
     value.target !== null && typeof value.target === "object" && !Array.isArray(value.target) &&
     typeof value.targetDigest === "string" && value.targetDigest === protectedTargetDigest(value.target) &&
     (value.promptDigest === undefined || (typeof value.promptDigest === "string" && /^[a-f0-9]{64}$/.test(value.promptDigest))) &&
-    Array.isArray(value.options) && value.options.length === 2 &&
-    value.options.every((option, i) => option === createHash("sha256").update(i === 0 ? "approve" : "request changes").digest("hex"))
+    offeredProtectedChoices(value.options) !== null
     ? value : null;
 }
 
@@ -12387,11 +12414,33 @@ export function clearProjectTypeAsked(projectDir: string): void {
   clearEngineAskMark(projectDir, PROJECT_TYPE_ASK);
 }
 
-// What the folder is, is the person's word: their own words since the last
-// decision, or, once the engine has asked, anything they typed after the
-// question (an answer, or `/aidlc --project-type ...`). A command typed before
-// the question (a bare `/aidlc` that led to it) is no answer to it.
-export function personSaidProjectType(projectDir: string): boolean {
+// What the folder is, is the person's word. On the record: their own words
+// since the last decision, or, once the engine has asked, anything they typed
+// after the question (an answer, or `/aidlc --project-type ...`); a bare
+// `/aidlc` typed before the question (the one that led to it) is no answer to
+// it. With `said`, a message of theirs in that chat counts as well, asked or
+// not, by the setters' rule (saidInChat): the type typed on their line, or
+// `words` that are a whole reply of theirs since the last decision. That is
+// where the message that started the work is: the hook writes a turn only once
+// the work exists, but keeps the message from the first prompt on.
+export function personSaidProjectType(
+  projectDir: string,
+  said?: { chat: string | null; type: "greenfield" | "brownfield"; words?: string; intent?: string; space?: string },
+): boolean {
+  if (projectTypeTurnOnRecord(projectDir)) return true;
+  if (said === undefined) return false;
+  // Typed by hand: any type import of the setter module from here takes the
+  // tests' typecheck past its heap.
+  const { saidInChat } = require("./aidlc-guard-switch.ts") as {
+    saidInChat(
+      projectDir: string, sessionId: string | null, key: string, value: string | undefined, personWords?: string,
+      selection?: { intent?: string; space?: string },
+    ): { words: string | null } | null;
+  };
+  return saidInChat(projectDir, said.chat, "project-type", said.type, said.words, { intent: said.intent, space: said.space }) !== null;
+}
+
+function projectTypeTurnOnRecord(projectDir: string): boolean {
   const asked = engineAskMark(projectDir, PROJECT_TYPE_ASK);
   if (asked === null || projectRelativePath(projectDir, auditFilePath(projectDir)) !== asked.shard) {
     return personSpokeSinceGate(projectDir, { requests: true });
@@ -14992,6 +15041,18 @@ export function auditBlockField(block: string, fieldName: string): string | null
     if (line.startsWith(prefix)) return line.slice(prefix.length).trim();
   }
   return null;
+}
+
+// Whether a `GATE_REJECTED` row is a fresh attempt rather than the person's
+// change request. `aidlc-jump.ts reopen` marks its rows `Reopen: jump` (a
+// `/aidlc --stage` reopen) or `Reopen: redo` (redo on re-entry): the person
+// asked for a fresh attempt, so the earlier plan approval cannot carry over.
+// `Reopen: change` and a row with no `Reopen` (a gate's
+// Request Changes) are the person's change request. Told apart by that field's
+// value alone, never by the row's feedback text.
+export function rejectionIsFreshAttempt(block: string): boolean {
+  const reopen = auditBlockField(block, "Reopen");
+  return reopen !== null && reopen !== "change";
 }
 
 // The audit events that close a DECISION_RECORDED. `aidlc-log answer` answers
@@ -21941,7 +22002,7 @@ const SOURCE_FINGERPRINT_HARD_EXCLUDED_NAMES = [
   "node_modules",
   "venv",
 ] as const;
-const SOURCE_FINGERPRINT_HARD_EXCLUDED_DIRS = new Set<string>(
+export const SOURCE_FINGERPRINT_HARD_EXCLUDED_DIRS: ReadonlySet<string> = new Set<string>(
   SOURCE_FINGERPRINT_HARD_EXCLUDED_NAMES,
 );
 
@@ -23398,6 +23459,17 @@ function pathIsWithinRoot(root: string, target: string): boolean {
       !rel.startsWith(`..${sep}`)
     )
   );
+}
+
+// How the source listing names what a link leads to: the target's own path
+// when it lies inside the root, else the link's path marked `@target`. The walk
+// names the entries below a link this way, and a source claim through a link
+// is keyed the same way (sourceClaimCheckout), so the claim covers what the
+// walk lists.
+function linkTargetListingRel(rootReal: string, target: string, linkListingRel: string): string {
+  return pathIsWithinRoot(rootReal, target)
+    ? relative(rootReal, target).split(sep).join("/")
+    : `${linkListingRel}@target`;
 }
 
 interface SourceSymlinkResolution {
@@ -25032,9 +25104,7 @@ function filesystemSourceIdentity(
             ) {
               continue;
             }
-            const targetListingRel = internal
-              ? targetRelNative.split(sep).join("/")
-              : `${childListingRel}@target`;
+            const targetListingRel = linkTargetListingRel(rootReal, target, childListingRel);
             if (
               recordIdentity &&
               recordFile(
@@ -25056,9 +25126,7 @@ function filesystemSourceIdentity(
               snapshotEligible &&
               internal &&
               !existsSync(join(target, ".git"));
-            const targetListingRel = internal
-              ? targetSnapshotRel
-              : `${childListingRel}@target`;
+            const targetListingRel = linkTargetListingRel(rootReal, target, childListingRel);
             if (earlierOutput) earlierOutputDepth += 1;
             if (
               !walk(
@@ -25604,7 +25672,7 @@ function sourceListingFieldDecode(value: string): string | null {
   return decoded;
 }
 
-function splitSourcePathKey(key: string): { repo: string; path: string } | null {
+export function splitSourcePathKey(key: string): { repo: string; path: string } | null {
   const separator = key.indexOf("\0");
   if (separator === -1 || key.indexOf("\0", separator + 1) !== -1) return null;
   const repo = key.slice(0, separator);
@@ -26215,6 +26283,69 @@ export function registryExcludedSourceKeys(
   return excluded;
 }
 
+// The checkout that judges a source claim, the claim's path within it, and the
+// path the source listing knows it by. A claim with no repo field whose path
+// lies inside a checkout nested under the project (a worktree or clone the
+// project's git does not track) is judged by that checkout's own git: the
+// outer repository's .gitignore only says the outer repository does not track
+// that folder. The innermost folder on the path with a real .git entry wins;
+// lstat only, so a link or a junction on the way is not followed, except one
+// that leads to a checkout outside the project (a junction to a clone kept
+// elsewhere): its own git judges the claim, and the claim is keyed as the walk
+// lists what the link leads to (linkTargetListingRel). A claim through any
+// other link keeps the link rules below.
+function sourceClaimCheckout(
+  repoRoot: string,
+  path: string,
+  nestedAllowed: boolean,
+): { dir: string; path: string; listingPath: string } {
+  let claim = { dir: repoRoot, path, listingPath: path };
+  if (!nestedAllowed) return claim;
+  let rootReal: string;
+  try {
+    rootReal = realpathSync(repoRoot);
+  } catch {
+    return claim;
+  }
+  const trailing = path.endsWith("/") ? "/" : "";
+  const parts = path.replace(/\/+$/, "").split("/");
+  // A folder claim may name the link itself; a file claim names a file below.
+  const folders = trailing ? parts.length : parts.length - 1;
+  let dir = repoRoot;
+  for (let at = 0; at < folders; at++) {
+    dir = join(dir, parts[at]);
+    let entry: ReturnType<typeof lstatSync>;
+    try {
+      entry = lstatSync(dir);
+    } catch {
+      return claim;
+    }
+    const rest = parts.slice(at + 1).join("/");
+    const restPath = rest === "" ? "" : `${rest}${trailing}`;
+    if (entry.isSymbolicLink()) {
+      const target = resolveSourceSymlinkTarget(rootReal, dir)?.target ?? null;
+      if (target === null || pathIsWithinRoot(rootReal, target)) return claim;
+      try {
+        if (!statSync(target).isDirectory()) return claim;
+        const git = lstatSync(join(target, ".git"));
+        if (!git.isDirectory() && !git.isFile()) return claim;
+      } catch {
+        return claim;
+      }
+      const linked = linkTargetListingRel(rootReal, target, parts.slice(0, at + 1).join("/"));
+      return { dir: target, path: restPath, listingPath: `${linked}/${restPath}` };
+    }
+    if (!entry.isDirectory() || at + 1 >= parts.length) return claim;
+    try {
+      const git = lstatSync(join(dir, ".git"));
+      if (git.isDirectory() || git.isFile()) claim = { dir, path: restPath, listingPath: path };
+    } catch {
+      // No .git entry here: the folder belongs to the checkout above it.
+    }
+  }
+  return claim;
+}
+
 function ignoredSourceClaimReason(
   sourceRepoDir: string,
   path: string,
@@ -26282,7 +26413,13 @@ function ignoredSourceClaimReason(
     ) {
       return null;
     }
-    return `${JSON.stringify(path)} is ignored by Git and cannot be source-review evidence`;
+    const refusal = `${JSON.stringify(path)} is ignored by Git and cannot be source-review evidence`;
+    if (prefix || currentIsDirectory) return refusal;
+    if (sourcePathPhysicallyExcluded(literalPath, false, new Set<string>())) {
+      return `${refusal}; it lies under a folder AI-DLC never treats as source; omit this exact claim`;
+    }
+    const registration = JSON.stringify({ version: 1, paths: [literalPath] });
+    return `${refusal}. This exact file is neither tracked at HEAD nor explicitly registered as source. Git index-only additions (including force-add) or jj tracking alone do not establish HEAD membership. If intended as reviewed source, add ${registration} to .aidlc-source-paths.json in this repository's root (merge with existing entries), then retry. If it is output rather than source, omit this exact claim and use the registry's exclude list instead of paths to leave it outside the source boundary`;
   }
   if (!prefix && currentIsDirectory) {
     const currentMode = currentGitPathMode(
@@ -26635,15 +26772,18 @@ function validateUnitSourceManifestBytes(
     }
     const normalized = normalizeManifestSourcePath(candidate.path);
     if ("reason" in normalized) continue;
-    const sourceRepoDir =
+    const claim = sourceClaimCheckout(
       worktreeRelative
         ? projectDir
         : canonicalRepo === undefined
           ? projectDir
-          : repoDir(projectDir, canonicalRepo);
-    seedGitSourceClaimIgnorePath(
-      sourceRepoDir,
+          : repoDir(projectDir, canonicalRepo),
       normalized.path,
+      !worktreeRelative && canonicalRepo === undefined,
+    );
+    seedGitSourceClaimIgnorePath(
+      claim.dir,
+      claim.path,
       sourceClaimValidation,
     );
   }
@@ -26686,15 +26826,18 @@ function validateUnitSourceManifestBytes(
     ) {
       return { ok: false, reason: `writes[${index}].path is inside the framework record/shell exclusions` };
     }
-    const sourceRepoDir =
+    const claim = sourceClaimCheckout(
       worktreeRelative
         ? projectDir
         : canonicalRepo === undefined
           ? projectDir
-          : repoDir(projectDir, canonicalRepo);
-    const ignoredReason = ignoredSourceClaimReason(
-      sourceRepoDir,
+          : repoDir(projectDir, canonicalRepo),
       normalized.path,
+      !worktreeRelative && canonicalRepo === undefined,
+    );
+    const ignoredReason = ignoredSourceClaimReason(
+      claim.dir,
+      claim.path,
       normalized.prefix,
       pathModeIndexes,
       sourceClaimValidation,
@@ -26704,8 +26847,8 @@ function validateUnitSourceManifestBytes(
       return { ok: false, reason: `writes[${index}].path: ${ignoredReason}` };
     }
     const symlinkReason = symlinkClaimTargetReason(
-      sourceRepoDir,
-      normalized.path,
+      claim.dir,
+      claim.path,
       normalized.prefix,
       carriesWorkspaceShell,
       pathModeIndexes,
@@ -26714,7 +26857,7 @@ function validateUnitSourceManifestBytes(
     if (symlinkReason !== null) {
       return { ok: false, reason: `writes[${index}].path: ${symlinkReason}` };
     }
-    const key = sourcePathKey(canonicalRepo ?? "", normalized.path);
+    const key = sourcePathKey(canonicalRepo ?? "", claim.listingPath);
     if (seen.has(key)) return { ok: false, reason: `writes[${index}] duplicates a normalized source claim` };
     seen.add(key);
     if (normalized.prefix) prefixes.push(key);
@@ -30886,7 +31029,7 @@ export function writeStateFile(projectDir: string, content: string, intent?: str
   const path = stateFilePath(projectDir, intent, space);
   // A read-only aidlc-state.md is a deliberate write barrier the state tool
   // must honour (a corrupt/locked workspace must fail loud, not silently
-  // advance — see the t47/t77/t137 read-only-state failure-injection tests).
+  // advance — see the t47/t77 read-only-state failure-injection tests).
   // writeFileAtomic uses tmp+rename, and POSIX rename overwrites a read-only
   // TARGET (it only needs directory-write permission), so it would bypass that
   // barrier. Preserve the bare-writeFileSync EACCES semantics by refusing up
@@ -36488,6 +36631,22 @@ function gateRejectionMatchesAttempt(
   return unit !== undefined && eventUnit === unit;
 }
 
+// The attempt's ordinal distinguishes rejections recorded in the same second.
+// Use the same stage/Unit filter and ordering that assigned that ordinal.
+export function rejectionAtRunFloor(
+  rows: readonly AuditShardEvent[],
+  slug: string,
+  unit: string | undefined,
+  floor: string,
+): AuditShardEvent | undefined {
+  const rejected = /^GATE_REJECTED:(.+)#([1-9][0-9]*)$/.exec(floor);
+  if (rejected === null) return undefined;
+  const matching = sortAttemptEvents(rows.filter((row) =>
+    row.event === "GATE_REJECTED" && gateRejectionMatchesAttempt(row.block, slug, unit)));
+  const row = matching[Number(rejected[2]) - 1];
+  return row?.timestamp === rejected[1] ? row : undefined;
+}
+
 export function unitGateStatus(
   projectDir: string,
   stage: string,
@@ -37242,20 +37401,13 @@ export function currentSwarmSourceOpeningFingerprint(
   }
   const rejected = /^GATE_REJECTED:(.+)#([1-9][0-9]*)$/.exec(floor);
   if (rejected !== null) {
-    const ordinal = Number(rejected[2]);
-    const rows = (auditRows ?? readAuditShardEvents(projectDir, intent, space))
-      .filter(
-        (row) =>
-          row.event === "GATE_REJECTED" &&
-          gateRejectionMatchesAttempt(row.block, slug, undefined),
-      )
-      .sort((a, b) => {
-        if (a.timestamp !== b.timestamp) return a.timestamp < b.timestamp ? -1 : 1;
-        if (a.shardIndex !== b.shardIndex) return a.shardIndex - b.shardIndex;
-        return a.pos - b.pos;
-      });
-    const row = rows[ordinal - 1];
-    if (!row || row.timestamp !== rejected[1]) {
+    const row = rejectionAtRunFloor(
+      auditRows ?? readAuditShardEvents(projectDir, intent, space),
+      slug,
+      undefined,
+      floor,
+    );
+    if (!row) {
       return {
         state: "invalid",
         reason: "current rejection boundary cannot be correlated to its audit row",
@@ -38188,6 +38340,9 @@ interface ScopeMetadata {
    *  resolveGuardPolicy. */
   guardPolicy?: GuardPolicy;
   ceremony?: Partial<CeremonyPolicy>;
+  /** `include_stages:`, the base plugin's stages a team plugin's scope runs
+   *  (compileStageGraph folds them into the column). */
+  includeStages?: string[];
 }
 
 let _scopeMetadata: Record<string, ScopeMetadata> | null = null;
@@ -38319,6 +38474,8 @@ export function loadScopeMetadataAll(): Record<string, ScopeMetadata> {
       if (existingCode === "true") meta.existingCode = true;
     }
     if (scalarField(fm, "freeform_default") === "true") meta.freeformDefault = true;
+    const includeStages = listField(fm, "include_stages");
+    if (includeStages.length > 0) meta.includeStages = includeStages;
     const reviewCap = scalarField(fm, "review_cap");
     if (reviewCap) {
       if (
@@ -38675,8 +38832,8 @@ export function isKiroConductorAgentFile(name: string): boolean {
   return KIRO_CONDUCTOR_AGENT_FILES.includes(basename(name));
 }
 
-// A reviewer copy one review request writes on Kiro (kiro-ide) when the
-// reviewer read-scope preview feature is on (aidlc-kiro-review-copy.ts): the
+// A reviewer copy one review request writes on Kiro (kiro-ide) while the
+// reviewer read-scope check holds (aidlc-kiro-review-copy.ts): the
 // installed reviewer with that review's read scope added, named from the
 // request id so the name stands for that one request. It is the reviewer under
 // another name, never a persona of its own.
@@ -40901,7 +41058,8 @@ export const NEXT_FLAGS: ReadonlyMap<string, NextFlagShape> = new Map<string, Ne
   ["--phase", { value: "free", needsFollowing: true, valueMayLookLikeFlag: true }],
   ["--report", { value: "free", needsFollowing: true, valueMayLookLikeFlag: true }],
   // Valued: a missing or `--`-prefixed value is this engine's own refusal, with
-  // the flag named, not a token it does not take.
+  // the flag named, not a token it does not take. --skip and --add take a
+  // missing or empty list as no change when the other one names a stage.
   ["--request", { value: "free" }],
   ["--record", { value: "free" }],
   ["--unit", { value: "free" }],
