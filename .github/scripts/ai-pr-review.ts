@@ -12,6 +12,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { type Assessment as ProductAssessment, validateAssessment } from "./ai-product-decision.ts";
 import {
   acceptedRisks,
+  actorHasWrite,
   deriveDecision,
   fileAnchor,
   headContainsAnchor,
@@ -645,7 +646,7 @@ function integer(value: unknown, label: string): number {
   return value;
 }
 
-function actor(value: unknown, association: unknown): DiscussionActor {
+function actor(value: unknown, association: unknown, maintainers: ReadonlySet<string> = new Set()): DiscussionActor {
   const user = value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
@@ -654,7 +655,7 @@ function actor(value: unknown, association: unknown): DiscussionActor {
   return {
     login,
     association: normalizedAssociation,
-    maintainer: ["OWNER", "MEMBER", "COLLABORATOR"].includes(normalizedAssociation),
+    maintainer: maintainers.has(login),
   };
 }
 
@@ -665,11 +666,12 @@ function date(value: unknown): string {
 function commentEntry(
   value: Record<string, unknown>,
   kind: "review-comment" | "comment" = "review-comment",
+  maintainers: ReadonlySet<string> = new Set(),
 ): DiscussionEntry {
   const entry: DiscussionEntry = {
     id: integer(value.id, `${kind} id`),
     kind,
-    actor: actor(value.user, value.author_association),
+    actor: actor(value.user, value.author_association, maintainers),
     body: text(value.body),
     createdAt: date(value.created_at),
     updatedAt: date(value.updated_at),
@@ -683,9 +685,9 @@ function commentEntry(
   return entry;
 }
 
-function reviewEntry(value: Record<string, unknown>): DiscussionEntry {
+function reviewEntry(value: Record<string, unknown>, maintainers: ReadonlySet<string>): DiscussionEntry {
   const body = text(value.body);
-  const reviewActor = actor(value.user, value.author_association);
+  const reviewActor = actor(value.user, value.author_association, maintainers);
   return {
     id: integer(value.id, "review id"),
     kind: reviewActor.login === "github-actions[bot]" && body.startsWith(AI_REVIEW_MARKER)
@@ -710,12 +712,13 @@ export function normalizeDiscussion(
   reviewsRaw: Record<string, unknown>[],
   reviewCommentsRaw: Record<string, unknown>[],
   commentsRaw: Record<string, unknown>[] = [],
+  maintainers: ReadonlySet<string> = new Set(),
 ): { discussion: ReviewDiscussion; currentAiReviews: DiscussionEntry[] } {
   if (!Number.isInteger(pullRequest) || pullRequest < 1) {
     throw new Error("pull request number must be a positive integer");
   }
   assertSha(head, "head");
-  const normalizedReviews = reviewsRaw.map(reviewEntry).sort(byTimeAndId);
+  const normalizedReviews = reviewsRaw.map(value => reviewEntry(value, maintainers)).sort(byTimeAndId);
   const currentAiReviews = normalizedReviews.filter(
     entry => entry.kind === "ai-review" && entry.commitId === head,
   );
@@ -732,9 +735,9 @@ export function normalizeDiscussion(
     pullRequest,
     reviews: stableReviews,
     reviewComments: reviewCommentsRaw
-      .map(value => commentEntry(value))
+      .map(value => commentEntry(value, "review-comment", maintainers))
       .sort(byTimeAndId),
-    comments: commentsRaw.map(value => commentEntry(value, "comment")).sort(byTimeAndId),
+    comments: commentsRaw.map(value => commentEntry(value, "comment", maintainers)).sort(byTimeAndId),
   };
   return { discussion, currentAiReviews };
 }
@@ -767,12 +770,17 @@ export function buildDiscussion(
     `repos/${repository}/pulls/${pullRequest}/comments`,
     ghExecutable,
   );
+  const comments = paginatedRecords(`repos/${repository}/issues/${pullRequest}/comments`, ghExecutable);
+  const logins = new Set([...reviews, ...reviewComments, ...comments]
+    .map(value => actor(value.user, value.author_association).login));
+  const maintainers = new Set([...logins].filter(login => actorHasWrite(repository, login, ghExecutable)));
   const normalized = normalizeDiscussion(
     pullRequest,
     head,
     reviews,
     reviewComments,
-    paginatedRecords(`repos/${repository}/issues/${pullRequest}/comments`, ghExecutable),
+    comments,
+    maintainers,
   );
   writeFileSync(output, `${JSON.stringify(normalized.discussion, null, 2)}\n`);
   writeFileSync(currentAiOutput, `${JSON.stringify(normalized.currentAiReviews, null, 2)}\n`);
@@ -1901,7 +1909,7 @@ export function renderReview(
         `After: ${markdownText(choice.after)}`,
         "",
         choice.decision && source
-          ? `Decision: ${markdownText(choice.decision.summary)} ([${source.kind} #${source.id}](#${sourceAnchor}${source.id}), ${markdownText(source.by)})`
+          ? `Prior judgment (AIDA interpretation): ${markdownText(choice.decision.summary)} ([${source.kind} #${source.id}](#${sourceAnchor}${source.id}), ${markdownText(source.by)})`
           : `Question: ${markdownText(choice.question ?? "")}`,
         "",
         `Files: ${choice.paths.map(path => `<code>${codeText(path)}</code>`).join(", ")}`,

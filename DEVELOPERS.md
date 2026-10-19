@@ -46,8 +46,10 @@ Internal changes and fixes restoring a contract can report no product change.
 Product advice does not affect technical finding severity or the next-action
 labels. A maintainer decides in the PR discussion; no approval command, required
 product check, merge-queue verification or ruleset activation is added.
-Prior judgments in PR comments and reviews appear as sourced decisions, without
-re-asking the question. Product generation or validation failures do not prevent
+Prior judgments in PR comments and reviews appear as AIDA's interpretation, with
+a link to the maintainer's own words and without re-asking the question.
+Maintainer attribution uses the ledger's repository write-permission check.
+Product generation or validation failures do not prevent
 the technical review from publishing; product details yield to technical findings
 when the comment reaches GitHub's size limit.
 

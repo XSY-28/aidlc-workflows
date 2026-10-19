@@ -170,8 +170,9 @@ The maintainer decides in the normal PR discussion. The product section neither
 approves the scope nor blocks merge: there is no product approval command,
 required product check, merge-queue job or ruleset change. Relevant maintainer
 judgment in ordinary PR comments, formal reviews and inline comments is included
-in the immutable context. Answered choices show the decision with its author and
-source instead of asking again. If the product model fails or returns invalid
+in the immutable context. Maintainer status uses the ledger's repository
+write-permission check. Answered choices show AIDA's interpretation with a link
+to the maintainer's own words instead of asking again. If the product model fails or returns invalid
 output, the technical review still publishes with an unavailable note. Oversized
 product details are omitted to preserve the complete technical review.
 

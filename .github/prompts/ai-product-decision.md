@@ -45,11 +45,15 @@ Do not demand a technical bug reproduction to identify a product choice.
 
 Use `.ai-review-context/discussion.json`: it contains ordinary PR comments,
 formal reviews and inline review comments. Each entry carries the actor and
-GitHub-derived `maintainer` attribution. If a maintainer already answered a
+`maintainer` attribution verified through the repository permission API.
+Inspect these human entries directly; an earlier AI review's account of the
+discussion is not a substitute. If a maintainer already answered a
 product question for this scope, set `question` to null and put that judgment
 in `decision.summary`, citing the entry's exact `kind` and `id` in
-`decision.source`. It is shown as a decision with its author and source, never
-as another question. An unanswered choice has a nonempty `question` and
+`decision.source`. The summary is explicitly labelled as AIDA's interpretation,
+with a link to the maintainer's own words, never as another question. Preserve
+qualifications and boundaries when interpreting the response.
+An unanswered choice has a nonempty `question` and
 `decision: null`. A judgment may accept, reject or constrain a choice; it is
 not necessarily approval. Use the latest applicable judgment, and ask only
 about a new choice the changed scope leaves unanswered.

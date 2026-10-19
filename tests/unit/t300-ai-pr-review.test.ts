@@ -166,7 +166,12 @@ if (args.includes("pulls/42/reviews")) {
     in_reply_to_id: null
   }]];
 } else if (args.includes("issues/42/comments")) {
-  value = [[comment(7, "owner", "OWNER", "Ship this as advisory.")]];
+  value = [[comment(7, "owner", "NONE", "Ship this as advisory."),
+    comment(8, "reader", "MEMBER", "I approve this.")]];
+} else if (args.includes("collaborators/owner/permission")) {
+  value = { permission: "admin" };
+} else if (args.includes("collaborators/reader/permission")) {
+  value = { permission: "read" };
 } else {
   throw new Error("unexpected gh invocation: " + args);
 }
@@ -181,6 +186,7 @@ process.stdout.write(JSON.stringify(value));
     expect(discussion.reviewComments[0].actor.maintainer).toBe(true);
     expect(discussion.comments[0].body).toBe("Ship this as advisory.");
     expect(discussion.comments[0].actor.maintainer).toBe(true);
+    expect(discussion.comments[1].actor.maintainer).toBe(false);
     expect(Object.keys(discussion)).toEqual([
       "version",
       "pullRequest",
@@ -189,7 +195,7 @@ process.stdout.write(JSON.stringify(value));
       "comments",
     ]);
     expect(currentReviews.map((entry: { id: number }) => entry.id)).toEqual([3]);
-    expect(identityDiscussion).toEqual(discussion);
+    expect(identityDiscussion).toEqual({ ...discussion, comments: [discussion.comments[0]] });
   });
 
   test("discussion identifies maintainer authority and separates current-head AI reviews", () => {
@@ -241,6 +247,8 @@ process.stdout.write(JSON.stringify(value));
         commit_id: HEAD,
         in_reply_to_id: null,
       }],
+      [],
+      new Set(["owner", "collaborator"]),
     );
 
     expect(normalized.discussion.reviews.map(entry => entry.id)).toEqual([3, 5]);
@@ -274,6 +282,8 @@ process.stdout.write(JSON.stringify(value));
         commit_id: HEAD,
         in_reply_to_id: null,
       }],
+      [],
+      new Set(["owner", "collaborator"]),
     );
     expect(afterBotDismissal.discussion).toEqual(normalized.discussion);
 

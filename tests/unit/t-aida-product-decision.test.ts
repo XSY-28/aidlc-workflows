@@ -73,19 +73,19 @@ describe("advisory product decisions", () => {
         body: "Yes, support YAML alongside JSON.", created_at: "2026-10-19T00:00:00Z",
         updated_at: "2026-10-19T00:00:00Z", submitted_at: "2026-10-19T00:00:00Z", state: "COMMENTED" };
       const discussion = normalizeDiscussion(42, HEAD, kind === "review" ? [entry] : [], [],
-        kind === "comment" ? [entry] : []).discussion;
+        kind === "comment" ? [entry] : [], new Set(["owner"])).discussion;
       const decided = { ...assessment(), decisions: [{ ...CHOICE, question: null,
         decision: { summary: entry.body, source: { kind, id: 17 } } }] };
       const product = validateAssessment(decided, MANIFEST, discussion);
       const payload = renderReview(review(), CONTEXT, product);
-      expect(payload.body).toContain(`Decision: ${entry.body}`);
+      expect(payload.body).toContain(`Prior judgment (AIDA interpretation): ${entry.body}`);
       expect(payload.body).not.toContain("Question:");
       expect(payload.body).toContain(`${kind} #17`);
       expect(payload.body).toContain(kind === "comment" ? "(#issuecomment-17)" : "(#pullrequestreview-17)");
       expect(payload.body).toContain("owner");
       const identity = authoritativeDiscussion(discussion);
       const revised = normalizeDiscussion(42, HEAD, kind === "review" ? [{ ...entry, body: "Do not ship YAML." }] : [], [],
-        kind === "comment" ? [{ ...entry, body: "Do not ship YAML." }] : []).discussion;
+        kind === "comment" ? [{ ...entry, body: "Do not ship YAML." }] : [], new Set(["owner"])).discussion;
       expect(authoritativeDiscussion(revised)).not.toEqual(identity);
       expect(() => validateAssessment(decided, MANIFEST)).toThrow();
       const outsider = normalizeDiscussion(42, HEAD, kind === "review" ? [{ ...entry, author_association: "NONE" }] : [], [],
@@ -95,6 +95,21 @@ describe("advisory product decisions", () => {
         kind === "comment" ? [{ ...entry, body: "Approved!", author_association: "NONE" }] : []).discussion;
       expect(authoritativeDiscussion(outsiderEdit)).toEqual(authoritativeDiscussion(outsider));
     }
+  });
+
+  test("a model paraphrase is never presented as the maintainer's own words", () => {
+    const discussion = normalizeDiscussion(42, HEAD, [], [], [{
+      id: 17, user: { login: "owner" }, author_association: "OWNER",
+      body: "Ship YAML only for new projects.", created_at: "2026-10-19T00:00:00Z",
+      updated_at: "2026-10-19T00:00:00Z",
+    }], new Set(["owner"])).discussion;
+    const summary = "Ship YAML for every existing project.";
+    const product = validateAssessment({ ...assessment(), decisions: [{ ...CHOICE, question: null,
+      decision: { summary, source: { kind: "comment", id: 17 } } }] }, MANIFEST, discussion);
+    const body = renderReview(review(), CONTEXT, product).body;
+    expect(body).toContain(`Prior judgment (AIDA interpretation): ${summary}`);
+    expect(body).not.toContain(`Decision: ${summary}`);
+    expect(body).toContain("[comment #17](#issuecomment-17)");
   });
 
   test("product details cannot exhaust the publication budget or hide a technical finding", () => {
@@ -187,14 +202,14 @@ describe("advisory product decisions", () => {
       const discussion = normalizeDiscussion(42, HEAD, [], [], [{
         id: 17, user: { login: "owner" }, author_association: "OWNER", body: "Support YAML.",
         created_at: "2026-10-19T00:00:00Z", updated_at: "2026-10-19T00:00:00Z",
-      }]).discussion;
+      }], new Set(["owner"])).discussion;
       writeFileSync(join(root, "discussion.json"), JSON.stringify(discussion));
       writeFileSync(join(root, "product.json"), JSON.stringify({ ...assessment(), decisions: [{ ...CHOICE, question: null,
         decision: { summary: "Support YAML.", source: { kind: "comment", id: 17 } } }] }));
       const decided = spawnSync(process.execPath, [...args, "--discussion", join(root, "discussion.json")],
         { encoding: "utf8", timeout: 30_000 });
       expect(decided.status, decided.stderr).toBe(0);
-      expect(JSON.parse(readFileSync(join(root, "out.json"), "utf8")).body).toContain("Decision: Support YAML.");
+      expect(JSON.parse(readFileSync(join(root, "out.json"), "utf8")).body).toContain("Prior judgment (AIDA interpretation): Support YAML.");
       for (const invalid of [JSON.stringify({ ...assessment(), head: BASE }), "{broken JSON", null]) {
         if (invalid === null) rmSync(join(root, "product.json"));
         else writeFileSync(join(root, "product.json"), invalid);
