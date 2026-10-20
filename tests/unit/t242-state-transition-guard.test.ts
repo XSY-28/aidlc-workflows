@@ -2234,28 +2234,40 @@ describe("t242 state-transition ownership guard", () => {
     expect(unfilled).toEqual({});
   });
 
-  test("#1593: a decision refused through the state tool is carried by next --choice with the person's words, never by a report rebuilt without them", () => {
+  test("#1593: a decision refused through the state tool names next, then the report the engine records a given answer with", () => {
     const project = createTestProject();
     projects.push(project);
     seedStateFile(project, join(FIXTURES_DIR, "state-mid-ideation.md"));
-    // A stage skip has its own route, pinned by the test below.
-    for (const verb of ["approve", "reject", "revise", "gate-start"]) {
-      const text = refusalText(
-        spawnSync(process.execPath, [STATE, verb, "feasibility", "--project-dir", project], {
-          timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
-          encoding: "utf-8",
-          env: { ...unownedEnv(), CLAUDE_PROJECT_DIR: project },
-        }),
-      );
-      // Each step names the project the refused call named.
-      expect(text, verb).toContain(`\`bun .claude/tools/aidlc-orchestrate.ts next --project-dir ${project}\``);
-      expect(text, verb).toContain("`bun .claude/tools/aidlc-orchestrate.ts next --choice '<their words>' --project-dir ");
-      expect(text, verb).toContain("it prints the aidlc-orchestrate.ts report that records it");
-      // No report command is printed: one rebuilt from this call would lack the reply, Unit and reason it needs.
-      const quoted = [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
-      expect(quoted.filter((span) => /orchestrate\S* report\b/.test(span)), verb).toEqual([]);
+    const said = (verb: string, ...extra: string[]): string => refusalText(
+      spawnSync(process.execPath, [STATE, verb, "feasibility", ...extra, "--project-dir", project], {
+        timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
+        encoding: "utf-8",
+        env: { ...unownedEnv(), CLAUDE_PROJECT_DIR: project },
+      }),
+    );
+    for (const [verb, result] of [
+      ["approve", "--result approved --user-input Approve"],
+      ["reject", '--result rejected --user-input "Request Changes"'],
+      ["revise", "--result revised"],
+      ["gate-start", "--result awaiting-approval"],
+    ] as const) {
+      const text = said(verb);
+      const report = `\`bun .claude/tools/aidlc-orchestrate.ts report --stage feasibility ${result} --project-dir ${project}\``;
+      expect(text, verb).toContain(report);
+      // `next` comes first; the report is for an answer the person already gave.
+      expect(text.indexOf(`orchestrate.ts next --project-dir`), verb).toBeLessThan(text.indexOf(report));
       expect(unfilledSlots(text), verb).toEqual([]);
     }
+    // The Unit of the refused call travels with it.
+    expect(said("approve", "--unit", "u1")).toContain("--result approved --user-input Approve --unit u1 --project-dir");
+    // No such stage: next alone.
+    expect(refusalText(
+      spawnSync(process.execPath, [STATE, "approve", "not-a-stage", "--project-dir", project], {
+        timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
+        encoding: "utf-8",
+        env: { ...unownedEnv(), CLAUDE_PROJECT_DIR: project },
+      }),
+    )).not.toContain("orchestrate.ts report --stage");
   });
 
   test("#1593: a stage skip refused through the state tool keeps the engine's skip route", () => {

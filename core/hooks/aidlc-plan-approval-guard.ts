@@ -2222,6 +2222,10 @@ async function evaluate(
     const dispatchPrompt = [toolInput.prompt, toolInput.description]
       .filter((value): value is string => typeof value === "string")
       .join("\n");
+    // A refused handoff is the same call only when its brief is the same (#1593).
+    if (guardedDispatch) {
+      refusedTarget = createHash("sha256").update(dispatchPrompt).digest("hex").slice(0, 16);
+    }
     const explicitPlanDispatch =
       promptUnitMarkers(dispatchPrompt).length > 0 ||
       promptStageMarkers(dispatchPrompt).length > 0 ||
@@ -2260,7 +2264,9 @@ async function evaluate(
     if (!guardedDispatch && mutation.targets.length === 0 && !mutation.opaqueShell) {
       return 0;
     }
-    refusedTarget = mutation.targets[0] ?? (mutation.shellCommand?.trim().slice(0, 160) || null);
+    if (!guardedDispatch) {
+      refusedTarget = mutation.targets[0] ?? (mutation.shellCommand?.trim().slice(0, 160) || null);
+    }
     refusedUnit = activeDirective?.unit?.trim() ||
       (activeDirective === null ? staleActiveDirectiveUnit(projectDir, state) : null);
     // What the plan never governs, at any point of Code Generation and under
@@ -2701,7 +2707,7 @@ async function evaluate(
 
   const prose = refusalProse(null);
   const refusedCall = guardedDispatch
-    ? `dispatch:${subagentType}`
+    ? `dispatch:${subagentType}:${refusedTarget ?? ""}`
     : `${toolName}:${blockedMutation?.target ?? refusedTarget ?? ""}`;
   const refusedFor = blockedMutation ? blockedMutation.unit : refusedUnit;
   // An authority refusal whose Unit cannot be told, in work that has Units,

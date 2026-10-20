@@ -241,7 +241,6 @@ import {
   keepPlanApprovalAskOverStateWrite,
   recordHookDrop,
   engineDir,
-  shellArg,
   currentStageSourceBaseline,
   discoverSiblingRepos,
   latestMainWorkflowStageRunFloorForProject,
@@ -254,7 +253,7 @@ import {
 } from "./aidlc-lib.js";
 import { memoryDirFor, STAGE_WIDE_SENSOR_IDS, templateEligibleArtifacts } from "./aidlc-graph.ts";
 import { inspectRequiredArtifactInstances } from "./aidlc-artifact-resolution.ts";
-import { aidlcToolInvocation, compiledExecutable, entrySkillInvocation } from "./aidlc-runtime-paths.ts";
+import { aidlcToolInvocation, compiledExecutable, entrySkillInvocation, quoteCommandArgument } from "./aidlc-runtime-paths.ts";
 import {
   stageValidationAuditFields,
   VALIDATION_WARNING_FIELD,
@@ -1101,18 +1100,30 @@ export function main(argv: string[]): void {
 }
 
 // The engine-owned step for a lifecycle verb refused through the state tool
-// (#1593): written out in full, and for the project the refused call named. A
-// decision the person already gave is carried by `next --choice` with their
-// own words, which prints the aidlc-orchestrate.ts report that records it;
-// bare `next` would show the open gate again. A pause and a whole-stage skip
+// (#1593): written out in full, for the project the refused call named. `next`
+// comes first; a gate answer the person's reply already gave is recorded the
+// way the engine records one (only the choice: the engine keeps their words),
+// with the stage and Unit of the refused call. A pause and a whole-stage skip
 // keep their own routes, so a stop or a skip is never turned into carrying on.
-const DECISION_VERBS = new Set(["approve", "reject", "revise", "gate-start"]);
+const DECISION_REPORTS: Readonly<Record<string, string>> = {
+  approve: "--result approved --user-input Approve",
+  reject: '--result rejected --user-input "Request Changes"',
+  revise: "--result revised",
+  "gate-start": "--result awaiting-approval",
+};
+
+// A value as a command argument this host's shell carries whole; null when
+// cmd.exe could split it (the step then relies on the project's own folder).
+function carriedArgument(value: string): string | null {
+  if (/^[A-Za-z0-9_./:\\@%+=,-]+$/.test(value)) return value;
+  return process.platform === "win32" ? null : quoteCommandArgument(value, "posix");
+}
 
 function ownedTransitionStep(subcommand: string, rest: string[] = []): string {
   // The selector the refused call was given, as this tool parsed it (after a
-  // host such as Kiro's Command Prompt rejoined its words), so the step acts on
-  // the same project from the same folder.
-  const project = projectDir ? ` --project-dir ${shellArg(projectDir)}` : "";
+  // host such as Kiro's Command Prompt rejoined its words).
+  const selector = projectDir ? carriedArgument(projectDir) : null;
+  const project = selector ? ` --project-dir ${selector}` : "";
   const orchestrate = aidlcToolInvocation("orchestrate");
   const step = (args: string): string => `\`${orchestrate} ${args}${project}\``;
   const next = `${step("next")}: it prints this stage's next step. `;
@@ -1120,15 +1131,18 @@ function ownedTransitionStep(subcommand: string, rest: string[] = []): string {
     return `If the person asked to stop, run ${step("park --person-asked")}; if not, run ${next}`;
   }
   const stage = rest[0];
-  if (
-    subcommand === "skip" && !rest.includes("--unit") && stage !== undefined &&
-    SLUG_RE.test(stage) && findStageBySlug(stage)
-  ) {
+  const isStage = stage !== undefined && SLUG_RE.test(stage) && Boolean(findStageBySlug(stage));
+  if (subcommand === "skip" && !rest.includes("--unit") && isStage) {
     return `If the person asked to skip this stage, run ${step(`next --skip ${stage}`)}; if not, run ${next}`;
   }
-  if (DECISION_VERBS.has(subcommand)) {
-    return `Run ${next}If the person already gave their decision, run ${step("next --choice '<their words>'")} ` +
-      "with their reply instead: it prints the aidlc-orchestrate.ts report that records it. ";
+  const report = DECISION_REPORTS[subcommand];
+  if (report !== undefined && isStage) {
+    const at = rest.indexOf("--unit");
+    const unit = at >= 0 && rest[at + 1] ? carriedArgument(rest[at + 1]) : null;
+    if (at < 0 || unit !== null) {
+      return `Run ${next}If the person's reply already answered this stage's question, record it with ` +
+        `${step(`report --stage ${stage} ${report}${unit ? ` --unit ${unit}` : ""}`)} and run \`next\` again. `;
+    }
   }
   return `Run ${next}`;
 }
