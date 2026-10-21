@@ -128,6 +128,8 @@ import {
   readFindingsTable,
   unreadableFindingsTableFinding,
   pipelineAttemptStartedAt,
+  developerHandoffPaths,
+  pipelineLinkCommand,
   pipelineLinkEvidence,
   pipelineLinks,
   effectiveSupportAgentsForProject,
@@ -2706,9 +2708,10 @@ function handleAnswer(args: string[]): void {
 //     [--artifact <path>] [--single]
 //       → PIPELINE_LINK_COMPLETED
 //
-// The receipt is emitted only after a declared pipeline link returns. Ordering,
-// duplicate prevention, and attempt freshness are checked under the audit lock
-// so two concurrent conductors cannot advance the same chain.
+// The receipt is emitted only after a declared pipeline link returns. Ordering
+// and attempt freshness are checked under the audit lock so two concurrent
+// conductors cannot advance the same chain; a link the attempt already holds
+// is answered without a second receipt.
 function handleLink(args: string[]): void {
   const { flags } = parseFlags(args);
   if (!flags.stage) error("Missing --stage <slug>");
@@ -2729,6 +2732,7 @@ function handleLink(args: string[]): void {
   const singleRun = flags.single === "true";
   // The repo the receipt records (none for the project root).
   let recordedRepo: string | null = null;
+  let alreadyRecorded = false;
 
   try {
     withAuditLock(pd, () => {
@@ -2771,13 +2775,20 @@ function handleLink(args: string[]): void {
 
       const repo = repoFlag ?? null;
       recordedRepo = repo;
-      if (evidence.receipts.some((receipt) =>
-        receipt.link === flags.link && receipt.repo === repo
-      )) {
-        throw new Error(
-          `Cannot record pipeline link for "${flags.stage}": link "${flags.link}"` +
-            `${repo ? ` for repo "${repo}"` : ""} already completed this attempt.`,
-        );
+      // A link the attempt already holds lands again with no second receipt:
+      // the agent may run a link again for the person's change, and under
+      // Guard Policy relaxed or off a rejection keeps what it holds. A lead
+      // link naming another handoff file is not that link; the handoff checks
+      // below judge it.
+      const handoffLink = flags.stage === "reverse-engineering" && flags.link === node.lead_agent;
+      const held = evidence.receipts.find((receipt) => receipt.link === flags.link && receipt.repo === repo);
+      if (
+        held !== undefined &&
+        (!handoffLink || !flags.artifact ||
+          (held.artifactPath !== null && resolve(pd, flags.artifact) === resolve(pd, held.artifactPath)))
+      ) {
+        alreadyRecorded = true;
+        return;
       }
       if (index > 0) {
         const previous = links[index - 1];
@@ -2798,27 +2809,19 @@ function handleLink(args: string[]): void {
         Link: flags.link,
         Position: `${index + 1}/${links.length}`,
       };
-      if (
-        flags.stage === "reverse-engineering" &&
-        flags.link === node.lead_agent
-      ) {
+      if (handoffLink) {
         if (!flags.artifact) {
           throw new Error(
-            'Cannot record reverse-engineering developer link: pass --artifact "<record>/inception/reverse-engineering/developer-scan[-<repo>].md".',
+            "Cannot record reverse-engineering developer link without its handoff file: run " +
+              `\`${pipelineLinkCommand(pd, node, flags.link, repo, singleRun)}\`.`,
           );
         }
-        const root = recordDir(pd);
-        if (root === null) {
+        const accepted = developerHandoffPaths(pd, repo);
+        if (accepted === null) {
           throw new Error(
             "Cannot record reverse-engineering developer link: active intent record is unavailable.",
           );
         }
-        const handoffDir = join(root, "inception", "reverse-engineering");
-        // The root's handoff may also carry the root's name, as a registered
-        // repo's does.
-        const accepted = repo
-          ? [join(handoffDir, `developer-scan-${repo}.md`)]
-          : [join(handoffDir, "developer-scan.md"), join(handoffDir, `developer-scan-${rootName}.md`)];
         const artifact = resolve(pd, flags.artifact);
         if (!accepted.includes(artifact)) {
           throw new Error(
@@ -2895,7 +2898,7 @@ function handleLink(args: string[]): void {
   }
 
   console.log(JSON.stringify({
-    emitted: "PIPELINE_LINK_COMPLETED",
+    ...(alreadyRecorded ? { already_recorded: true } : { emitted: "PIPELINE_LINK_COMPLETED" }),
     stage: flags.stage,
     link: flags.link,
     ...(recordedRepo ? { repo: recordedRepo } : {}),

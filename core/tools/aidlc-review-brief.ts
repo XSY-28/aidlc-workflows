@@ -92,11 +92,16 @@ export interface ReviewFindingDisposition {
   status:
     | "Accepted risk"
     | "Changed after review"
+    | "Approved autonomously"
     | `Rejected: ${string}`
     | `Reopened: ${string}`;
   decided_at_severity?: string;
   reviewed_record?: { path: string; digest: string };
 }
+
+// Who gave an approval: the person, or nobody (Construction they let run on
+// its own).
+export type ApprovalDecider = "person" | "nobody";
 
 interface ReviewFindingDispositionEnvelope {
   version: 1;
@@ -588,6 +593,18 @@ function parsedDispositions(block: string): ReviewFindingDisposition[] {
   );
 }
 
+// The Units a gate row names: a Unit's checkpoint or team gate names its
+// `Unit`, a swarm batch its `Units`. A stage's own gate names none and covers
+// every Unit.
+function gateUnits(event: AuditShardEvent): string[] | null {
+  const unit = auditBlockField(event.block, "Unit");
+  if (unit !== null) return [unit];
+  const units = auditBlockField(event.block, "Units");
+  return units === null
+    ? null
+    : units.split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
 function gateAppliesToScope(
   event: AuditShardEvent,
   stageSlug: string,
@@ -606,8 +623,8 @@ function gateAppliesToScope(
   ) {
     return false;
   }
-  const eventUnit = auditBlockField(event.block, "Unit");
-  return unit === undefined || eventUnit === null || eventUnit === unit;
+  const units = gateUnits(event);
+  return unit === undefined || units === null || units.includes(unit);
 }
 
 // Redo from scratch begins a new list for the scope it covers. The row carries
@@ -742,8 +759,8 @@ function applyDisposition(
     return;
   }
   if (!findingIsOpen(finding)) return;
-  // `Changed after review` is no decision: the finding stays open, so the next
-  // review re-checks it against the changed work.
+  // `Changed after review` and `Approved autonomously` are no decision: the
+  // finding stays open, so the next review re-checks it.
   const status = disposition.status === "Accepted risk" ||
       disposition.status.startsWith("Rejected: ")
     ? disposition.status as ReviewFindingStatus
@@ -1168,6 +1185,7 @@ function parseDispositionField(
       (
         row.status === "Accepted risk" ||
         row.status === "Changed after review" ||
+        row.status === "Approved autonomously" ||
         /^Rejected: \S[\s\S]*$/.test(row.status ?? "") ||
         /^Reopened: \S[\s\S]*$/.test(row.status ?? "")
       ) &&
@@ -1286,7 +1304,12 @@ export function hydrateReviewArtifactContexts(
             }
           : finding;
       }
-      if (disposition.status === "Changed after review") return finding;
+      if (
+        disposition.status === "Changed after review" ||
+        disposition.status === "Approved autonomously"
+      ) {
+        return finding;
+      }
       const status = disposition.status === "Accepted risk" ||
           disposition.status.startsWith("Rejected: ")
         ? disposition.status as ReviewFindingStatus
@@ -1301,18 +1324,68 @@ export function hydrateReviewArtifactContexts(
   }));
 }
 
-// What Approve records for each open finding: `Accepted risk`, or `Changed
+interface UnitApproval {
+  // What it recorded for the Unit's findings; null when it carries no field.
+  recorded: ReviewFindingDisposition[] | null;
+  decider: ApprovalDecider;
+}
+
+// The Unit's own latest approval of a stage: its checkpoint or team gate, or
+// the swarm batch it was in.
+function latestUnitApproval(
+  approvals: readonly AuditShardEvent[],
+  stageSlug: string,
+  unit: string,
+): UnitApproval | null {
+  const row = approvals.findLast((event) =>
+    gateAppliesToScope(event, stageSlug, unit) &&
+    gateUnits(event)?.includes(unit) === true
+  );
+  if (row === undefined) return null;
+  return {
+    recorded: auditBlockField(row.block, REVIEW_FINDING_DISPOSITIONS_FIELD) === null
+      ? null
+      : parsedDispositions(row.block),
+    decider: auditBlockField(row.block, "User Input") !== null &&
+        auditBlockField(row.block, "Autonomous") !== "true"
+      ? "person"
+      : "nobody",
+  };
+}
+
+// What an approval records for each open finding: `Accepted risk` when the
+// person approved, `Approved autonomously` when nobody did (no decision: the
+// finding stays open for the next review), and, whoever approved, `Changed
 // after review` when the work its review covered changed afterwards and no
 // finished review has seen the change (the change the brief names), so a
 // finding the work was changed to fix never reads as a risk the person accepted.
+// `units` are the Units a Unit's own approval covers. A stage's approval
+// nobody gave leaves each Unit's findings to the Unit's own approval: it
+// records nothing for a finding that approval recorded as it is now, and a
+// Unit approval that records none (an earlier release wrote it) stands for its
+// own decision.
 export function approvalDispositionField(
   projectDir: string,
   stages: ReviewDispositionStages,
-  unit?: string,
+  units: string | readonly string[] | undefined,
+  decider: ApprovalDecider,
 ): string | undefined {
+  const scopes: ReadonlyArray<string | undefined> = units === undefined
+    ? [undefined]
+    : typeof units === "string"
+      ? [units]
+      : units;
+  let approvals: AuditShardEvent[] | undefined;
+  const unitApprovals = (): AuditShardEvent[] => {
+    approvals ??= sortAttemptEvents(readAuditShardEvents(projectDir))
+      .filter((event) => event.event === "GATE_APPROVED");
+    return approvals;
+  };
   const dispositions = dispositionStages(stages).flatMap((stage) => {
     if (!stage.reviewer) return [];
-    return readReviewArtifactContexts(projectDir, stage, unit).flatMap((context) => {
+    return scopes.flatMap((unit) =>
+      readReviewArtifactContexts(projectDir, stage, unit)
+    ).flatMap((context) => {
       const open = context.findings.filter((finding) =>
         finding.status === "New" || finding.status === "Unresolved"
       );
@@ -1322,16 +1395,38 @@ export function approvalDispositionField(
         stage.slug,
         stage.for_each === "unit-of-work" ? context.unit : undefined,
       ).length > 0;
-      return open.map((finding): ReviewFindingDisposition => ({
-        artifact: finding.artifact,
-        id: finding.id,
-        fingerprint: finding.fingerprint,
-        status: changed ? "Changed after review" : "Accepted risk",
-        decided_at_severity: finding.severity,
-        ...(context.reviewRecord
-          ? { reviewed_record: context.reviewRecord }
-          : {}),
-      }));
+      const own = units === undefined && decider === "nobody" &&
+          stage.for_each === "unit-of-work" && context.unit !== undefined
+        ? latestUnitApproval(unitApprovals(), stage.slug, context.unit)
+        : null;
+      const decidedBy = own !== null && own.recorded === null
+        ? own.decider
+        : decider;
+      return open.flatMap((finding): ReviewFindingDisposition[] => {
+        if (
+          own?.recorded?.some((recorded) =>
+            recorded.artifact === finding.artifact &&
+            recorded.id === finding.id &&
+            recorded.fingerprint === finding.fingerprint
+          )
+        ) {
+          return [];
+        }
+        return [{
+          artifact: finding.artifact,
+          id: finding.id,
+          fingerprint: finding.fingerprint,
+          status: changed
+            ? "Changed after review"
+            : decidedBy === "person"
+              ? "Accepted risk"
+              : "Approved autonomously",
+          decided_at_severity: finding.severity,
+          ...(context.reviewRecord
+            ? { reviewed_record: context.reviewRecord }
+            : {}),
+        }];
+      });
     });
   });
   return serializeReviewFindingDispositions(dispositions);

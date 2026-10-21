@@ -186,6 +186,9 @@ export interface RunStageWave {
 export interface RunStagePipeline {
   links: string[];
   completed: string[];
+  // The links this attempt still owes, in order, each with the exact command
+  // that records it once its agent returns.
+  record: Array<{ link: string; repo?: string; command: string }>;
 }
 
 export interface LegacyPlanApprovalChoices {
@@ -2710,12 +2713,24 @@ function checkOptionalPipeline(
   }
   const keys = Object.keys(value);
   for (const key of keys) {
-    if (key !== "links" && key !== "completed") {
+    if (key !== "links" && key !== "completed" && key !== "record") {
       errors.push(`${kind}: pipeline unknown key: ${key}`);
     }
   }
   checkStringArray(value, "links", kind, errors);
   checkStringArray(value, "completed", kind, errors);
+  if (!Array.isArray(value.record)) {
+    errors.push(`${kind}: pipeline.record must be array, got ${describe(value.record)}`);
+    return;
+  }
+  value.record.forEach((row, index) => {
+    if (
+      !isPlainObject(row) || typeof row.link !== "string" || typeof row.command !== "string" ||
+      ("repo" in row && typeof row.repo !== "string")
+    ) {
+      errors.push(`${kind}: pipeline.record[${index}] must be { link, repo?, command } strings`);
+    }
+  });
 }
 
 function checkOptionalKeptReplies(

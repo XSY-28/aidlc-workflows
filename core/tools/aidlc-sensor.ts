@@ -662,7 +662,8 @@ function handleFire(args: string[]): void {
 	// stageNode — exactly as --consumes is threaded for upstream-coverage above.
 	// Eligibility = the `produces` artifact names that are NOT questions/timestamp
 	// markers (the stem==artifact key is unsound for those non-prose files). The
-	// script applies a resolved template only when the output stem ∈ this set.
+	// script applies a resolved template only when the output file is one of
+	// these artifacts' files (artifactFilename).
 	// AIDLC_TEMPLATES_DIR is a test/relocation seam mirroring AIDLC_RULES_DIR;
 	// the default lookup is the workspace method tree's templates/ dir —
 	// <projectDir>/aidlc/spaces/<space>/memory/templates — derived via

@@ -2167,25 +2167,29 @@ function newestUserEntry(
 }
 
 // Kiro's own chat record (Kiro IDE and Kiro CLI v3 alike):
-// ~/.kiro/sessions/<workspace id>/<session id>/messages.jsonl. A typed message
-// is a `type: "user"` entry tagged `_meta.kiro.userMessageTag`; a message Kiro
-// made for the agent carries `_meta.kiro.syntheticUserMessageReason` instead
-// (measured: "agent-initiated-prompt" when a workflow finished). An entry with
-// neither, no entry for this prompt, or no record decides nothing: the record
-// may not be flushed when the hook runs.
+// ~/.kiro/sessions/<workspace id>/<session id>/messages.jsonl, found by the
+// session id alone, so the workspace hash (which follows how the folder path is
+// spelled on Windows) is never computed.
 const KIRO_SESSION_DIR_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
-export function kiroChatRecordOrigin(sessionId: string | undefined, prompt: string): TurnOrigin | null {
-  if (!sessionId || !KIRO_SESSION_DIR_RE.test(sessionId) || !prompt.trim()) return null;
+function kiroChatRecordPaths(sessionId: string | undefined): string[] {
+  if (!sessionId || !KIRO_SESSION_DIR_RE.test(sessionId)) return [];
   const root = join(homedir(), ".kiro", "sessions");
-  let workspaces: string[];
   try {
-    workspaces = readdirSync(root);
+    return readdirSync(root).map((workspace) => join(root, workspace, sessionId, "messages.jsonl")).filter(existsSync);
   } catch {
-    return null;
+    return [];
   }
-  for (const workspace of workspaces) {
-    const path = join(root, workspace, sessionId, "messages.jsonl");
-    if (!existsSync(path)) continue;
+}
+
+// A typed message is a `type: "user"` entry tagged
+// `_meta.kiro.userMessageTag`; a message Kiro made for the agent carries
+// `_meta.kiro.syntheticUserMessageReason` instead (measured:
+// "agent-initiated-prompt" when a workflow finished). An entry with neither, no
+// entry for this prompt, or no record decides nothing: the record may not be
+// flushed when the hook runs.
+export function kiroChatRecordOrigin(sessionId: string | undefined, prompt: string): TurnOrigin | null {
+  if (!prompt.trim()) return null;
+  for (const path of kiroChatRecordPaths(sessionId)) {
     const entry = newestUserEntry(path, prompt, () => true);
     if (entry === null) continue;
     const meta = entry._meta;
@@ -2196,6 +2200,74 @@ export function kiroChatRecordOrigin(sessionId: string | undefined, prompt: stri
     }
     if (typeof marks.userMessageTag === "string" && marks.userMessageTag.trim()) return { kind: "person", source: "record" };
     return null;
+  }
+  return null;
+}
+
+// How full Kiro's own record says a chat is (#2574): Kiro shows the person a
+// figure but gives the agent none. Read only. Kiro CLI's default engine keeps
+// ~/.kiro/sessions/cli/<session id>.json and saves the figure there at the end
+// of each turn. Kiro CLI v3 and Kiro IDE (@kiro/agent, read in its 2.29.0
+// source) put the figure in `contextUsage` rows of the chat record, summarize
+// the chat on their own at 80%, and then append a `tombstone` row of kind
+// `summarization`; only one at or after `since` (this chat's first turn on the
+// work) counts, so a chat summarized before the work began says nothing.
+// Rows are wrapped `{id, timestamp, payload}`, as Kiro's own loader reads them.
+// Null when nothing is known.
+export type KiroContextPressure = { kind: "usage"; percent: number } | { kind: "summarized" };
+export function kiroContextPressure(sessionId: string | undefined, since: number | null): KiroContextPressure | null {
+  if (!sessionId || !KIRO_SESSION_DIR_RE.test(sessionId)) return null;
+  const field = (value: unknown, key: string): unknown =>
+    value !== null && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
+  const figure = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  const cli = join(homedir(), ".kiro", "sessions", "cli");
+  try {
+    const chat = JSON.parse(readFileSync(join(cli, `${sessionId}.json`), "utf-8"));
+    const percent = figure(field(field(field(field(chat, "session_state"), "conversation_metadata"), "last_context_usage"), "percentage"));
+    if (percent !== null) {
+      // Kiro compacts a chat that overflows, mid-turn too, and logs a
+      // `Compaction` row in <session id>.jsonl beside it; one after this
+      // turn's `Prompt` came after the saved figure (measured live on 2.29.0).
+      const log = tailText(join(cli, `${sessionId}.jsonl`), 1 << 20)?.split("\n") ?? [];
+      for (let i = log.length - 1; i >= 0; i--) {
+        let kind: unknown;
+        try {
+          kind = field(JSON.parse(log[i]), "kind");
+        } catch {
+          continue;
+        }
+        if (kind === "Prompt") break;
+        if (kind === "Compaction") return { kind: "summarized" };
+      }
+      return { kind: "usage", percent };
+    }
+  } catch {
+    // Not a chat of Kiro CLI's default engine, or not readable now.
+  }
+  for (const path of kiroChatRecordPaths(sessionId)) {
+    const lines = tailText(path, 1 << 20)?.split("\n") ?? [];
+    let percent: number | null = null;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      let row: unknown;
+      try {
+        row = JSON.parse(lines[i]);
+      } catch {
+        continue;
+      }
+      const payload = field(row, "payload");
+      const when = Date.parse(String(field(row, "timestamp")));
+      if (
+        field(payload, "type") === "tombstone" && field(payload, "kind") === "summarization" &&
+        since !== null && Number.isFinite(when) && when >= since
+      ) {
+        return { kind: "summarized" };
+      }
+      if (percent === null && field(payload, "type") === "session_metadata" && field(payload, "key") === "contextUsage") {
+        percent = figure(field(field(payload, "value"), "usagePercentage"));
+      }
+    }
+    if (percent !== null) return { kind: "usage", percent };
   }
   return null;
 }
@@ -32320,7 +32392,8 @@ export type GuardLifecycleState =
 export const GUARD_REMEDY_OPS = [
   "present-approval-gate",
   // The same gate as the conductor's own step: the review cap refused a pass
-  // nobody asked for, so the findings go to the gate and the person decides there.
+  // nobody asked for, or the review freeze a write nobody asked for, so the
+  // findings or the change go to the gate and the person decides there.
   "present-findings-at-gate",
   "request-review",
   "start-recovery-review",
@@ -32432,17 +32505,18 @@ export interface GuardHumanAuthorityState {
   unattended: boolean;
 }
 
-// The one place the human-authority inputs are read. `freshTurn` is the
-// human-presence evidence for the stage's gate; `unattended` is the operator's
-// declaration that no human is watching.
+// The one place the human-authority inputs are read. `freshTurn` says the
+// person may stand behind what the agent does now: their turn since the last
+// decision, or one only answers used (a reply to the agent's own question, such
+// as "yes, add them"); `unattended` is the operator's declaration that no human
+// is watching.
 export function humanAuthorityState(
   projectDir: string | null,
   options: { freshTurn?: boolean } = {},
 ): GuardHumanAuthorityState {
+  const turn = options.freshTurn !== undefined || projectDir === null ? null : humanTurnState(projectDir);
   return {
-    freshTurn:
-      options.freshTurn ??
-      (projectDir === null ? false : humanActedSinceGate(projectDir)),
+    freshTurn: options.freshTurn ?? (turn === "acted" || turn === "answered"),
     unattended: process.env.AIDLC_UNATTENDED === "1",
   };
 }
@@ -33064,6 +33138,24 @@ export function evaluateGuardRefusal(
       executableNow: true,
     });
   } else {
+    // The review freeze refused a write to a document whose review is final,
+    // and no turn of the person's stands behind the write: the change was the
+    // agent's own, and the freeze's own way is to quote it at the gate. A repeat
+    // still asks the person (guardRefusalStreakView), and so does a write the
+    // person may have asked for.
+    if (input.code === "REVIEW_FREEZE_ACTIVE" && !input.humanAuthority.freshTurn) {
+      const next = renderEngineInvocation({
+        route: "orchestrate",
+        args: ["next", ...(input.projectDir ? ["--project-dir", input.projectDir] : [])],
+      }, { harnessDir: harnessDir() });
+      remedies.push({
+        op: "present-findings-at-gate",
+        action: "Leave the document as its final review left it, and quote the change you meant to make at the " +
+          `next approval gate or Unit checkpoint for the person to weigh there. Carry on: run \`${next}\`.`,
+        requiresHuman: false,
+        executableNow: true,
+      });
+    }
     // The team gate needs this Unit's UNIT_COMPLETED receipt, and nothing but the
     // receipt is missing: its artifacts are already on disk (the gate checks them
     // first). Recording it is the way forward; restarting the stage or asking for
@@ -37360,21 +37452,68 @@ export function pipelineLinkEvidence(
   return { links, repos, receipts, reusedRepos, completed, missing };
 }
 
+// The handoff files a Reverse Engineering developer receipt may name, the one
+// its command names first: a registered repo's own, or the project root's,
+// which may also carry the name codekb-path prints for the root. Null with no
+// active record.
+export function developerHandoffPaths(projectDir: string, repo: string | null): string[] | null {
+  const root = recordDir(projectDir);
+  if (root === null) return null;
+  const dir = join(root, "inception", "reverse-engineering");
+  return repo !== null
+    ? [join(dir, `developer-scan-${repo}.md`)]
+    : [join(dir, "developer-scan.md"), join(dir, `developer-scan-${codekbRepoName(projectDir)}.md`)];
+}
+
+// The exact command that records one pipeline link, so the agent fills in no
+// placeholder: Reverse Engineering's lead link names its handoff file.
+export function pipelineLinkCommand(
+  projectDir: string,
+  stage: Pick<StageEntry, "slug" | "lead_agent">,
+  link: string,
+  repo: string | null,
+  singleRun: boolean,
+): string {
+  const words = [aidlcToolInvocation("log"), "link", "--stage", stage.slug, "--link", link];
+  const handoff = stage.slug === "reverse-engineering" && link === stage.lead_agent
+    ? developerHandoffPaths(projectDir, repo)?.[0]
+    : undefined;
+  if (handoff !== undefined) words.push("--artifact", quoteCommandArgument(toPosix(relative(projectDir, handoff))));
+  if (repo !== null) words.push("--repo", quoteCommandArgument(repo));
+  if (singleRun) words.push("--single");
+  return words.join(" ");
+}
+
+// The links this attempt still owes, in chain order per repo, each with the
+// command that records it.
+export function pipelineLinkRecord(
+  projectDir: string,
+  stage: Pick<StageEntry, "slug" | "lead_agent">,
+  evidence: Pick<PipelineLinkEvidence, "missing">,
+  singleRun: boolean,
+): Array<{ link: string; repo?: string; command: string }> {
+  return evidence.missing.map(({ link, repo }) => ({
+    link,
+    ...(repo !== null ? { repo } : {}),
+    command: pipelineLinkCommand(projectDir, stage, link, repo, singleRun),
+  }));
+}
+
 // The way on for missing pipeline handoffs, one sentence for the engine's
 // refusal and the state tool's floor: the conductor's own step. The evidence
 // switch is the person's, so neither names it. At an open gate `next` shows
 // the gate only once the links are in, so it comes last there; with the
 // person's approval in hand, `approval` (the step that applies it) comes last
-// instead, so they are never asked again.
+// instead, so they are never asked again. `commands` are the missing links'
+// own, from pipelineLinkRecord.
 export function pipelineLinkWayOn(
   projectDir: string,
   slug: string,
-  options: { repos: boolean; singleRun?: boolean; gateOpen?: boolean; approval?: string },
+  options: { commands: string[]; singleRun?: boolean; gateOpen?: boolean; approval?: string },
 ): string {
   const singleRun = options.singleRun === true;
   const next = `\`${aidlcToolInvocation("orchestrate")} next${singleRun ? ` --single --stage ${slug}` : ""}\``;
-  const link = `\`${aidlcToolInvocation("log")} link --stage ${slug} ` +
-    `--link <agent>${options.repos ? " --repo <repo>" : ""}${singleRun ? " --single" : ""}\``;
+  const link = options.commands.map((command) => `\`${command}\``).join(", then ");
   const last = options.approval !== undefined
     ? `; then run ${options.approval}: the person's approval stands, so they are not asked again`
     : options.gateOpen ? `; then re-run ${next}, which shows the gate again` : "";
@@ -37383,7 +37522,7 @@ export function pipelineLinkWayOn(
     (guardPolicyAcceptsChanges(projectDir)
       ? ""
       : "Rejection starts a new attempt: earlier scans and receipts cannot certify this revision, even for a targeted artifact edit. ") +
-    `After each link returns, run ${link}${last}. ` +
+    `After each link returns, run its command: ${link}${last}. ` +
     "Do not re-stamp an old handoff or disable evidence checks to reopen the gate.";
 }
 
