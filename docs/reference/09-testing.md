@@ -189,7 +189,9 @@ Distribution coverage is split by contract:
 - `t-ci-full-suite-evidence.test.ts` covers the optional Full Suite evidence
   inspector and exact commit/run matching. `t-release-promotion.test.ts` uses
   real Git histories to cover preview selection, exact source preservation,
-  metadata, control snapshots, retries and main metadata synchronization.
+  metadata, control snapshots, retries, the stable page rendered from the
+  entry (the 2.11.1 page is the golden), the scanned contributor list and main
+  metadata synchronization.
 
 The test runner regenerates all projections under a process lock before test
 discovery, so a fresh clone has no dependency on pre-existing `dist/` bytes.
@@ -1856,8 +1858,9 @@ The declared coverage is:
   with the plan question left for the day and approved in a new session; Copilot's
   (`tests/e2e/t-exec-copilot-journey-golden-bugfix.serial.test.ts`, Linux only:
   on Windows it runs past the 25 minutes a retry allows) does the same on the
-  copy-channel install of its release journey. opencode's
-  (`tests/e2e/t-run-opencode-journey-golden-change.serial.test.ts`, Linux) takes the
+  copy-channel install of its release journey.
+  opencode's (`tests/e2e/t-run-opencode-journey-golden-change.serial.test.ts`,
+  Linux and Windows) takes the
   same request to Reverse Engineering, where the person asks for one change in
   their own words and approves the revision, on the shipped permission table.
 - Kiro ACP, TUI and IDE are declared exclusions pending a dedicated isolated
@@ -1871,10 +1874,12 @@ After authorization and dependency installation, the plan emits `--matrix
 linux`, `--matrix macos` and `--matrix windows` as the dynamic matrices of the
 `live_linux`, `live_macos` and `live_windows` jobs. Each row's `shard: N/M`
 selects a duration-balanced group for its family/platform. Each OS has two Claude
-SDK (five on Linux, which alone runs the golden journeys and the answers corpus,
-the corpus on a shard of its own), three Claude TUI, one Codex (two on Linux and
-Windows, where the Codex golden journey runs), one Copilot and one opencode shard:
-29 live harness jobs in all. Timing weights in
+SDK (five on Linux, which runs the golden journeys and alone the answers corpus,
+the corpus on a shard of its own; three on Windows, which runs the golden
+journeys too), three Claude TUI, one Codex (two on Linux and Windows, where the
+Codex golden journey runs), one Copilot and one opencode shard: 30 live harness
+jobs in all. A golden journey runs on Linux and Windows while it takes under the
+25 minutes a retry allows there. Timing weights in
 `tests/live-shard-weights.json` are scheduling hints;
 discovery still assigns every eligible file exactly once per platform. Each OS
 has its own concurrency cap: four Linux, two macOS and three Windows live jobs.
@@ -2116,6 +2121,13 @@ The loopback proxy admits only the configured model IDs and
 authentication headers and signs each upstream request; successful streams are
 forwarded byte-for-byte. Other routes are forbidden, redirects are not followed,
 and upstream error bodies are suppressed because AWS errors can echo signatures.
+On the Mantle route it removes `reasoning.summary` from a request before signing
+it: Mantle's `openai.gpt-5.5` stalls a response that asks for a reasoning summary
+once the model reasons, and Copilot CLI asks for one on every request. A request
+without one, such as Codex's, is forwarded as sent. The broker appends one line
+per request to `tests/logs/credential-broker.log` (method, path, admitted model,
+status, duration, time of the last byte, bytes, and whether the answer ended),
+never a header or a body, so a stalled stream shows in the uploaded logs.
 
 Claude uses documented `ANTHROPIC_BEDROCK_BASE_URL` and
 `CLAUDE_CODE_SKIP_BEDROCK_AUTH=1`; its t19 preflight checks the broker's startup
@@ -2253,6 +2265,38 @@ no binary/screenshot allowlist. Remaining UTF-8 text is redacted for AWS
 credentials, vendor keys, bearer tokens and Anthropic keys; links are removed
 without following targets. Redaction remains defense in depth, not proof against
 encoded secrets; retaining raw text traces increases that residual risk.
+
+### Reading every live leg: the trace audit
+
+A leg that passes can still show friction a person would meet, and the nightly
+keeps its traces. `scripts/trace-audit.ts` reads them for a maintainer, on
+their own machine, in two layers kept apart:
+
+- `bun scripts/trace-audit.ts extract --run <full-suite run id>` downloads the
+  run's `full-suite-live-*` artifacts with the maintainer's own `gh` (or
+  `--dir <folder>` reads a downloaded run, a `tests/logs` folder, or a local
+  session folder: a scratch project, a Claude Code config folder, a Codex
+  home). It only counts and matches recorded events and fields, and writes, outside the
+  folders it reads, `table.txt` and `table.json` (one row per check finding,
+  guard refusal, engine error, question handed to the person again, stage
+  file written after its approval, silence of ten minutes or more, retry and
+  agent tool error, each naming its run, harness, OS, test, stage and
+  evidence file and line) and one `legs/<leg>/story.md` per leg: what the
+  person typed and picked, what they were asked, what the agent ran and said,
+  in time order, cut to a size budget.
+- `bun scripts/trace-audit.ts judge <out>` (`scripts/trace-audit-judge.ts`,
+  instructions in `scripts/trace-audit-judge.md`) hands each test's legs to the
+  maintainer's own `claude` in print mode, able only to read (`Read`, `Grep`,
+  `Glob`) and only in the judged legs' own folders, never the home a session
+  folder sits in, with the known list (`--known`) and the open issues and pull
+  requests (`--issues`). The model returns friction items as JSON. The tool
+  counts how many legs each item was met in and writes `JUDGE.md`. `--dry-run`
+  writes each group's input and calls no model; `--max-usd` and `--budget-kb`
+  bound each call.
+
+The extractor reads only what the run kept: an SDK drive trace keeps the
+first 240 characters of each tool reply and none of the agent's words, and a
+leg's audit shard is kept only when its fixture is retained.
 
 ## Kiro prompt-hook transport controls
 

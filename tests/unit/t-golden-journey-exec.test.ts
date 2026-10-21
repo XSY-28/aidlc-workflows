@@ -2,13 +2,15 @@
 // (codex exec, copilot -p, opencode run): what they type after each turn comes
 // from the engine steps of that session, the plan question left for the day
 // comes back first in a new session and counts once, and the path checks read
-// only what the journey covers. Seeded audit rows and engine output stand in
-// for a live run, so each case is exact.
+// only what the journey covers, and a question the agent asked from the
+// stage's questions file without logging it reaches them as the Stop hook reads
+// it. Seeded audit rows, questions files and engine output stand in for a live
+// run, so each case is exact.
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { codexToolResults, copilotToolResults, copilotTurnCommand, opencodeRunArgs, opencodeToolResults } from "../harness/exec-drive.ts";
-import { cleanupTestProject, createTestProject, seededAuditShard, seededStateFile } from "../harness/fixtures.ts";
+import { dirname, join } from "node:path";
+import { codexToolResults, copilotToolResults, copilotTurnCommand, opencodeRunCommand, opencodeToolResults } from "../harness/exec-drive.ts";
+import { cleanupTestProject, createTestProject, seededAuditShard, seededRecordDir, seededStateFile } from "../harness/fixtures.ts";
 import { type GoldenJourney, type GoldenRun, goldenPathProblems, GoldenPerson } from "../harness/golden-journey.ts";
 import type { CapturedToolResult } from "../harness/sdk-drive.ts";
 
@@ -118,6 +120,65 @@ describe("the person on a typed tool", () => {
   });
 });
 
+describe("a question the stage's questions file holds", () => {
+  const QUESTION = [
+    "# Requirements Analysis questions",
+    "",
+    "## Q1. [Product] Missing-name behavior",
+    "",
+    "For missing-name behavior, what should the CLI do when it is run with no name?",
+    "",
+    "A. Keep missing-name behavior out of scope for this bugfix",
+    "B. Print a generic greeting when no name is provided",
+    "X. Other (please specify)",
+    "",
+  ].join("\n");
+  const SUMMARY = "\n## Consolidated Summary Confirmation\n\nDoes this all look correct before I generate the artifact?\n\n- Looks correct\n- Request changes\n\n";
+
+  // Requirements Analysis under way, the way to answer picked, and the questions file as the agent left it.
+  function guided(questions: string): string {
+    const dir = createTestProject();
+    projects.push(dir);
+    writeFileSync(seededStateFile(dir), [
+      "# AI-DLC State", "", "- **Lifecycle Phase**: INCEPTION", "- **Current Stage**: requirements-analysis", "",
+      "- [x] reverse-engineering inception EXECUTE", "- [-] requirements-analysis inception EXECUTE", "",
+    ].join("\n"));
+    row(dir, "DECISION_RECORDED", { Stage: "requirements-analysis", Decision: "How would you like to answer the questions?", Options: "Guide me,I'll edit the file,Chat" });
+    row(dir, "QUESTION_ANSWERED", { Stage: "requirements-analysis", Details: "Guide me" });
+    const file = join(seededRecordDir(dir), "inception", "requirements-analysis", "requirements-analysis-questions.md");
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, questions);
+    return dir;
+  }
+
+  test("the agent asked it in chat without logging it: the person answers it, in their own words for the first one", () => {
+    const person = new GoldenPerson(journey(guided(`${QUESTION}[Answer]:\n`)));
+    expect(person.typedReply(4, [])).toEqual({ line: "Keep it small", newSession: false });
+    expect(person.problems).toEqual([]);
+    expect(person.said).toEqual(['typed "Keep it small" for "Q1. [Product] Missing-name behavior" (in the questions file) at requirements-analysis']);
+  });
+
+  test("the same question still waiting after their answer reached them twice", () => {
+    const person = new GoldenPerson(journey(guided(`${QUESTION}[Answer]:\n`)));
+    person.typedReply(4, []);
+    expect(person.typedReply(5, []).line).toBe("Keep missing-name behavior out of scope for this bugfix");
+    expect(person.problems).toEqual(['asked twice: "Q1. [Product] Missing-name behavior" at requirements-analysis']);
+  });
+
+  test("a blank summary confirmation gets the plain choice", () => {
+    const person = new GoldenPerson(journey(guided(`${QUESTION}[Answer]: B\n${SUMMARY}[Answer]: __\n`)));
+    expect(person.typedReply(6, []).line).toBe("Looks correct");
+    expect(person.problems).toEqual([]);
+  });
+
+  test("every answer filled in: nothing waits for the person, and the turn is still one with nothing asked", () => {
+    const person = new GoldenPerson(journey(guided(`${QUESTION}[Answer]: B\n${SUMMARY}[Answer]: Looks correct\n`)));
+    expect(person.typedReply(7, []).line).toBeUndefined();
+    expect(person.problems).toHaveLength(1);
+    expect(person.problems[0]).toStartWith("turn 7 ended at requirements-analysis with nothing asked of the person");
+  });
+});
+
 describe("the golden path checks", () => {
   test("a stage after the journey's last one may wait for approval: a typed turn carries on past the last approval", () => {
     const proj = project("build-and-test");
@@ -140,6 +201,19 @@ describe("the golden path checks", () => {
     expect(ownWords()).toEqual([]);
     row(proj, "DECISION_RECORDED", { Stage: "requirements-analysis", Decision: "Q1: no name given", Options: "A,B,C,X" });
     expect(ownWords()).toEqual(["no question at requirements-analysis took the person's own words"]);
+  });
+
+  test("the person's own words are on the record as given: the box's reply, or beside the answer", () => {
+    const kept = (proj: string) => goldenPathProblems(journey(proj), run(new GoldenPerson(journey(proj)), { start: 0, ownWordsUsed: true }))
+      .filter((p) => p.includes("own words"));
+    const boxed = project("requirements-analysis");
+    row(boxed, "QUESTION_ANSWERED", { Stage: "requirements-analysis", Details: "B" });
+    expect(kept(boxed)).toEqual(["the person's own words at requirements-analysis are not on the record"]);
+    row(boxed, "QUESTION_REPLIED", { Question: "Q1: no name given", Reply: "Keep it small" });
+    expect(kept(boxed)).toEqual([]);
+    const typed = project("requirements-analysis");
+    row(typed, "QUESTION_ANSWERED", { Stage: "requirements-analysis", Details: "B", "Person Reply": "keep it  small" });
+    expect(kept(typed)).toEqual([]);
   });
 });
 
@@ -239,17 +313,20 @@ describe("one change request at a stage's approval", () => {
 
 describe("an opencode run turn", () => {
   test("a line after the skill runs the shipped command with its words, each word an argument", () => {
-    const argv = opencodeRunArgs("/aidlc fix the greeter: it says hello");
+    const { argv, input } = opencodeRunCommand("/aidlc fix the greeter: it says hello");
+    expect(input).toBeUndefined();
     expect(argv.slice(0, 3)).toEqual(["run", "--command", "aidlc"]);
     expect(argv.slice(argv.indexOf("--"))).toEqual(["--", "fix", "the", "greeter:", "it", "says", "hello"]);
     expect(argv.slice(argv.indexOf("--format"), argv.indexOf("--format") + 2)).toEqual(["--format", "json"]);
   });
 
-  test("any other line continues the session as typed", () => {
-    const argv = opencodeRunArgs('Go ahead with the "bugfix" plan', "ses_1");
+  test("any other line continues the session as typed, on stdin, never as an argument a Windows launcher refuses", () => {
+    const { argv, input } = opencodeRunCommand('Go ahead with the "bugfix" plan', "ses_1");
     expect(argv.slice(0, 3)).toEqual(["run", "-s", "ses_1"]);
     expect(argv).not.toContain("--command");
-    expect(argv.slice(argv.indexOf("--") + 1).join(" ")).toBe('Go ahead with the "bugfix" plan');
+    expect(argv).not.toContain("--");
+    expect(argv.some((arg) => arg.includes('"'))).toBe(false);
+    expect(input).toBe('Go ahead with the "bugfix" plan');
   });
 
   test("its JSON events give the session and each tool call with what it printed", () => {

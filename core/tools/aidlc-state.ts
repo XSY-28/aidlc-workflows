@@ -26,7 +26,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { appendAuditEntry, appendAuditEntryUnlocked } from "./aidlc-audit.ts";
 import {
-  acceptedRiskDispositionField,
+  approvalDispositionField,
   rejectedFindingDispositionField,
   REVIEW_FINDING_DISPOSITIONS_FIELD,
 } from "./aidlc-review-brief.ts";
@@ -248,12 +248,15 @@ import {
   sourceChangedOutsideAidlc,
   SOURCE_FINGERPRINT_HARD_EXCLUDED_DIRS,
   isReadOnlyEngineProbe,
-  splitSourcePathKey,
   type WorkspaceSourceState,
+  hasRealGitEntry,
+  readRecordedSourceCheckouts,
+  sourceBoundaryRepairStep,
+  sourceWalkReach,
 } from "./aidlc-lib.js";
 import { memoryDirFor, STAGE_WIDE_SENSOR_IDS, templateEligibleArtifacts } from "./aidlc-graph.ts";
 import { inspectRequiredArtifactInstances } from "./aidlc-artifact-resolution.ts";
-import { aidlcToolInvocation, compiledExecutable, entrySkillInvocation, quoteCommandArgument } from "./aidlc-runtime-paths.ts";
+import { aidlcDispatcherInvocation, aidlcToolInvocation, compiledExecutable, entrySkillInvocation, quoteCommandArgument } from "./aidlc-runtime-paths.ts";
 import {
   stageValidationAuditFields,
   VALIDATION_WARNING_FIELD,
@@ -4422,19 +4425,21 @@ interface SourceWorkLook {
 
 // The workspace_requires signal. The code may live outside the project root's
 // own git: in one of the intent's recorded repos (the set the review source
-// binding and the unit manifest follow), in a child repo, clone or worktree
-// made after the intent recorded its repos, in a linked worktree of any of
-// those, or in a checkout the root's git ignores (a worktree of a repo kept
-// outside the project, placed inside it). Each is asked the root's own
+// binding and the unit manifest follow), in a checkout the work recorded
+// (`intent add-checkout`, or a Unit's claim inside it), in a child repo, clone
+// or worktree made after the intent recorded its repos, in a linked worktree of
+// any of those, or in a checkout the root's git ignores (a worktree of a repo
+// kept outside the project, placed inside it). Each is asked the root's own
 // question, and a source change since this stage attempt began counts too:
 // committing the code and then the records leaves the last commit docs only.
 //
 // A checkout found when the check runs is asked only where the review can see
-// it change: the source walk lists a file below it that is not one of AI-DLC's
-// own (aidlcOwnedSourceKey). Code kept where it cannot (a harness folder such as
-// Claude Code's .claude/worktrees/, outside the project or on another drive) is
-// not counted, so it goes the person's way with the note, and no record says
-// AI-DLC found code its review does not cover.
+// it change (sourceWalkReach). Code kept where it cannot (a harness folder such
+// as Claude Code's .claude/worktrees/, outside the project or on another drive)
+// and not recorded is not counted, so it goes the person's way with the note,
+// and no record says AI-DLC found code its review does not cover. A recorded
+// checkout is walked by the review, so it is asked; one no longer on disk is
+// left out of where AI-DLC looked.
 //
 // A recorded name is text in the committed intents.json, and a folder shaped
 // like a repo (HEAD, objects/, refs/, config) can be committed by anyone whose
@@ -4461,21 +4466,11 @@ function workspaceHasWork(pd: string, content: string | null, slug: string): Sou
     }
     return source;
   };
-  let walked: string[] | null = null;
+  const checkouts = readRecordedSourceCheckouts(pd);
+  let reaches: ((dir: string) => boolean) | null = null;
   const reviewReaches = (dir: string): boolean => {
-    const real = realPathOr(dir);
-    if (!withinDir(root, real)) return false;
-    if (walked === null) {
-      walked = [];
-      const owned = aidlcOwnedSourceKey(pd);
-      for (const key of currentSource()?.listing.keys() ?? []) {
-        if (owned(key)) continue;
-        const parsed = splitSourcePathKey(key);
-        if (parsed !== null) walked.push(parsed.repo === "" ? parsed.path : `${parsed.repo}/${parsed.path}`);
-      }
-    }
-    const below = `${relative(root, real).split(sep).join("/")}/`;
-    return walked.some((path) => path.startsWith(below));
+    reaches ??= sourceWalkReach(pd, currentSource()?.listing ?? null, checkouts);
+    return reaches(dir);
   };
   const ask = (dir: string, viaGit: boolean): boolean => {
     const real = realPathOr(dir);
@@ -4498,6 +4493,14 @@ function workspaceHasWork(pd: string, content: string | null, slug: string): Sou
     if (!isValidRepoName(repo)) continue;
     const dir = repoDir(pd, repo);
     if (ask(dir, isGitRepoDir(dir))) return at(dir);
+  }
+  for (const checkout of checkouts) {
+    try {
+      if (!statSync(checkout.real).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    if (ask(checkout.real, hasRealGitEntry(checkout.real))) return at(checkout.real);
   }
   for (const repo of discoverSiblingRepos(pd)) {
     if (!isValidRepoName(repo)) continue;
@@ -4595,7 +4598,7 @@ function nestedCheckouts(root: string): string[] {
   const found: string[] = [];
   let budget = NESTED_CHECKOUT_ENTRY_BUDGET;
   const visit = (dir: string, depth: number): void => {
-    if (hasOwnGitEntry(dir)) {
+    if (hasRealGitEntry(dir)) {
       found.push(dir);
       return;
     }
@@ -4632,15 +4635,6 @@ function nestedCheckouts(root: string): string[] {
     visit(dir, 0);
   }
   return found;
-}
-
-function hasOwnGitEntry(dir: string): boolean {
-  try {
-    const entry = lstatSync(join(dir, ".git"));
-    return entry.isDirectory() || entry.isFile();
-  } catch {
-    return false;
-  }
 }
 
 // Whether any source outside AI-DLC's own files changed since this stage
@@ -4805,6 +4799,9 @@ function sourceWorkNotFound(
     }
   }
   const lift = personReplies && action === "present-approval-gate";
+  const recordCheckoutStep =
+    `record it with \`${aidlcDispatcherInvocation("intent add-checkout <its path>")}\`, have the review ` +
+    "recorded again and report again";
   const message =
     `${reviewerPreconditionPrefix(stage.slug, action)}: it is a code-producing stage ` +
       `(workspace_requires) but no source work is evident under ${where}, outside the aidlc/ ` +
@@ -4813,10 +4810,12 @@ function sourceWorkNotFound(
       `Planning docs alone do not satisfy ${stage.name} - ` +
       (lift
         ? `write the code if it is not written yet (a source change not committed yet counts, as does ` +
-          `code in the last commit). If the code is somewhere AI-DLC does not look, run the same report ` +
-          `again: the approval question then goes to the person with this note.`
+          `code in the last commit). If it is in a checkout AI-DLC does not walk (a worktree in a harness ` +
+          `folder or outside the project), ${recordCheckoutStep}. If the code is somewhere else AI-DLC ` +
+          `does not look, run the same report again: the approval question then goes to the person with this note.`
         : `write the code to the workspace (a source change not committed yet counts, as does code in ` +
-          `the last commit), then run the same report again.`);
+          `the last commit), then run the same report again; if it is in a checkout AI-DLC does not walk ` +
+          `(a worktree in a harness folder or outside the project), ${recordCheckoutStep}.`);
   refuseStateGuard(pd, content, stage, {
     code: "REQUIRED_SOURCE_WORK_MISSING",
     blockedAction: action,
@@ -4923,8 +4922,9 @@ function observeChangeControl(
   if (notices.length > 0) console.log(JSON.stringify({ change_notices: notices }));
 }
 
-// A change outside every unit's work that relaxed or off keeps: recorded once
-// and said once, the same way the receipt scan's accepted changes are.
+// A change outside every unit's work that is kept (relaxed or off, or a start
+// record lost on this machine): recorded once and said once, the same way the
+// receipt scan's accepted changes are.
 function acceptOutsideUnitChanges(pd: string, content: string, change: AcceptedChange): void {
   observeChangeControl(pd, content, { changeControlRead: true, acceptedChanges: [change] });
 }
@@ -5533,13 +5533,16 @@ function verifyReviewerPrecondition(
   if (!attributionApplies) return;
 
   // Under relaxed or off, what changed outside the units is kept and said once;
-  // only strict holds completion on it.
+  // only strict holds completion on it. A start record that is not on this
+  // machine (a fresh clone) is AI-DLC's own lost bookkeeping, so strict says the
+  // same one line and carries on too; one that is here and does not match holds.
   const acceptsChanges = guardPolicyAcceptsChanges(pd, content);
   if (
     receipts.sourceBaseline.state === "unbindable" ||
-    receipts.sourceBaseline.state === "invalid"
+    receipts.sourceBaseline.state === "invalid" ||
+    receipts.sourceBaseline.state === "missing"
   ) {
-    if (acceptsChanges) {
+    if (acceptsChanges || receipts.sourceBaseline.state === "missing") {
       acceptOutsideUnitChanges(pd, content, {
         checkpoint: "review-receipt",
         stage: stage.slug,
@@ -5635,7 +5638,7 @@ function staleSourcePreconditionError(
     const message =
       `Refusing to complete "${slug}": the reviewed source boundary could not be ` +
         "fingerprinted, so this is not evidence that application source changed. " +
-        "Repair .aidlc-source-paths.json or the workspace source boundary, then " +
+        `${sourceBoundaryRepairStep()}, then ` +
         `record a fresh review by ${reviewer}. ${recoveryGuidance(pd, content, slug)}` +
         (recoverySpent && requestChangesResetIsExecutable(content, slug)
           ? " Only a human Request Changes decision resets the review attempt; do not " +
@@ -7475,7 +7478,7 @@ function handleApprove(args: string[]): void {
       unit: teamGate.unit,
       personCall: teamPersonCall,
     });
-    const reviewFindingDispositions = acceptedRiskDispositionField(
+    const reviewFindingDispositions = approvalDispositionField(
       pd,
       teamGate.stages,
       teamGate.unit,
@@ -7647,7 +7650,7 @@ function handleApprove(args: string[]): void {
     entrypoint: "approve",
     personCall,
   });
-  const reviewFindingDispositions = acceptedRiskDispositionField(pd, stage);
+  const reviewFindingDispositions = approvalDispositionField(pd, stage);
 
   // Scope is required for next-stage derivation. Validate it before persisting
   // approval: a post-write routing failure would otherwise leave `[x]` as a
@@ -9006,7 +9009,9 @@ function handlePracticesPromote(args: string[]): void {
 
   // Step 4b: Build new project-guardrails.md by appending each rule under the
   // matching heading with a date stamp. Rules are one-per-line in the draft;
-  // empty/blank lines and comment lines are skipped.
+  // empty/blank lines and comment lines are skipped. The generated terminal
+  // date stamps are provenance, not rule identity; leave an existing rule and
+  // its original date untouched when the same text is affirmed again.
   const parseRules = (sectionContent: string): string[] => {
     return sectionContent
       .split("\n")
@@ -9023,21 +9028,27 @@ function handlePracticesPromote(args: string[]): void {
   );
   const mandatedRules = parseRules(mandatedDraft);
   const forbiddenRules = parseRules(forbiddenDraft);
+  const ruleText = (line: string): string =>
+    line.replace(/(?: \(affirmed \d{4}-\d{2}-\d{2}\))+$/, "");
 
   let newGuardrailsMd = guardrailsMd;
-  const existingGuardrailLines = new Set(
-    newGuardrailsMd.split("\n").map((line) => line.trim()),
+  const existingMandatedRules = new Set(
+    parseRules(extractMarkdownSection(guardrailsMd, "## Mandated")).map(ruleText),
+  );
+  const existingForbiddenRules = new Set(
+    parseRules(extractMarkdownSection(guardrailsMd, "## Forbidden")).map(ruleText),
   );
   for (const rule of mandatedRules) {
-    const stampedLine = `${rule} (affirmed ${today})`;
-    if (existingGuardrailLines.has(stampedLine)) continue;
+    const text = ruleText(rule);
+    if (existingMandatedRules.has(text)) continue;
+    const stampedLine = `${text} (affirmed ${today})`;
     try {
       newGuardrailsMd = appendUnderHeading(
         newGuardrailsMd,
         "## Mandated",
         `${stampedLine}\n`
       );
-      existingGuardrailLines.add(stampedLine);
+      existingMandatedRules.add(text);
       rulesAppended.mandated++;
     } catch (e) {
       fail(`appendUnderHeading failed on Mandated: ${errorMessage(e)}`);
@@ -9045,15 +9056,16 @@ function handlePracticesPromote(args: string[]): void {
     }
   }
   for (const rule of forbiddenRules) {
-    const stampedLine = `${rule} (affirmed ${today})`;
-    if (existingGuardrailLines.has(stampedLine)) continue;
+    const text = ruleText(rule);
+    if (existingForbiddenRules.has(text)) continue;
+    const stampedLine = `${text} (affirmed ${today})`;
     try {
       newGuardrailsMd = appendUnderHeading(
         newGuardrailsMd,
         "## Forbidden",
         `${stampedLine}\n`
       );
-      existingGuardrailLines.add(stampedLine);
+      existingForbiddenRules.add(text);
       rulesAppended.forbidden++;
     } catch (e) {
       fail(`appendUnderHeading failed on Forbidden: ${errorMessage(e)}`);
@@ -9064,7 +9076,7 @@ function handlePracticesPromote(args: string[]): void {
   // Step 5 & 6: Write project.md first, then team.md.
   // If the project write fails, team.md is untouched. If the team write
   // fails after project succeeded, we surface that as PRACTICES_OVERRIDE and
-  // the user re-enters the gate. Exact dated project rules are deduplicated
+  // the user re-enters the gate. Identical project rules are deduplicated
   // above, so a retry cannot accumulate copies after this partial-write path.
   try {
     writeFileSync(guardrailsPath, newGuardrailsMd, "utf-8");

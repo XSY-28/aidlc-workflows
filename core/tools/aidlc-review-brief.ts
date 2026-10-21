@@ -8,11 +8,13 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import {
+  asksForHelp,
   type AuditShardEvent,
   attemptEventAfterFrontier,
   ENGINE_DIR,
   attemptEventDefinitelyBefore,
   auditBlockField,
+  backwardJumpBoundary,
   changesSinceLastReview,
   constructionCheckpointsApply,
   errorMessage,
@@ -24,6 +26,7 @@ import {
   pairedReviewRecordForCompletion,
   parseReviewSection,
   parseReviewerFindingsReport,
+  printUsageAndExit,
   readFindingsTable,
   readAuditShardEvents,
   readUnitSourceSnapshot,
@@ -53,6 +56,7 @@ import {
   validateUnitName,
   writeRecordFileNoFollow,
 } from "./aidlc-lib.js";
+import { aidlcDispatcherInvocation } from "./aidlc-runtime-paths.ts";
 import {
   constructionCheckpointKind,
   resolveConstructionCheckpoint,
@@ -87,6 +91,7 @@ export interface ReviewFindingDisposition {
   fingerprint: string;
   status:
     | "Accepted risk"
+    | "Changed after review"
     | `Rejected: ${string}`
     | `Reopened: ${string}`;
   decided_at_severity?: string;
@@ -737,6 +742,8 @@ function applyDisposition(
     return;
   }
   if (!findingIsOpen(finding)) return;
+  // `Changed after review` is no decision: the finding stays open, so the next
+  // review re-checks it against the changed work.
   const status = disposition.status === "Accepted risk" ||
       disposition.status.startsWith("Rejected: ")
     ? disposition.status as ReviewFindingStatus
@@ -1160,6 +1167,7 @@ function parseDispositionField(
       /^sha256:[0-9a-f]{64}$/.test(row.fingerprint ?? "") &&
       (
         row.status === "Accepted risk" ||
+        row.status === "Changed after review" ||
         /^Rejected: \S[\s\S]*$/.test(row.status ?? "") ||
         /^Reopened: \S[\s\S]*$/.test(row.status ?? "")
       ) &&
@@ -1278,6 +1286,7 @@ export function hydrateReviewArtifactContexts(
             }
           : finding;
       }
+      if (disposition.status === "Changed after review") return finding;
       const status = disposition.status === "Accepted risk" ||
           disposition.status.startsWith("Rejected: ")
         ? disposition.status as ReviewFindingStatus
@@ -1292,29 +1301,38 @@ export function hydrateReviewArtifactContexts(
   }));
 }
 
-export function acceptedRiskDispositionField(
+// What Approve records for each open finding: `Accepted risk`, or `Changed
+// after review` when the work its review covered changed afterwards and no
+// finished review has seen the change (the change the brief names), so a
+// finding the work was changed to fix never reads as a risk the person accepted.
+export function approvalDispositionField(
   projectDir: string,
   stages: ReviewDispositionStages,
   unit?: string,
 ): string | undefined {
   const dispositions = dispositionStages(stages).flatMap((stage) => {
     if (!stage.reviewer) return [];
-    return readReviewArtifactContexts(projectDir, stage, unit).flatMap((context) =>
-      context.findings
-        .filter((finding) =>
-          finding.status === "New" || finding.status === "Unresolved"
-        )
-        .map((finding): ReviewFindingDisposition => ({
-          artifact: finding.artifact,
-          id: finding.id,
-          fingerprint: finding.fingerprint,
-          status: "Accepted risk",
-          decided_at_severity: finding.severity,
-          ...(context.reviewRecord
-            ? { reviewed_record: context.reviewRecord }
-            : {}),
-        }))
-    );
+    return readReviewArtifactContexts(projectDir, stage, unit).flatMap((context) => {
+      const open = context.findings.filter((finding) =>
+        finding.status === "New" || finding.status === "Unresolved"
+      );
+      if (open.length === 0) return [];
+      const changed = acceptedReviewChanges(
+        projectDir,
+        stage.slug,
+        stage.for_each === "unit-of-work" ? context.unit : undefined,
+      ).length > 0;
+      return open.map((finding): ReviewFindingDisposition => ({
+        artifact: finding.artifact,
+        id: finding.id,
+        fingerprint: finding.fingerprint,
+        status: changed ? "Changed after review" : "Accepted risk",
+        decided_at_severity: finding.severity,
+        ...(context.reviewRecord
+          ? { reviewed_record: context.reviewRecord }
+          : {}),
+      }));
+    });
   });
   return serializeReviewFindingDispositions(dispositions);
 }
@@ -1948,13 +1966,8 @@ export function reviewInvalidationDetails(
   // A backward jump is itself an attempt boundary. Remove downstream paths
   // whose own stage gate has since consumed them, while preserving the changed
   // upstream source as context for stages that still require re-check.
-  const boundary = attemptFrontier.length === 1
-    ? attemptFrontier[0]
-    : undefined;
-  if (
-    boundary?.event === "STAGE_JUMPED" &&
-    auditBlockField(boundary.block, "Direction") === "BACKWARD"
-  ) {
+  const boundary = backwardJumpBoundary(attemptFrontier);
+  if (boundary) {
     const jumpChanged = parseAuditPathArray(
       auditBlockField(boundary.block, "Changed Upstream Artifacts"),
     );
@@ -2303,8 +2316,38 @@ function keepGateBrief(
   }
 }
 
+const REVIEW_BRIEF_VERBS = ["review", "context", "summary"] as const;
+
+// Each verb's usage, with the flags its branch in main reads (#2449's shape).
+function reviewBriefUsage(verb: string | undefined): string {
+  const invoke = (name: string) => aidlcDispatcherInvocation(`review-brief ${name}`);
+  const usage: Record<(typeof REVIEW_BRIEF_VERBS)[number], string[]> = {
+    review: [
+      `${invoke("review")} --stage <slug> --why <first|revision|stale> [--unit <unit>] [--fallback-finding "<why>"]`,
+      "  Prints the Review brief that opens a reviewer-backed approval gate. Required: --stage, --why.",
+    ],
+    context: [
+      `${invoke("context")} --stage <slug> [--unit <unit>]`,
+      "  Prints the findings context a reviewer is sent with. Required: --stage.",
+    ],
+    summary: [
+      `${invoke("summary")} --stage <slug> --questions-file <path> [--unit <unit>]`,
+      "  Prints the summary confirmation brief. Required: --stage, --questions-file.",
+    ],
+  };
+  if (verb !== undefined && verb in usage) return usage[verb as keyof typeof usage].join("\n");
+  return `Usage: aidlc-review-brief <subcommand>\n\n${Object.values(usage).map((lines) => lines.join("\n")).join("\n\n")}`;
+}
+
 export function main(argv: string[]): void {
   const command = argv[0];
+  // The verb is read before any flag, so help, and a flag where the verb goes,
+  // are answered with the verbs instead of a flag error.
+  if (command === undefined || asksForHelp([command])) printUsageAndExit(reviewBriefUsage(undefined));
+  if (!(REVIEW_BRIEF_VERBS as readonly string[]).includes(command)) {
+    throw new Error(`Unknown subcommand: ${command}. Valid: ${REVIEW_BRIEF_VERBS.join(", ")}.`);
+  }
+  if (asksForHelp(argv.slice(1))) printUsageAndExit(reviewBriefUsage(command));
   const flags = parseCliFlags(argv.slice(1));
   const projectDir = resolveProjectDir(flags["project-dir"]);
   const stageSlug = flags.stage;
@@ -2355,9 +2398,6 @@ export function main(argv: string[]): void {
     );
     return;
   }
-  throw new Error(
-    `Unknown subcommand: ${command}. Valid: review, context, summary.`,
-  );
 }
 
 if (import.meta.main) {

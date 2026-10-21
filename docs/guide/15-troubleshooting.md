@@ -17,11 +17,13 @@ This chapter covers common issues and their solutions, organized by symptom.
 | Symptom | Quick Fix |
 |---------|-----------|
 | No audit entries appearing | Run `aidlc doctor`; for a copy install, also verify `bun` is on the hook PATH |
+| Windows: the audit or another record shows `â€”` for `—` and `â†’` for `→` | The file is UTF-8, and Windows PowerShell 5.1 read it as ANSI. Read it with `Get-Content -Encoding UTF8`, or use PowerShell 7. A file rewritten from that reading keeps the wrong characters, so copy a record with `Copy-Item` or Explorer, and share a run with `/aidlc --doctor --export` |
 | I edited a file by hand; will the agent accept it? | Yes: edit, then say **done** (or carry on). An edit to a finished stage is used as is but not re-approved; to have it approved, jump back with `/aidlc --stage <name>`, which reopens that stage and every stage after it. See [Editing Files Yourself](07-interaction-modes.md#editing-files-yourself) for each case |
 | Claude hooks are restricted by policy | Ask the Claude Code administrator to lift managed `allowManagedHooksOnly`; project settings cannot override it |
 | Cursor: approvals are never recorded | If the project is not in a git repository, run `git init` in it, then fully restart Cursor and trust the folder (see [Cursor project outside a git repository](#cursor-project-outside-a-git-repository)) |
 | Kiro IDE: `deny fs_read matching ".kiro/"` | Run `/aidlc --doctor`; remove the `.kiro/` rule from the ignore file it names (see [Kiro IDE Read Denials](#kiro-ide-read-denials)) |
 | Kiro IDE: AI-DLC's reviews and helpers do not run, the chat shows **Approval needed in agent-aidlc-...** panels, or `/aidlc` is handed to a Kiro workflow | Kiro's Workflows feature is on. Ask the agent to turn it off, or run `aidlc config trust --kiro-workflows off --yes`, then **Developer: Reload Window** (see [Kiro's Workflows feature](harnesses/kiro-ide.md#kiros-workflows-feature-stops-ai-dlcs-reviews-and-helpers)) |
+| Kiro CLI: AI-DLC's reviews and helpers do not run, and the agent says it has no tool to hand work to | Kiro CLI's Workflows feature is on. Ask the agent to turn it off, or run `aidlc config trust --kiro-cli-workflows off --yes`, then quit Kiro CLI and start `kiro-cli` again (see [Kiro's Workflows feature](harnesses/kiro-ide.md#kiros-workflows-feature-stops-ai-dlcs-reviews-and-helpers)) |
 | Kiro IDE on Windows: command results end at an `AI-DLC reply:` line and steps take extra turns, or every command shows exit code -1 | Kiro's terminal is Command Prompt. Ask the agent to set it to PowerShell, or run `aidlc config trust --kiro-terminal powershell --yes`, then restart Kiro (see [Command Prompt as Kiro's terminal](harnesses/kiro-ide.md#command-prompt-as-kiros-terminal-on-windows)) |
 | Kiro IDE: the agent cites "my memory" and suggests bypassing a check or running a hook by hand | Ignore it and delete that Kiro memory (see [Kiro memories carry old AI-DLC advice](harnesses/kiro-ide.md#kiro-memories-carry-old-ai-dlc-advice)) |
 | State file corrupted | Run `/aidlc --doctor`, compare against state template |
@@ -36,6 +38,7 @@ This chapter covers common issues and their solutions, organized by symptom.
 | Statusline shows "ready" | Check `aidlc-state.md` has a `**Lifecycle Phase**` field |
 | Statusline not appearing | It shows only once you turn it on: `/aidlc --statusline on` (Claude Code and Codex). Then run `aidlc doctor`; for a copy install, verify `bun` is on PATH |
 | Subagent timed out | Run `/aidlc` to retry or run the stage inline |
+| `A program is watching the project folder (most likely a dev server or a test watcher still running)` (Windows) | A program that watches every folder of the project, such as a dev server (Vite) or a test watcher left running, keeps AI-DLC from moving the lock folder of its work record, so each step waits about 10 seconds. Stop that program (stopping `npm run dev` may stop only `npm` and leave the server running: close it from Task Manager or with `taskkill /T /PID <pid>`), and the next step goes on as normal. With Guard Policy strict the build's writes are refused until it stops. |
 | Workflow stuck or misbehaving, need help | Run `/aidlc --doctor --export` and share the produced `.tar.gz` (redacted; no work product) |
 | A Bolt attempt was set aside | Ask the assistant to invoke the saved abort result's `restore_operation` with its exact argv; hints are display-only. Evidence-only attempts have no saved files to restore. See [getting the files back](#a-bolt-attempt-was-set-aside-getting-the-files-back) |
 
@@ -683,6 +686,13 @@ directory in its paths list, or remove a broken symlink), then run `/aidlc`
 (`$aidlc` on Codex). `/aidlc --doctor` has a "Workspace source boundary binds"
 check that names the failing path and says which of these applies to you.
 
+A valid Git checkout kept inside the project can share its object store with
+jj, including through a linked worktree. If an older AI-DLC install reports
+"no resolvable HEAD commit" for a commit that Git can read from a jj-created
+pack, update AI-DLC and refresh the project's install. Repacking the repository
+or changing jj settings is unnecessary. A genuinely missing or unreadable
+HEAD object still needs repair.
+
 If the plan's Testing Contract is refused, the message names one of three
 causes: the block is missing, it is not valid JSON, or it changed after it was
 rendered. The repair is the same for all three: re-run `render` and replace the
@@ -847,17 +857,16 @@ do not change live create/discard commands or the required human consent.
 
 ### What is preserved
 
-All record-dir artifacts, `aidlc-state.md`, the `audit/` shards, and `.aidlc-engine/recovery.md` persist on disk. Only in-memory conversation context and partial in-progress work not yet written to files is lost.
+All record-dir artifacts, `aidlc-state.md` and the `audit/` shards persist on disk. Only in-memory conversation context and partial in-progress work not yet written to files is lost.
 
 ### How to recover
 
 Run `/aidlc` after compaction. The framework:
 
 1. Reads `aidlc-state.md` to load workflow position
-2. Compares `.aidlc-engine/recovery.md` against the state file - warns if they differ
-3. Carries on where the work stopped
+2. Carries on where the work stopped
 
-If the recovery breadcrumb warns about a mismatch, say "redo this stage" to safely re-execute the stage that was in progress during compaction.
+To have the stage that was in progress done again, say "redo this stage".
 
 ### The build stops after a compaction
 
@@ -997,8 +1006,11 @@ deterministic condition→remedy rules. The two most common causes it catches:
 - **Unresolved approval gates** — a stage whose gate never resolved is the single
   most common "it will not advance" cause.
 - **Stale or missing runtime graph / cold hooks** — a runtime graph older than its
-  authored inputs (or absent), or a hook that has not fired in a long time,
-  points at a recompile that did not run.
+  authored inputs (or absent), or a hook that last fired more than a day before
+  the newest stage or approval step recorded on the intent, points at a
+  recompile that did not run. Opening a chat, a prompt and doctor's own audit
+  rows are not counted as work, so an intent nobody is working on does not read
+  as having cold hooks.
 
 `report.md` inside the report lists every finding with a remedy; a remedy that
 names a recovery bypass (such as an `AIDLC_DISABLE_*` env var) is flagged
@@ -1012,4 +1024,4 @@ for the full report contents and safety model.
 - [State Tracking and Audit Trail](10-state-and-audit.md) — State file structure
 - [Session Management](11-session-management.md): carrying on after compaction
 - [CLI Commands](12-cli-commands.md) — `--doctor`, `--status`, `--stage` usage
-- [Glossary](glossary.md) — Definitions for compaction, recovery breadcrumb, hook
+- [Glossary](glossary.md): definitions for compaction, hook

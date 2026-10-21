@@ -191,6 +191,47 @@ describe("t305 strict source-manifest validation", () => {
     }
   });
 
+  // `d` is one of the characters in `[itemId]`. Read as a Git pathspec, the
+  // folder's claim is a character class that matches this ignored sibling, and
+  // the ignored-source probe refused the claim for it. The probe still reads the
+  // folder itself: an ignored file inside it refuses the claim.
+  test("a bracketed route folder claim is checked for ignored source as the literal folder it names", () => {
+    const { project, record } = fixture();
+    const items = join(project, "src", "app", "items");
+    mkdirSync(join(items, "[itemId]"), { recursive: true });
+    writeFileSync(join(items, "[itemId]", "page.tsx"), "export default function Item() {}\n");
+    writeFileSync(join(items, "d"), "ignored sibling\n");
+    writeFileSync(join(project, ".gitignore"), "src/app/items/d\n");
+    manifest(record, "alpha", {
+      stage: "code-generation",
+      unit: "alpha",
+      version: 1,
+      writes: [{ path: "src/app/items/[itemId]/" }],
+    });
+
+    const accepted = readUnitSourceManifest(
+      project,
+      "code-generation",
+      "alpha",
+    );
+    expect(accepted.ok ? "accepted" : accepted.reason).toBe("accepted");
+    if (accepted.ok) {
+      expect(sourceClaimCovers("\0src/app/items/[itemId]/page.tsx", accepted)).toBe(true);
+      expect(sourceClaimCovers("\0src/app/items/d", accepted)).toBe(false);
+    }
+
+    writeFileSync(join(items, "[itemId]", "local.env"), "ignored inside\n");
+    writeFileSync(join(project, ".gitignore"), "src/app/items/d\n*.env\n");
+    const refused = readUnitSourceManifest(
+      project,
+      "code-generation",
+      "alpha",
+    );
+    expect(refused.ok ? "accepted" : refused.reason).toContain(
+      'contains ignored application source "src/app/items/[itemId]/local.env"',
+    );
+  });
+
   test("accepts an exact claim when a committed directory becomes a file", () => {
     const { project, record } = fixture();
     mkdirSync(join(project, "generated"), { recursive: true });
@@ -1667,14 +1708,16 @@ describe("t305 real receipt and guard flows", () => {
     expect(refused.out).toContain("no Unit's review covers");
   }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
 
-  test("6 unit-major ignores late STAGE_STARTED and destroyed baseline fails closed", () => {
+  test("6 unit-major ignores late STAGE_STARTED; a destroyed baseline is said once, a changed one fails closed", () => {
     const late = runtimeFixture(); const state=join(late.record,"aidlc-state.md"); writeFileSync(state,readFileSync(state,"utf-8").replace("stage-major","unit-major"));
     writeFileSync(join(late.project,"late.ts"),"export const late=1\n");
     const now=workspaceSourceListing(late.project)!; appendAuditEntry("STAGE_STARTED",{Workflow:"single-stage:code-generation",Stage:"code-generation",Agent:"aidlc-developer-agent","Source Baseline":writeBaselineSourceSnapshot(late.project,"code-generation",now)},late.project);
     const syntheticSecond=Math.floor(Date.now()/1000); while(Math.floor(Date.now()/1000)===syntheticSecond){}
     review(late.project,late.record,"alpha",[{path:"app.ts"}]); review(late.project,late.record,"beta",[]); const lateState=readFileSync(state,"utf-8"); const lateReceipts=freshReviewReceipts(late.project,lateState,{slug:"code-generation",phase:"construction",for_each:"unit-of-work",reviewer:REVIEWER,review_artifact:"code-generation-plan",reviewer_max_iterations:2,workspace_requires:true,produces:["code-generation-plan","unit-test-instructions","code-summary","traceability"]}); expect(lateReceipts.sourceBaseline.state).toBe("ready"); if (lateReceipts.sourceBaseline.state === "ready") expect(lateReceipts.sourceBaseline.listing.has("\0late.ts")).toBe(false); expect(approve(late.project).out).toContain("late.ts");
     const destroyed=runtimeFixture(); review(destroyed.project,destroyed.record,"alpha",[{path:"app.ts"}]); review(destroyed.project,destroyed.record,"beta",[]);
-    const audit=readAllAuditShards(destroyed.project); const hash=/\*\*Source Baseline\*\*: sha256:([0-9a-f]{64})/.exec(audit)![1]; rmSync(join(destroyed.record,".aidlc-engine/source-review","code-generation",`baseline-${hash.slice(0,12)}.tsv`)); expect(approve(destroyed.project).out).toContain("the record of what this stage started from is missing");
+    const audit=readAllAuditShards(destroyed.project); const hash=/\*\*Source Baseline\*\*: sha256:([0-9a-f]{64})/.exec(audit)![1]; rmSync(join(destroyed.record,".aidlc-engine/source-review","code-generation",`baseline-${hash.slice(0,12)}.tsv`)); const carried=approve(destroyed.project); expect(carried.rc,carried.out).toBe(0); expect(carried.out).toContain("I could not check Code Generation for files changed outside the units on this machine; carrying on.");
+    const changed=runtimeFixture(); review(changed.project,changed.record,"alpha",[{path:"app.ts"}]); review(changed.project,changed.record,"beta",[]);
+    const changedHash=/\*\*Source Baseline\*\*: sha256:([0-9a-f]{64})/.exec(readAllAuditShards(changed.project))![1]; writeFileSync(join(changed.record,".aidlc-engine/source-review","code-generation",`baseline-${changedHash.slice(0,12)}.tsv`),"workspace\nnot the listing it was\n"); const held=approve(changed.project); expect(held.rc).toBe(1); expect(held.out).toContain("the record of what this stage started from is missing");
   }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
 
   test("7 manifest tamper and 8 claimed deletion make only the owning unit stale", () => {
