@@ -28409,10 +28409,13 @@ export function hookActivation(): HookActivation | null {
 /** Doctor's repair for a missing or unreadable project settings file; the hooks-off step names it too. */
 export function projectSettingsRepair(distribution: string): string {
   const invoke = aidlcInvocation();
-  const source = invoke === "aidlc"
-    ? ""
-    : ` --from <the runtime/${distribution} root you copied from>`;
-  return `run \`${invoke} config --harness ${distribution}${source}\` to put back AI-DLC's hooks (your own hooks are kept)`;
+  // A copied install's step runs as printed (#1593): it downloads the release,
+  // and the folder it was copied from, which only the person knows, is said in
+  // words rather than left as a slot to fill in.
+  return invoke === "aidlc"
+    ? `run \`${invoke} config --harness ${distribution}\` to put back AI-DLC's hooks (your own hooks are kept)`
+    : `run \`${invoke} config --harness ${distribution} --download\` to put back AI-DLC's hooks (your own hooks ` +
+      `are kept), or run it with --from and the runtime/${distribution} folder you copied AI-DLC from instead of --download`;
 }
 
 // Missing, or there and not valid JSON (read as doctor reads it); null for a

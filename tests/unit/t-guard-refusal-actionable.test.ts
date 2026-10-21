@@ -94,7 +94,8 @@ function engineCommand(command: string): "runs" | "does-not-run" | "not-a-comman
     return dispatches(words.slice(1)) ? "runs" : "does-not-run";
   }
   if (words[0] === "bun" && words[1] === ".claude/tools/aidlc.ts") {
-    return words[2] === "engine" && dispatches(words.slice(2)) ? "runs" : "does-not-run";
+    // Any route the dispatcher delegates (engine, config, doctor...), as a native `aidlc` would.
+    return dispatches(words.slice(2)) ? "runs" : "does-not-run";
   }
   const script = words[0] === "bun" ? /^\.claude\/tools\/aidlc-([a-z-]+)\.ts$/.exec(words[1] ?? "") : null;
   if (script) {
