@@ -14584,8 +14584,16 @@ export function checkSummaryConfirmationEvidence(
   }
   let auditRowsRead: AuditShardEvent[] | null = null;
   const readAuditRows = (): AuditShardEvent[] => (auditRowsRead ??= readAuditShardEvents(projectDir));
+  // A per-unit stage the plan runs with no Units Generation runs once at stage
+  // level: its gate and its summary are the stage's, as the Unit set below reads.
+  const stageLevelArtifacts =
+    options.stateContent !== undefined &&
+    usesStageLevelPerUnitArtifacts(
+      getField(options.stateContent ?? "", "Scope"),
+      options.stateContent,
+    );
   const finishedBeforeOn = (unit: string | null): boolean =>
-    options.workflow === undefined && (unit !== null) === isPerUnitStage(stage) &&
+    options.workflow === undefined && (unit !== null) === (isPerUnitStage(stage) && !stageLevelArtifacts) &&
     typeof options.stateContent === "string" &&
     finishedBeforeSummaryOn(projectDir, stage.slug, unit, options.stateContent, readAuditRows());
   if (finishedBeforeOn(options.unit ?? null)) {
@@ -14614,13 +14622,7 @@ export function checkSummaryConfirmationEvidence(
   if (
     declared &&
     isPerUnitStage(stage) &&
-    !(
-      options.stateContent !== undefined &&
-      usesStageLevelPerUnitArtifacts(
-        getField(options.stateContent ?? "", "Scope"),
-        options.stateContent,
-      )
-    ) &&
+    !stageLevelArtifacts &&
     options.workflow === undefined &&
     options.unit === undefined
   ) {
@@ -42316,8 +42318,16 @@ export type AnswerModeChoice = "guide" | "file" | "chat";
 export const ANSWER_MODE_FIELD = "Answer Mode";
 /** The DECISION_RECORDED field naming which of the engine's own questions a row is. */
 export const QUESTION_KIND_FIELD = "Question Kind";
-/** The learnings ritual's "Anything to add?" options (stage-protocol-learnings.md section 13). */
+/** The learnings ritual's "Anything to add?" question and options (stage-protocol-learnings.md section 13). */
+export const LEARNINGS_NOTE_QUESTION = "Anything to add for next time?";
 export const LEARNINGS_NOTE_CHOICES = ["Nothing to add", "Add a note"] as const;
+/**
+ * Its question of which diary notes to keep, asked first when there are any.
+ * Keeping none is an option of its own, listed first: Claude Code's question
+ * box read a multi-select with nothing ticked as unanswered.
+ */
+export const LEARNINGS_KEEP_QUESTION = "Which notes from this step should I keep as practices for future work?";
+export const LEARNINGS_KEEP_NONE = "Keep none of these";
 /** Its value for the mode question, written by the command the step note hands the agent. */
 export const ANSWER_MODE_QUESTION_KIND = "answer-mode";
 /** Its value for the learnings ritual's "Anything to add?", written by the command that module names. */
@@ -42346,14 +42356,52 @@ export function isAnswerModeDecision(block: string): boolean {
 }
 /**
  * True when a DECISION_RECORDED block is the learnings ritual's "Anything to
- * add?": its Question Kind says so. A row recorded before that field existed
- * is that question when it offers exactly the ritual's two choices.
+ * add?": its Question Kind says so. A row with no kind is that question when it
+ * offers both of the ritual's choices: one recorded before the field existed,
+ * or the whole learnings box logged as one question.
  */
 export function isLearningsNoteDecision(block: string): boolean {
   const kind = auditBlockField(block, QUESTION_KIND_FIELD);
   if (kind !== null) return kind === LEARNINGS_NOTE_QUESTION_KIND;
-  return (auditBlockField(block, "Options") ?? "").split(",").map((option) => option.trim()).join(",") ===
-    LEARNINGS_NOTE_CHOICES.join(",");
+  const offered = (auditBlockField(block, "Options") ?? "").split(",").map((option) => option.trim());
+  return LEARNINGS_NOTE_CHOICES.every((choice) => offered.includes(choice));
+}
+/**
+ * For a typed reply, true when the agent's recorded answer picks Add a note:
+ * the whole answer, or one of its picks when it records several ("Keep none of
+ * these; Add a note", or stage-protocol.md's "Q1: ...; Q2: Add a note"). Only
+ * the exact label counts. A new way an agent writes its record is the agent's
+ * to log with the command it was given, not another rule here.
+ */
+export function picksAddANote(details: string): boolean {
+  return details.split(/[;,]/).some((pick) => pick.trim().replace(/^Q\d+:\s*/, "") === LEARNINGS_NOTE_CHOICES[1]);
+}
+/**
+ * Whether the person picked Add a note in a question box, as the human-turn
+ * hook recorded their reply word for word (its QUESTION_REPLIED rows, written
+ * on Claude Code and Codex) for the turn that answers: the named message's,
+ * else the latest in this clone's shard. Null when that turn was typed, with no
+ * box reply on record. It reads the exact option the person picked, never the
+ * agent's account of it.
+ */
+export function boxPicksAddANote(projectDir: string, messageId?: string): boolean | null {
+  try {
+    const blocks = readAppendOnlyFileNoFollowOrThrow(auditFilePath(projectDir), "audit shard").toString("utf-8")
+      .replace(/\r\n/g, "\n").split("\n---\n");
+    const isTurn = (block: string) => auditBlockField(block, "Event") === "HUMAN_TURN";
+    let turn = blocks.length - 1;
+    while (turn >= 0 && !(isTurn(blocks[turn]) &&
+      (messageId === undefined || auditBlockField(blocks[turn], "Message Id") === messageId))) turn--;
+    if (turn < 0) return null;
+    const replies: string[] = [];
+    for (let index = turn + 1; index < blocks.length && !isTurn(blocks[index]); index++) {
+      if (auditBlockField(blocks[index], "Event") === "QUESTION_REPLIED") replies.push(auditBlockField(blocks[index], "Reply") ?? "");
+    }
+    if (replies.length === 0) return null;
+    return replies.some((reply) => reply.split(", ").includes(LEARNINGS_NOTE_CHOICES[1]));
+  } catch {
+    return null;
+  }
 }
 const ANSWER_MODE_OTHERS: Record<AnswerModeChoice, string> = {
   guide: "edit the file or chat",

@@ -2128,6 +2128,9 @@ without one, such as Codex's, is forwarded as sent. The broker appends one line
 per request to `tests/logs/credential-broker.log` (method, path, admitted model,
 status, duration, time of the last byte, bytes, and whether the answer ended),
 never a header or a body, so a stalled stream shows in the uploaded logs.
+A response whose upstream sends no data for two minutes after its headers is
+ended (`end=idle-timeout` in that line). An SSE `:` keepalive comment is not
+data: Mantle sends one every 15 seconds, during a stall too.
 
 Claude uses documented `ANTHROPIC_BEDROCK_BASE_URL` and
 `CLAUDE_CODE_SKIP_BEDROCK_AUTH=1`; its t19 preflight checks the broker's startup

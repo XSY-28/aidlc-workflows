@@ -36,7 +36,7 @@ import {
   reviewInvalidationAttemptView,
   markStageWorkLogged,
   markTurnEnd,
-  LEARNINGS_NOTE_CHOICES,
+  LEARNINGS_NOTE_QUESTION,
   learningsRitualRuns,
   ceremonyPolicyValues,
   terminalReviewVerdict,
@@ -199,6 +199,8 @@ import {
   isSummaryConfirmationChoice,
   isSummaryConfirmationOptions,
   isLearningsNoteDecision,
+  boxPicksAddANote,
+  picksAddANote,
   summaryConfirmationCommands,
   summaryConfirmationOwed,
   summaryQuestionFileRelative,
@@ -1239,7 +1241,7 @@ function handleDecision(args: string[]): void {
       error(
         `--question-kind ${JSON.stringify(kind)} is not a kind log decision records. Its kinds are ` +
           `"${ANSWER_MODE_QUESTION_KIND}", for the question of how the person answers a stage's questions, and ` +
-          `"${LEARNINGS_NOTE_QUESTION_KIND}", for the learnings question "Anything to add for next time?"; leave ` +
+          `"${LEARNINGS_NOTE_QUESTION_KIND}", for the learnings question "${LEARNINGS_NOTE_QUESTION}"; leave ` +
           "the flag off for any other question.",
       );
     }
@@ -2665,13 +2667,16 @@ function handleAnswer(args: string[]): void {
       error(`Audit emission failed: ${errorMessage(e)}`);
     }
 
-    // The learnings question's Add a note (its exact option, on the question
-    // its kind names): the person's next reply answers what follows, so the
-    // turn ends at that question (stage-protocol-learnings.md section 13).
-    // Whether their reply already holds the note is the agent's to read.
+    // The learnings question's Add a note: the person's next reply answers
+    // what follows, so the turn ends at that question (stage-protocol-learnings.md
+    // section 13). A pick in a question box is read from the person's own
+    // recorded reply; a typed one from the exact option the agent recorded on
+    // the question its kind (or its two options) names. Whether their reply
+    // already holds the note is the agent's to read.
+    const fromBox = instruction === undefined && !autonomousDecision ? boxPicksAddANote(pd, named?.id) : null;
     const question = decisionRowsInScope(readAuditShardEvents(pd), flags.stage, flags.unit).at(-1);
-    const asksForNote = flags.details === LEARNINGS_NOTE_CHOICES[1] && question !== undefined &&
-      isLearningsNoteDecision(question.block);
+    const asksForNote = fromBox ?? (picksAddANote(flags.details) && question !== undefined &&
+      isLearningsNoteDecision(question.block));
     if (asksForNote) rowEndsTurn = true;
     const sayBack = taken.length > 0 ? takenFromReply(taken, flags.details) : null;
     const notes = [

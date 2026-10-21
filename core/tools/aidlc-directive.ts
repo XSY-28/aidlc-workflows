@@ -1284,7 +1284,7 @@ export function reviewVerdictNote(step: ReviewVerdictStep): string {
       return `No further review pass follows: ${step.complete === undefined ? "" : `record this Unit's completion with \`${step.complete}\`, then `}` +
         `run \`${step.next}\` and follow the step it returns, in this turn.`;
     case "learnings":
-      return `${NO_FURTHER_PASS}say the completion summary, then run the learnings ritual and ask its question, ` +
+      return `${NO_FURTHER_PASS}say the completion summary, then run the learnings ritual and ask its questions, ` +
         `which ends the turn. The approval gate comes after their answer, with the review brief that \`${step.brief}\` prints.`;
     case "gate":
       return `${NO_FURTHER_PASS}${step.summary ? "say the completion summary, then " : ""}run ` +

@@ -1719,16 +1719,7 @@ function removeFragments(content: string, key: string, path: string): string {
 
 function pruneContributions(stagedProject: string, harnessDir: string, key: string): void {
   const sidecar = join(harnessDataDir(stagedProject, harnessDir), `plugin-contrib-${key}.json`);
-  let records: Record<string, {
-    produces?: string[];
-    sensors?: string[];
-    // Compose records consumed artifacts as objects; the shape must match the
-    // compose hook's output or the strip matches nothing. See issue #1247.
-    consumes?: Array<string | { artifact: string; required: boolean; conditional_on?: string }>;
-    requires_stage?: string[];
-    required_sections?: string[];
-    required_sections_created?: boolean;
-  }> = {};
+  let records: Record<string, StageContribRecord> = {};
   if (existsSync(sidecar)) {
     try {
       const parsed = readJson(sidecar);
@@ -1754,6 +1745,7 @@ function pruneContributions(stagedProject: string, harnessDir: string, key: stri
       if (record) {
         if (record.produces?.length) after = removeListValues(after, "produces", new Set(record.produces), false);
         if (record.sensors?.length) after = removeListValues(after, "sensors", new Set(record.sensors), false);
+        if (record.scopes?.length) after = removeListValues(after, "scopes", new Set(record.scopes), false);
         if (record.consumes?.length) {
           after = removeConsumes(
             after,
