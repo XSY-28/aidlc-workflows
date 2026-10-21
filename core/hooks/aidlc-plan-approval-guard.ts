@@ -125,7 +125,6 @@ import {
   readActiveDirectiveMarker,
   activeDirectiveMarkerPath,
   readActiveDirectiveMarkerRaw,
-  stateDigest,
   readIssuedDirectiveMarker,
   spacesRoot,
   activeDirectiveOutOfDateReason,
