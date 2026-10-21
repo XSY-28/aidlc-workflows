@@ -40,6 +40,7 @@ import {
   handoffBlockReason,
   mutationBlockReason,
   shellRunsHiddenCommand,
+  shellUsesDynamicEvaluation,
   promptStageMarkers,
   promptUnitMarkers,
   questionsFileApproved,
@@ -4401,6 +4402,33 @@ describe("t265b #1593 a refusal while a Unit plan waits names what would let the
 
   // What counts as a hidden command depends on the shell the command is read
   // in: in PowerShell a backtick escapes the next character, it runs nothing.
+  // The opaque-command rule is security-relevant: one reader now answers both
+  // questions (#1593), and its conservative answer must be exactly the old one.
+  test("#1593: the shared shell reader's conservative answer is unchanged", () => {
+    const before = (command: string): boolean => {
+      let quote: "'" | '"' | null = null;
+      let escaped = false;
+      for (let i = 0; i < command.length; i++) {
+        const ch = command[i];
+        if (escaped) { escaped = false; continue; }
+        if (ch === "\\" && quote !== "'") { escaped = true; continue; }
+        if (quote === "'") { if (ch === "'") quote = null; continue; }
+        if (ch === '"') { quote = quote === '"' ? null : '"'; continue; }
+        if (ch === "'" && quote === null) { quote = "'"; continue; }
+        if (ch === "`" || ch === "$") return true;
+        if ((ch === "$" || ch === "<" || ch === ">") && command[i + 1] === "(") return true;
+      }
+      return false;
+    };
+    const corpus = [
+      "cat src/app.ts", "cat $(ls src)", "cat `ls src`", "echo $HOME", "echo '$HOME'", `echo "$HOME"`,
+      "cat src/app.ts # was $(ls src)", "cat a # don't\necho '$x'", "cat a # it's\necho $x",
+      "echo $((1 + 2))", `echo "'$(ls src)'"`, "diff <(ls a) <(ls b)", "cat > out.txt", "cat a\\$b",
+      "Get-Content src/My` File.txt", "cat src/app.ts;# $(ignored)", `echo "a # b $(ls)"`, "",
+    ];
+    for (const command of corpus) expect(shellUsesDynamicEvaluation(command), command).toBe(before(command));
+  });
+
   test("#1593: a hidden command is a substitution in the dialect the command is read in", () => {
     expect(shellRunsHiddenCommand("cat $(ls src)")).toBe(true);
     expect(shellRunsHiddenCommand("cat `ls src`")).toBe(true);
@@ -4444,6 +4472,29 @@ describe("t265b #1593 a refusal while a Unit plan waits names what would let the
     }
   });
 
+  test("#1593: under Guard Policy off the refusal it does not release never grows a repeat line", () => {
+    const proj = scratchProject();
+    try {
+      seedState(proj);
+      seedUnit(proj, "todo-core", { plan: true, answer: null });
+      const statePath = join(proj, RECORD_REL, "aidlc-state.md");
+      writeFileSync(
+        statePath,
+        readFileSync(statePath, "utf-8").replace("## Project Information\n", "## Project Information\n- **Guard Policy**: off (from scope bugfix)\n"),
+        "utf-8",
+      );
+      // Off does not release a missing directive: still refused, every time alike.
+      rmSync(join(proj, RECORD_REL, ".aidlc-engine", "active-directive.json"), { force: true });
+      const said = [0, 1, 2, 3].map(() => runHook(proj, WRITE(join(proj, "src", "app.ts"))));
+      for (const refused of said) {
+        expect(refused.code).toBe(2);
+        expect(refused.stderr).not.toContain("stop retrying");
+      }
+    } finally {
+      rmSync(proj, { recursive: true, force: true });
+    }
+  });
+
   test("#1593: an authority refusal whose Unit cannot be told is never counted as a repeat", () => {
     const proj = scratchProject();
     try {
@@ -4482,11 +4533,13 @@ describe("t265b #1593 a refusal while a Unit plan waits names what would let the
       seedState(proj);
       seedUnit(proj, "todo-core", { plan: true, answer: null });
       const said: string[] = [];
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < 4; attempt++) {
         const refused = runHook(proj, WRITE(join(proj, "src", "app.ts")));
         expect(refused.code).toBe(2);
         said.push(refused.stderr);
       }
+      // Said once: the fourth identical refusal reads like the first.
+      expect(said[3]).toBe(said[0]);
       // The first refusals are the refusal alone; the third names the stop.
       expect(said[0]).not.toContain("stop retrying");
       expect(said[1]).not.toContain("stop retrying");

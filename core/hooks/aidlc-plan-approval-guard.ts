@@ -101,6 +101,7 @@ import {
   getField,
   GUARD_RECOVERY_ASK_TYPE,
   GUARD_REFUSAL_STREAK_CAP,
+  resolveGuardPolicy,
   guardAttemptState,
   guardRecoveryAnswerAdmits,
   recordGuardRefusal,
@@ -1874,78 +1875,76 @@ function shellInvocationNeedsApproval(
   return true;
 }
 
-function shellUsesDynamicEvaluation(command: string): boolean {
+// The one reader of a shell command's run-time syntax. `dynamic`: anything the
+// lexer cannot read before it runs (a variable or a substitution), the
+// conservative rule that makes a command opaque, unchanged. `substitution`: a
+// command run inside $(...) or backticks (#1593), which only picks the
+// refusal's wording, so it reads further: a comment runs nothing, POSIX
+// `$((...))` is arithmetic, and in PowerShell a backtick escapes the next
+// character and never substitutes.
+function shellDynamicSyntax(command: string, powerShell = false): { dynamic: boolean; substitution: boolean } {
+  let dynamic = false;
+  let substitution = false;
+  // The conservative reading, as it always was: every character, no skipping.
   let quote: "'" | '"' | null = null;
   let escaped = false;
-  for (let i = 0; i < command.length; i++) {
-    const ch = command[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (ch === "\\" && quote !== "'") {
-      escaped = true;
-      continue;
-    }
-    if (quote === "'") {
-      if (ch === "'") quote = null;
-      continue;
-    }
-    if (ch === '"') {
-      quote = quote === '"' ? null : '"';
-      continue;
-    }
-    if (ch === "'" && quote === null) {
-      quote = "'";
-      continue;
-    }
-    if (ch === "`" || ch === "$") return true;
-    if ((ch === "$" || ch === "<" || ch === ">") && command[i + 1] === "(") {
-      return true;
-    }
-  }
-  return false;
-}
-
-// Whether the command runs a command substitution outside single quotes: a
-// command the shell reading cannot see before it runs. POSIX shells run one in
-// $(...) or backticks; in PowerShell `$(...)` is a subexpression and a
-// backtick only escapes the next character (or continues the line).
-export function shellRunsHiddenCommand(command: string | null, powerShell = false): boolean {
-  if (command === null) return false;
+  // The substitution reading, in the command's own dialect. It skips what runs
+  // nothing (a comment, the parentheses of POSIX arithmetic); the conservative
+  // reading never does.
   const escapeChar = powerShell ? "`" : "\\";
-  let singleQuoted = false;
-  // Inside double quotes a substitution still runs, while a quote mark is
-  // literal and a `#` starts no comment.
-  let doubleQuoted = false;
-  let escaped = false;
-  for (let i = 0; i < command.length; i++) {
+  let subQuote: "'" | '"' | null = null;
+  let subEscaped = false;
+  let subSkipTo = 0;
+  for (let i = 0; i < command.length && !(dynamic && substitution); i++) {
     const ch = command[i];
-    if (escaped) {
-      escaped = false;
-    } else if (singleQuoted) {
-      if (ch === "'") singleQuoted = false;
+    if (!dynamic) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\" && quote !== "'") {
+        escaped = true;
+      } else if (quote === "'") {
+        if (ch === "'") quote = null;
+      } else if (ch === '"') {
+        quote = quote === '"' ? null : '"';
+      } else if (ch === "'" && quote === null) {
+        quote = "'";
+      } else if (ch === "`" || ch === "$" || ((ch === "<" || ch === ">") && command[i + 1] === "(")) {
+        dynamic = true;
+      }
+    }
+    if (substitution || i < subSkipTo) continue;
+    if (subEscaped) {
+      subEscaped = false;
+    } else if (subQuote === "'") {
+      if (ch === "'") subQuote = null;
     } else if (ch === escapeChar) {
-      escaped = true;
+      subEscaped = true;
     } else if (ch === '"') {
-      doubleQuoted = !doubleQuoted;
-    } else if (ch === "'" && !doubleQuoted) {
-      singleQuoted = true;
-    } else if (ch === "#" && !doubleQuoted && (i === 0 || /[\s;&|(]/.test(command[i - 1] ?? ""))) {
+      subQuote = subQuote === '"' ? null : '"';
+    } else if (ch === "'" && subQuote === null) {
+      subQuote = "'";
+    } else if (ch === "#" && subQuote === null && (i === 0 || /[\s;&|(]/.test(command[i - 1] ?? ""))) {
       // A comment runs nothing, to the end of its line.
       const end = command.indexOf("\n", i);
-      if (end === -1) return false;
-      i = end;
+      subSkipTo = end === -1 ? command.length : end;
     } else if (!powerShell && ch === "$" && command[i + 1] === "(" && command[i + 2] === "(") {
-      // POSIX arithmetic `$((...))` runs no command; a substitution nested in
-      // it is still found as the scan goes on.
-      i += 2;
+      subSkipTo = i + 3;
     } else if ((!powerShell && ch === "`") || (ch === "$" && command[i + 1] === "(")) {
-      return true;
+      substitution = true;
     }
   }
-  return false;
+  return { dynamic, substitution };
 }
+
+export function shellUsesDynamicEvaluation(command: string): boolean {
+  return shellDynamicSyntax(command).dynamic;
+}
+
+// Whether the command runs a command substitution (see shellDynamicSyntax).
+export function shellRunsHiddenCommand(command: string | null, powerShell = false): boolean {
+  return command !== null && shellDynamicSyntax(command, powerShell).substitution;
+}
+
 
 async function mutationIntent(
   projectDir: string,
@@ -2855,13 +2854,24 @@ async function evaluate(
   const refusedFor = blockedMutation ? blockedMutation.unit : refusedUnit;
   // An authority refusal whose Unit cannot be told, in work that has Units,
   // is not counted: merging different Units' refusals would claim a repeat.
+  // Reading the work's Units can itself fail (malformed delegated worktree
+  // metadata, for one): the refusal still goes out, only uncounted.
   const unitUnknown = blockedMutation === null && refusedFor === null && authorityFailure !== null &&
-    knownUnits(projectDir, docsRoot(projectDir) ?? "").length > 0;
+    workHasUnits(projectDir);
   const repeats = state === null || unitUnknown
     ? 0
     : countPlanApprovalRefusal(projectDir, state, refusedFor, prose, `${refusedCall}\0${authorityFailure ?? ""}`);
+  // Said once, at the first refusal past the cap, and never under Guard Policy
+  // off (which this refusal does not release): the count is kept, the line
+  // does not grow, and an identical refusal reads the same after that.
+  let policyOff = false;
+  try {
+    policyOff = state !== null && resolveGuardPolicy(projectDir, state).value === "off";
+  } catch {
+    policyOff = false;
+  }
   process.stderr.write(
-    repeats > GUARD_REFUSAL_STREAK_CAP
+    !policyOff && repeats === GUARD_REFUSAL_STREAK_CAP + 1
       ? `${prose} This call has been refused ${repeats} times as things stand: stop retrying it and run ${nextOnItsOwn()}.\n`
       : `${prose}\n`,
   );
@@ -2882,6 +2892,16 @@ function planFilesDigest(projectDir: string, unit: string | null): string {
     }
   }
   return hash.digest("hex");
+}
+
+// Whether this work has Units, true when that cannot be read, so a count that
+// might merge Units is skipped. Never throws: the refusal it serves still holds.
+function workHasUnits(projectDir: string): boolean {
+  try {
+    return knownUnits(projectDir, docsRoot(projectDir)).length > 0;
+  } catch {
+    return true;
+  }
 }
 
 // Count this refusal in the work's guard-refusals record, the way the review

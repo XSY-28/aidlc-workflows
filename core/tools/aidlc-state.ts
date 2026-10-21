@@ -1143,8 +1143,11 @@ function ownedTransitionStep(subcommand: string, rest: string[] = []): string {
     const at = rest.indexOf("--unit");
     const unit = at >= 0 && rest[at + 1] ? carriedArgument(rest[at + 1]) : null;
     if (at < 0 || unit !== null) {
-      return `Run ${next}If the person's reply already answered this stage's question, record it with ` +
-        `${step(`report --stage ${stage} ${report}${unit ? ` --unit ${unit}` : ""}`)} and run \`next\` again. `;
+      // The report first: a person who already answered is not shown the gate
+      // again (the report's own checks still prove they replied).
+      return `If the person's reply already answered this stage's question, record it with ` +
+        `${step(`report --stage ${stage} ${report}${unit ? ` --unit ${unit}` : ""}`)} and run \`next\` again; ` +
+        `if not, run ${next}`;
     }
   }
   return `Run ${next}`;

@@ -2234,7 +2234,7 @@ describe("t242 state-transition ownership guard", () => {
     expect(unfilled).toEqual({});
   });
 
-  test("#1593: a decision refused through the state tool names next, then the report the engine records a given answer with", () => {
+  test("#1593: a decision refused through the state tool names the report the engine records a given answer with, then next", () => {
     const project = createTestProject();
     projects.push(project);
     seedStateFile(project, join(FIXTURES_DIR, "state-mid-ideation.md"));
@@ -2254,8 +2254,8 @@ describe("t242 state-transition ownership guard", () => {
       const text = said(verb);
       const report = `\`bun .claude/tools/aidlc-orchestrate.ts report --stage feasibility ${result} --project-dir ${project}\``;
       expect(text, verb).toContain(report);
-      // `next` comes first; the report is for an answer the person already gave.
-      expect(text.indexOf(`orchestrate.ts next --project-dir`), verb).toBeLessThan(text.indexOf(report));
+      // The report comes first, so a person who already answered is not asked again.
+      expect(text.indexOf(report), verb).toBeLessThan(text.indexOf(`orchestrate.ts next --project-dir`));
       expect(unfilledSlots(text), verb).toEqual([]);
     }
     // The Unit of the refused call travels with it.
@@ -2312,12 +2312,15 @@ describe("t242 state-transition ownership guard", () => {
     seedStateFile(project, join(FIXTURES_DIR, "state-mid-ideation.md"));
     seedAuditFile(project);
     const env = { ...unownedEnv(), CLAUDE_PROJECT_DIR: project };
-    const refused = spawnSync(process.execPath, [STATE, "approve", "feasibility", "--project-dir", project], {
+    const refused = spawnSync(process.execPath, [STATE, "advance", "feasibility", "--project-dir", project], {
       timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
       encoding: "utf-8",
       env,
     });
     expect(refused.status).toBe(1);
+    // advance, a verb whose owning step is next: a decision verb's first step is
+    // the report that records the person's given answer, which only runs once
+    // they replied (pinned by the decision test above).
     const text = refusalText(refused);
     // The step is a command written out in full: quoted, as every runnable
     // step in a refusal is, and the engine's own (next or report), not the switch.
