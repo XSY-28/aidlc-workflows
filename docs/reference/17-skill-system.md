@@ -41,7 +41,19 @@ calls `report --single --stage <slug> --result completed` exactly once. Report
 requires the open start boundary and records the matching `STAGE_COMPLETED`; it
 does not fabricate both rows. The isolated path keeps no diary and does not run workflow learnings,
 open an approval gate, call main-workflow `next`, or park. The returned `done`
-terminates the isolated run.
+terminates the isolated run. A typed `--depth` or `--test-strategy` is the
+run's own: `next --single` records it on the synthetic `STAGE_STARTED` (`Depth`,
+`Test Strategy`) and the run-stage carries it as `depth` / `test_strategy`,
+leaving the workflow's settings unchanged; the typed depth also picks the
+knowledge roster. A re-run of the open attempt keeps the recorded values; a
+different one starts a new attempt (a new `STAGE_STARTED`), and the unfinished
+one is set aside, never recorded as completed. In an isolated Code Generation run the
+Testing Contract follows the run's recorded Test Strategy too, while the
+workflow's own contract and plan approval keep the workflow's (see
+[Hooks and Tools](06-hooks-and-tools.md)).
+Review, Guard Policy, a fence switch and ceremony switches are refused with an
+`error`: hooks read those from the workflow, so an isolated run cannot take its
+own.
 
 The engine is deterministic code by design — routing is the determinism concern, so it lives in a tool, never in LLM prose (handing route string-building to an LLM would invert the tool/agent/human thesis). It **composes** the existing deterministic library: `loadGraph()` for the compiled graph, `nextInScopeStage()` / `firstInScopeStageOfPhase()` for sequencing, `validScopes()` for the scope-name set, and `getField` / `parseCheckboxes` for state reads. The non-happy-path branches (jump, intent creation, scope/config change, env-scope validation) compose the sibling CLI tools by shelling out and relaying their stderr verbatim, so user-facing error wording is never reconstructed. Explicit resume falls through to normal continuation after its parked/no-state guards. The only things the engine *adds* rather than composes are the decision rule mapping `(observed state + graph) → directive kind` and the artifact-path resolver that turns the graph node's vocabulary names into canonical record-dir paths (`aidlc/spaces/<space>/intents/<YYMMDD>-<label>/<phase>/<stage>/...`).
 
@@ -75,8 +87,8 @@ The conductor skills' rows under "Acting on a step" say only what the agent does
 |---|---|---|
 | `stage_validity_note` | `stage_validity` | say the warning word for word once, with nothing in front of it, and carry on; never say who changed the document or call it stray; a yes in their next reply runs `next --stage <earliest_affected_stage>` |
 | `change_notices_note` | non-empty `change_notices` | say each line once, word for word |
-| `question_note` | every `ask` except a guard-recovery ask that is the agent's own work | the question is the person's: show it with its choices as given, end the turn, act on their reply; a pick runs that choice's command, then the step it returns, or `next` when it returns none; on a `plan-approval` ask it also names `log answer --stage code-generation --checkpoint plan-approval --details '<their choice>'` and then `next`; on a routing ask asked while no record is selected, that a continue or reshape answer needs the piece of work named first; on the plan offer, that a "Use a different plan" answer needs the plan named: show the plans the step lists, each with its length, and run the one named |
-| `answer_mode_note` | `answer_mode` on a `run-stage` whose body runs here | with `ask: true`: ask the mode question once (its text, the three choices, the exact `log decision` and `log answer` commands for this stage), then say the notice; with `ask: false`: say the notice and take the questions the way chosen earlier, recording nothing for the mode; both only if the stage puts questions to the person, right before the first of them (a stage with none to ask gets no mode line) |
+| `question_note` | every `ask` except a guard-recovery ask that is the agent's own work | the question is the person's: show it with its choices as given (a question with one choice: say its numbered question as given, since a picker such as Claude Code's takes two options or more), end the turn, act on their reply; a pick runs that choice's command, then the step it returns, or `next` when it returns none; on a `plan-approval` ask it also names `log answer --stage code-generation --checkpoint plan-approval --details '<their choice>'` and then `next`; on a routing ask asked while no record is selected, that a continue or reshape answer needs the piece of work named first; on the plan offer, that a "Use a different plan" answer needs the plan named: show the plans the step lists, each with its length, and run the one named |
+| `answer_mode_note` | a `run-stage` whose body runs here, made from the stage's answer mode, which stays out of the step | with `ask: true`: ask the mode question once (its text, the three choices, the exact `log decision` and `log answer` commands for this stage), then say the notice; with `ask: false`: say the notice and take the questions the way chosen earlier, recording nothing for the mode; both only if the stage puts questions to the person, right before the first of them (a stage with none to ask gets no mode line) |
 | `context_note` | a `run-stage` whose body runs here | work the stage as the lead whose persona the step carries (`lead_persona`), then read the files this step lists first (the supports' personas and the knowledge), one at a time and in the order listed, then the stage file and the inputs it names; when the step lists the lead's persona file instead, read the persona and knowledge files it lists first; on a dispatched topology, the stage file and inputs only, since the agents load their own persona and knowledge. The note points at the step's lists by meaning and never repeats them: a large step sits close to the transport cap |
 | `inputs_note` | a `consumes_absent` entry with `expected: false`, on a step whose body runs here | the one line to say to the person (which inputs are not here, and that the work goes on with what is), then stage-protocol-recovery.md; an `expected: true` entry carries nothing |
 | `plan_note` | `plan_approval` on a Code Generation `run-stage` whose body runs here | plan: write the plan and its test instructions, then `next`; revise: revise from the person's words, then `next`; repair: fix what the plan's note names, then `next`; approved: build it as it is; approved and skipped: say the notice first, then build without asking |
@@ -216,7 +228,7 @@ batch. A successful native merge may remove its child; `--resume-existing`
 preserves the rejection revision, not an unconditional promise that the original
 child directory exists. See the [prepare and resume commands](../guide/12-cli-commands.md#aidlc-engine-swarm-prepare-prepare-a-reproducible-batch).
 
-These seven `SWARM_*` events are part of the 123-event audit taxonomy (see [State Machine](12-state-machine.md)). On an exit-2 envelope the conductor takes the baton back - failure always halts and re-engages the human regardless of autonomy mode.
+These seven `SWARM_*` events are part of the 127-event audit taxonomy (see [State Machine](12-state-machine.md)). On an exit-2 envelope the conductor takes the baton back - failure always halts and re-engages the human regardless of autonomy mode.
 
 **The driver seam.** `AIDLC_USE_SWARM=1` selects an inline Dynamic Workflow driver (the conductor authors a `Workflow` whose JS owns the per-unit pipeline and the iteration cap); unset selects the subagent floor (N parallel `Task` calls in one message, one per unit). If `=1` but the Workflow tool is unavailable, the conductor **loud-degrades** to the floor and passes `--degraded-from ultracode` so the referee emits `SWARM_DEGRADED`. The runaway backstop is not a cap inside the tool - it is the harness's Stop-hook ceiling, which is 8 blocks under autonomous Construction and 2 otherwise (section 3).
 
@@ -232,6 +244,6 @@ test instructions. Workers never re-resolve Testing Posture independently.
 
 - **The conductor's own chapter** — the forwarding loop, the gate ritual, and the learnings ritual in full. See [Orchestrator](03-orchestrator.md).
 - **The execution-truth artefact the engine and swarm read** — `runtime-graph.json` and its `bolt_dag` node. See [Runtime Graph](13-runtime-graph.md).
-- **The transitions `report` commits** - the workflow / phase / stage machines and the 123-event audit taxonomy. See [State Machine](12-state-machine.md).
+- **The transitions `report` commits** - the workflow / phase / stage machines and the 127-event audit taxonomy. See [State Machine](12-state-machine.md).
 - **The deterministic spine** — the Stop hook and the other framework hooks and tools. See [Hooks and Tools](06-hooks-and-tools.md).
 - **Using the runners day to day** — the typeable `/aidlc-<stage>` and `/aidlc-<scope>` commands. See the User Guide's [Skills and Runner Commands](../guide/17-skills.md).

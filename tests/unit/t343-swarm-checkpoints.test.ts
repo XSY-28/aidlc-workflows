@@ -414,6 +414,29 @@ describe("t343 completed swarm batch checkpoints", () => {
     expect(resolveSwarmCheckpoint(pd, 1, BATCH).approved).toBe(true);
   });
 
+  // #2208 part 2: the batch's approval records its Units' open review findings
+  // through the writer its caller hands in, as the person's approval when they
+  // gave it and as nobody's when Construction ran on its own.
+  test.each([false, true])("a batch approval records its Units' findings with who approved it (autonomous: %p)", (autonomous) => {
+    const pd = fixture(autonomous);
+    converge(pd);
+    const asked: unknown[] = [];
+    const recorded = JSON.stringify({ version: 1, dispositions: [] });
+    const dispositions = (stages: readonly string[], units: readonly string[], decider: string) => {
+      asked.push({ stages, units, decider });
+      return { "Review Finding Dispositions": recorded };
+    };
+    if (!autonomous) human(pd);
+    const approved = autonomous
+      ? approveSwarmCheckpoint(pd, 1, BATCH, undefined, "", dispositions)
+      : approveSwarmCheckpoint(pd, 1, BATCH, "Approve", "t343-checkpoint", dispositions);
+    expect(approved.approved).toBe(true);
+    expect(asked).toEqual([{ stages: [STAGE], units: BATCH, decider: autonomous ? "nobody" : "person" }]);
+    const [row] = gates(pd);
+    expect(auditBlockField(row.block, "Review Finding Dispositions")).toBe(recorded);
+    expect(auditBlockField(row.block, autonomous ? "Autonomous" : "User Input")).toBe(autonomous ? "true" : "Approve");
+  });
+
   test("a passing caller check cannot replace the failing authorized command", () => {
     const pd = fixture();
     prepareNative(pd);
@@ -1114,7 +1137,7 @@ if (invalid.ok) throw new Error("invalid manifest unexpectedly accepted");
     }
   });
 
-  test("approved inline units are excluded, and cannot substitute for native batch members", () => {
+  test("approved inline units are excluded, and cannot substitute for native batch members", async () => {
     const pd = fixture();
     const content = readFileSync(seededStateFile(pd), "utf-8");
     for (const stage of unitMajorConstructionStageSlugs("feature", content, true)) {
@@ -1131,7 +1154,7 @@ if (invalid.ok) throw new Error("invalid manifest unexpectedly accepted");
       : `'${process.execPath.replaceAll("'", "'\\''")}'`;
     const check = `${executable} -e "if (!require('fs').readFileSync('src/alpha.ts','utf8').includes('alpha = 1')) process.exit(1)"`;
     recordCommand(pd, check);
-    expect(verifyConstructionCheckpoint(pd, "alpha", "unit").verified).toBe(true);
+    expect((await verifyConstructionCheckpoint(pd, "alpha", "unit")).verified).toBe(true);
     expect(tool(pd, "bolt", ["checkpoint", "--action", "ask", "--unit", "alpha", "--kind", "unit", "--session", "inline-checkpoint"]).code).toBe(0);
     choice(pd, "inline-checkpoint", "Approve");
     expect(approveConstructionCheckpoint(pd, "alpha", "unit", "Approve", "inline-checkpoint").approved).toBe(true);

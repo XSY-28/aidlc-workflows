@@ -355,6 +355,37 @@ example on your first workflow or in code where every change matters. Use
 Autopilot when you want far fewer clicks: you still answer every AI-DLC
 checkpoint in chat, and can look over the changes afterwards.
 
+### When the chat fills up
+
+Kiro shows you how full the chat is, but gives AI-DLC no figure while it works.
+Kiro IDE and Kiro CLI's v3 engine summarize the chat on their own when it
+reaches 80%, and from then on the agent works from that summary. AI-DLC reads
+Kiro's own record of the chat (`~/.kiro/sessions/`, read only), and at the
+first approval question or Unit checkpoint after Kiro summarized the chat it
+says so in one line, with an offer to pause and carry on in a new chat. If you
+turned Kiro's auto-compaction off, the same offer comes once the chat is 80%
+full. Your answer decides: nothing pauses on its own, and the line is said once
+in a chat.
+
+The line cannot appear in the middle of a stage (it comes only with a question
+you are asked anyway), for a chat with no record on this machine, or if a Kiro
+update changes how Kiro records the chat. On Kiro
+IDE with two AI-DLC chats open in one window, it can describe the chat that
+started last. You can always do the same by hand:
+
+1. Stop at a stage boundary: approve and say you want to stop for now in the
+   same reply, or type `/aidlc park`. `/aidlc --status` now shows
+   `Paused at <stage> (you stopped it); pick it back up with /aidlc --resume`.
+2. Start a new chat: on Kiro IDE, open a new chat and choose **aidlc** in the
+   agent picker (a new chat starts on Kiro's Default agent; see
+   [Start AI-DLC in a Kiro IDE chat](#start-ai-dlc-in-a-kiro-ide-chat)); in Kiro
+   CLI, type `/chat new`.
+3. Type `/aidlc --resume`. `/aidlc --status` no longer says Paused.
+
+Anything the old chat discussed but did not write to a file does not carry
+over, which is why the end of a stage is the best moment (see
+[Changing Model Mid-Workflow](../11-session-management.md#changing-model-mid-workflow)).
+
 ## How hooks work on Kiro
 
 Kiro IDE and Kiro CLI v3 register hooks through v2 hook JSON files
@@ -459,7 +490,7 @@ ways to enable it, either works:
 |------|-------------|----------|
 | Hook registration | `settings.json` `hooks` block | `.kiro/hooks/aidlc-*.json` v2 hook files (Kiro IDE 1.x, Kiro CLI v3 engine) |
 | Gates & questions | `AskUserQuestion` widget | Numbered prose options (reply with a number); the questions FILE with `[Answer]:` tags stays the source of truth |
-| Statusline | Current stage + model + context % | Not available — use `/aidlc --status` and the progress line at each gate |
+| Statusline | Current stage + model + context % | Not available: use `/aidlc --status` and the progress line at each gate; for a chat that is filling up, see [When the chat fills up](#when-the-chat-fills-up) |
 | Dispatched stages (2.1 pipeline, 2.2 subagent, 2.4 mob, 3.5 subagent) | `Task` tool | `invoke_sub_agent` (Kiro IDE) or `orchestrate_subagent` (Kiro CLI) → all 14 Markdown personas, each running under the `tools:` and deny rules in its own frontmatter and the conductor's command allow |
 | Construction swarm | Parallel `Task` floor, optional ultracode Workflow | Subagent fan-out only; `AIDLC_USE_SWARM=1` is announced as a no-op |
 | Session audit events | `SESSION_STARTED/RESUMED/ENDED`, `SESSION_COMPACTED` | `SESSION_STARTED` when a new session takes its first prompt, and on Kiro IDE `SESSION_RESUMED` when a prompt returns to an earlier chat (no genuine session-end trigger, so no `SESSION_ENDED`; no pre-compaction event) |
@@ -587,9 +618,26 @@ Kiro's own **Disable Workflows** and **Enable Workflows** commands do the same.
 `/aidlc --doctor` shows a warning while Workflows is on, and while Kiro's
 settings file has an error AI-DLC cannot read past (Kiro may still read
 Workflows as on from it; the next chat tells you once, and the fix is the
-error in that file). Kiro CLI keeps its
-sub-agent tool with Workflows on (unless you turn its "Workflows: sub-agent
-tool" setting off), so it needs nothing.
+error in that file).
+
+Kiro CLI has a Workflows switch of its own (`/settings` > Features >
+**Workflows**, `chat.enableWorkflows` in your Kiro CLI settings,
+`~/.kiro/settings/cli.json`). While it is on, Kiro CLI takes both sub-agent
+tools away from the `aidlc` agent, so AI-DLC's reviews and helpers do not run
+in your Kiro CLI chats; its "Workflows: sub-agent tool" setting does not bring
+them back (measured on Kiro CLI 2.31.1 and 2.32.0). Kiro CLI's chat reads the
+switch only from your own Kiro CLI settings, so a project's
+`.kiro/settings/cli.json` value does not turn it off. AI-DLC asks about it the same way, with an answer of its
+own: during `aidlc config`, or once in your first Kiro CLI chat; `aidlc config
+--yes` takes the recommended answer and turns it off. AI-DLC changes it through
+Kiro CLI's own `kiro-cli settings` command; quit Kiro CLI and start `kiro-cli`
+again afterwards. To change it later, ask the agent, or run:
+
+```bash
+aidlc config trust --kiro-cli-workflows off --yes   # or: on
+```
+
+`/aidlc --doctor` shows a warning while it is on.
 
 ### Command Prompt as Kiro's terminal on Windows
 

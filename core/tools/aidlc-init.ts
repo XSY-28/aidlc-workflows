@@ -61,6 +61,7 @@ import {
   legacyAidlcHookTarget,
   mergeBlock,
   mergeJsonEntries,
+  newlineOf,
   ownTitleLine,
   type ProjectionDescriptor,
   projectionFiles,
@@ -152,11 +153,19 @@ import {
   pausedBySelection,
   pausedLine,
   resolveInvokingSessionId,
+  resumedLine,
   sameFileIdentity,
   withAuditLock,
   writeFileAtomic,
 } from "./aidlc-lib.ts";
-import { cutPluginFragment, editTomlInstructions, personaTwinRels } from "./aidlc-plugin.ts";
+import {
+  cutPluginFragment,
+  editTomlInstructions,
+  nextCompose,
+  personaTwinRels,
+  type StageContribRecord,
+  stripRecordedAdds,
+} from "./aidlc-plugin.ts";
 import { droppedPluginRegistrations } from "./aidlc-plugin-emit.ts";
 import { regenerateRunnerSurfaces } from "./aidlc-runner-gen.ts";
 import { KIRO_IDE_STEERING, kiroIdeSteering, refreshActiveMemory } from "./aidlc-includes.ts";
@@ -202,16 +211,28 @@ import {
   setByDotenvFile,
 } from "./aidlc-kiro-session.ts";
 import {
+  KIRO_CLI_WORKFLOWS_ISSUE_ID,
+  KIRO_CLI_WORKFLOWS_QUESTION,
   KIRO_WORKFLOWS_ISSUE_ID,
   KIRO_WORKFLOWS_QUESTION,
   KIRO_WORKFLOWS_UNREADABLE_ISSUE_ID,
+  kiroCliWorkflowsKeptLine,
+  kiroCliWorkflowsOffLine,
+  kiroCliWorkflowsAlreadyOffLine,
+  kiroCliWorkflowsOnLine,
+  kiroCliWorkflowsQuestionDue,
   kiroWorkflowsKeptLine,
   kiroWorkflowsOffLine,
+  kiroWorkflowsAlreadyOffLine,
   kiroWorkflowsOnLine,
   kiroWorkflowsQuestionDue,
+  readKiroCliWorkflows,
+  readKiroCliWorkflowsAnswer,
   readKiroIdeWorkflows,
   readKiroWorkflowsAnswer,
+  recordKiroCliWorkflowsAnswer,
   recordKiroWorkflowsAnswer,
+  setKiroCliWorkflows,
   setKiroIdeWorkflows,
   type KiroWorkflowsAnswer,
 } from "./aidlc-kiro-ide-workflows.ts";
@@ -277,8 +298,12 @@ import {
 } from "./aidlc-model-policy.ts";
 import { resolveTierCap } from "./aidlc-tiers.ts";
 import {
+  applyClaudeLocalProvider,
   applyConfigDiagnosticRecords,
   applyProjectFlagsToProjection,
+  CLAUDE_PROVIDER_NOT_SET_UP_ID,
+  sharedProvidersRecord,
+  withLocalClaudeProfile,
   harnessOwnsModelAccess,
   providerAnswerIsTheSession,
   sessionModelAccessFact,
@@ -499,6 +524,7 @@ const CONFIG_VALUE_FLAGS = new Set([
   "--agent",
   "--statusline",
   "--kiro-workflows",
+  "--kiro-cli-workflows",
   "--kiro-terminal",
   "--ca-bundle",
   "--channel",
@@ -569,6 +595,7 @@ const CHOICE_BARE_FLAGS = new Set([
 const DIAGNOSTIC_VALUE_FLAGS = new Set([
   "--harness",
   "--kiro-workflows",
+  "--kiro-cli-workflows",
   "--kiro-terminal",
   "--mark-done",
   "--opencode-default",
@@ -1581,7 +1608,7 @@ function validateDiagnosticArgs(
         "--region",
       ])
     : section === "trust"
-    ? new Set(["--harness", "--kiro-workflows", "--kiro-terminal", "--plan-token", "--project-dir"])
+    ? new Set(["--harness", "--kiro-workflows", "--kiro-cli-workflows", "--kiro-terminal", "--plan-token", "--project-dir"])
     : new Set(["--harness", "--plan-token", "--project-dir"]);
   const sectionBare = section === "runtime"
     ? new Set([...DIAGNOSTIC_BARE_FLAGS, "--record-paths"])
@@ -1610,7 +1637,7 @@ function validateDiagnosticArgs(
         "--region",
         "--reset",
       ]
-    : ["--acknowledge", "--kiro-workflows", "--kiro-terminal", "--reset"];
+    : ["--acknowledge", "--kiro-workflows", "--kiro-cli-workflows", "--kiro-terminal", "--reset"];
   return validateConfigMutationModes(argv, section, mutationFlags);
 }
 
@@ -1653,6 +1680,7 @@ function diagnosticHelp(section: DiagnosticSection): string {
         heading("Trust answers:", out),
         "  --acknowledge",
         "  --kiro-workflows <on|off>   Kiro IDE: turn Kiro's Workflows feature on or off, a Kiro setting for all your projects (while it is on, AI-DLC's reviews and helpers do not run)",
+        "  --kiro-cli-workflows <on|off>  Kiro CLI: turn Kiro CLI's Workflows feature on or off, a Kiro CLI setting for all your projects (while it is on, AI-DLC's reviews and helpers do not run)",
         "  --kiro-terminal powershell  Kiro IDE on Windows: set Kiro's default terminal to PowerShell, a Kiro setting for all your projects (in Command Prompt, AI-DLC's commands can split your words)",
         "",
         "Trust is read, verified, and instructed. This section never regenerates trust seeds or permission rules.",
@@ -1928,6 +1956,9 @@ function showDiagnosticSection(
         : "off";
       output += `  Kiro Workflows: ${workflows} (${status.kiroWorkflows.settingsPath})\n`;
     }
+    if (status.kiroCliWorkflows) {
+      output += `  Kiro CLI Workflows: ${status.kiroCliWorkflows.enabled ? "on" : "off"} (${status.kiroCliWorkflows.settingsPath})\n`;
+    }
     if (status.kiroTerminal?.commandPrompt) {
       output += `  Kiro terminal: Command Prompt (${status.kiroTerminal.settingsPath})\n`;
     }
@@ -2087,7 +2118,8 @@ function providerRecordFromArgs(
   if (
     next.provider !== current?.provider ||
     next.region !== current?.region ||
-    next.profile !== current?.profile ||
+    // A Claude profile is the person's own, not part of the shared record.
+    (selected.harness !== "claude" && next.profile !== current?.profile) ||
     next.opencodeDefault !== current?.opencodeDefault
   ) {
     delete next.acknowledged;
@@ -2151,6 +2183,7 @@ function diagnosticWizard(
   selected: ReturnType<typeof selectedDiagnosticHarness>,
   records: ConfigDiagnosticRecords,
   _options: ReturnType<typeof globalOptions>,
+  dryRun: boolean,
 ): RuntimeRecord | ProvidersRecord | TrustRecord | null {
   if (section === "runtime") {
     const diagnostics = probeRuntime(projectDir, selected.harnessDir, selected.harness);
@@ -2305,8 +2338,13 @@ function diagnosticWizard(
     }
     return next;
   }
-  if (selected.harness === "kiro-ide") askKiroWorkflows(projectDir);
-  if (selected.harness === "kiro-ide") askKiroTerminal(projectDir);
+  // These questions set the person's own Kiro settings on yes, so a preview
+  // (--dry-run) does not ask them.
+  if (selected.harness === "kiro-ide" && !dryRun) {
+    askKiroWorkflows(projectDir);
+    askKiroCliWorkflows(projectDir);
+    askKiroTerminal(projectDir);
+  }
   // Codex's own hook trust comes first, so the review question below never
   // reads as that step.
   const issues = selected.harness === "codex" || selected.harness === "kiro-ide"
@@ -2398,7 +2436,7 @@ function kiroWorkflowsSwitch(
   if (selected.harness !== "kiro-ide") {
     return usage(`--kiro-workflows applies to Kiro IDE projects; this project is set up for ${selected.distribution}`);
   }
-  const other = ["--acknowledge", "--reset"].find((flag) => argv.includes(flag));
+  const other = ["--acknowledge", "--reset", "--kiro-cli-workflows"].find((flag) => argv.includes(flag));
   if (other) return usage(`--kiro-workflows cannot be combined with ${other}`);
   const state = readKiroIdeWorkflows();
   if (!state.settingsPath) return failure("Kiro IDE's settings are not in reach here", EXIT.failure);
@@ -2420,14 +2458,20 @@ function kiroWorkflowsSwitch(
       return success("Kiro's Workflows feature left as it is");
     }
   }
+  let changed: boolean;
   try {
-    setKiroIdeWorkflows(enabled);
+    changed = setKiroIdeWorkflows(enabled).changed;
   } catch (error) {
     return failure(error instanceof Error ? error.message : String(error), EXIT.failure);
   }
+  // The answer is kept either way: a person who keeps Workflows on has answered.
   recordKiroWorkflowsAnswer(value);
   return success(
-    enabled ? kiroWorkflowsOnLine() : kiroWorkflowsOffLine(),
+    !changed
+      ? enabled ? kiroWorkflowsKeptLine(configInvocationFor(projectDirFrom(argv))) : kiroWorkflowsAlreadyOffLine()
+      : enabled
+      ? kiroWorkflowsOnLine()
+      : kiroWorkflowsOffLine(),
     data(value),
   );
 }
@@ -2457,6 +2501,87 @@ function applyKiroWorkflowsAnswer(projectDir: string, off: boolean): string {
   return kiroWorkflowsOffLine();
 }
 
+// Kiro CLI's Workflows switch is the person's Kiro CLI setting for all their
+// projects, set the same way as Kiro IDE's: on its own, through Kiro, and only
+// when they ask for it.
+function kiroCliWorkflowsSwitch(
+  selected: ReturnType<typeof selectedDiagnosticHarness>,
+  argv: readonly string[],
+  options: ReturnType<typeof globalOptions>,
+): CommandResult {
+  const value = valueAfter([...argv], "--kiro-cli-workflows");
+  if (value !== "on" && value !== "off") {
+    return usage("--kiro-cli-workflows must be on or off", configCommand("trust --help"));
+  }
+  if (selected.harness !== "kiro-ide") {
+    return usage(`--kiro-cli-workflows applies to Kiro IDE projects; this project is set up for ${selected.distribution}`);
+  }
+  const other = ["--acknowledge", "--reset", "--kiro-terminal"].find((flag) => argv.includes(flag));
+  if (other) return usage(`--kiro-cli-workflows cannot be combined with ${other}`);
+  const state = readKiroCliWorkflows();
+  if (!state) return failure("Kiro CLI did not answer here, so its Workflows feature was not changed", EXIT.failure);
+  const enabled = value === "on";
+  const data = (answer: KiroWorkflowsAnswer | null) => ({
+    kiroCliWorkflows: { enabled, settingsPath: state.settingsPath, answer },
+  });
+  if (argv.includes("--dry-run")) {
+    return success(
+      `would turn Kiro CLI's Workflows feature ${value} in ${state.settingsPath}`,
+      data(readKiroCliWorkflowsAnswer()),
+    );
+  }
+  if (!options.yes) {
+    if (!configInputIsTty()) {
+      return usage(
+        "non-interactive trust mutation requires --yes; --yes confirms but never chooses",
+        configMutationRerun("trust", [...argv]),
+      );
+    }
+    if (!promptYesDefault(`  Turn Kiro CLI's Workflows feature ${value}? It is a Kiro CLI setting for all your projects.`, true)) {
+      return success("Kiro CLI's Workflows feature left as it is");
+    }
+  }
+  let changed: boolean;
+  try {
+    changed = setKiroCliWorkflows(enabled).changed;
+  } catch (error) {
+    return failure(error instanceof Error ? error.message : String(error), EXIT.failure);
+  }
+  recordKiroCliWorkflowsAnswer(value);
+  return success(
+    !changed
+      ? enabled
+        ? kiroCliWorkflowsKeptLine(configInvocationFor(projectDirFrom(argv)))
+        : kiroCliWorkflowsAlreadyOffLine()
+      : enabled
+      ? kiroCliWorkflowsOnLine()
+      : kiroCliWorkflowsOffLine(),
+    data(value),
+  );
+}
+
+// Asked once per machine while Kiro CLI's Workflows is on and the person never
+// answered about it, as for Kiro IDE's.
+function askKiroCliWorkflows(projectDir: string): void {
+  if (!kiroCliWorkflowsQuestionDue()) return;
+  const off = promptYesDefault(`\n  ${KIRO_CLI_WORKFLOWS_QUESTION}`, true);
+  writeMenuText(`  ${applyKiroCliWorkflowsAnswer(projectDir, off)}\n\n`);
+}
+
+function applyKiroCliWorkflowsAnswer(projectDir: string, off: boolean): string {
+  if (!off) {
+    recordKiroCliWorkflowsAnswer("on");
+    return kiroCliWorkflowsKeptLine(configInvocationFor(projectDir));
+  }
+  try {
+    setKiroCliWorkflows(false);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  recordKiroCliWorkflowsAnswer("off");
+  return kiroCliWorkflowsOffLine();
+}
+
 // Kiro IDE's default terminal is the person's Kiro setting for all their
 // projects, outside this project: set on its own, never inside the project's
 // transaction, and only when they ask for it. It only ever moves to PowerShell,
@@ -2471,7 +2596,7 @@ function kiroTerminalSwitch(
   if (selected.harness !== "kiro-ide") {
     return usage(`--kiro-terminal applies to Kiro IDE projects; this project is set up for ${selected.distribution}`);
   }
-  const other = ["--acknowledge", "--reset", "--kiro-workflows"].find((flag) => argv.includes(flag));
+  const other = ["--acknowledge", "--reset", "--kiro-workflows", "--kiro-cli-workflows"].find((flag) => argv.includes(flag));
   if (other) return usage(`--kiro-terminal cannot be combined with ${other}`);
   const state = readKiroIdeTerminal();
   if (!state.settingsPath) return failure("Kiro IDE's settings are not in reach here", EXIT.failure);
@@ -2587,6 +2712,10 @@ function diagnosticSummary(
           ? "  Providers    legacy builtin answer; no provider settings written"
           : `  Providers    ${record.provider} region=${record.region ?? "manual"} profile=${
             record.profile ?? "default-chain"
+          }${
+            harness === "claude" && record.provider === "amazon-bedrock"
+              ? ", in .claude/settings.local.json (just for you)"
+              : ""
           }`,
       ],
       notes: record
@@ -2823,7 +2952,7 @@ function setupMapRows(
   // names them as the person's to check instead of reporting all trust as met.
   const copilot = modelHarness(distribution) === "copilot";
   const trustDetail = trust.length === 1 &&
-      (trust[0].id === "copilot-folder-untrusted" || trust[0].id === KIRO_WORKFLOWS_ISSUE_ID || trust[0].id === KIRO_TERMINAL_ISSUE_ID || trust[0].step)
+      (trust[0].id === "copilot-folder-untrusted" || trust[0].id === KIRO_WORKFLOWS_ISSUE_ID || trust[0].id === KIRO_CLI_WORKFLOWS_ISSUE_ID || trust[0].id === KIRO_TERMINAL_ISSUE_ID || trust[0].step)
     ? trust[0].message
     : trust.length > 0
     ? `${trust.length} host trust issue${trust.length === 1 ? "" : "s"}`
@@ -3046,6 +3175,7 @@ async function runSetupWalk(
   harnessDir: string,
   distribution: string,
   initialOutstanding: readonly ConfigOutstandingAction[],
+  yes = false,
 ): Promise<void> {
   const initialLedger = setupLedgerActions(
     projectDir,
@@ -3081,7 +3211,9 @@ async function runSetupWalk(
   }
   let answer: boolean;
   try {
-    answer = promptYesDefault(
+    // Every flagged section is an answer only the person gives, which --yes
+    // never chooses: under --yes the map and what is left, and no question.
+    answer = !yes && promptYesDefault(
       `\n  Fix the ${flagged.length} sections that need you now?`,
       true,
     );
@@ -3157,7 +3289,7 @@ function prepareDiagnosticSection(
         "--region",
         "--reset",
       ]
-    : ["--acknowledge", "--kiro-workflows", "--kiro-terminal", "--reset"];
+    : ["--acknowledge", "--kiro-workflows", "--kiro-cli-workflows", "--kiro-terminal", "--reset"];
   const hasMutationFlags = mutationFlags.some((flag) => argv.includes(flag));
   if (
     (argv.includes("--show") || argv.includes("--check")) &&
@@ -3180,6 +3312,9 @@ function prepareDiagnosticSection(
     section,
   );
   const records = readConfigDiagnosticRecords(selected.root);
+  if (section === "providers" && selected.harness === "claude") {
+    records.providers = withLocalClaudeProfile(projectDir, selected.harnessDir, records.providers);
+  }
   if (argv.includes("--show")) {
     showDiagnosticSection(section, projectDir, selected, records, options);
     return null;
@@ -3190,6 +3325,10 @@ function prepareDiagnosticSection(
   }
   if (section === "trust" && argv.includes("--kiro-workflows")) {
     emitResult(kiroWorkflowsSwitch(selected, argv, options), options);
+    return null;
+  }
+  if (section === "trust" && argv.includes("--kiro-cli-workflows")) {
+    emitResult(kiroCliWorkflowsSwitch(selected, argv, options), options);
     return null;
   }
   if (section === "trust" && argv.includes("--kiro-terminal")) {
@@ -3242,7 +3381,7 @@ function prepareDiagnosticSection(
       emitResult(copilotTrustStep(projectDir), options);
       return null;
     }
-    next = diagnosticWizard(section, projectDir, selected, records, options);
+    next = diagnosticWizard(section, projectDir, selected, records, options, argv.includes("--dry-run"));
   }
   const previous = currentDiagnosticRecord(records, section);
   const providerSurfaceDrift =
@@ -3253,7 +3392,7 @@ function prepareDiagnosticSection(
       selected.harnessDir,
       selected.harness,
       next as ProvidersRecord,
-    ).some((issue) => issue.severity !== "warn");
+    ).some((issue) => issue.severity !== "warn" || issue.id === CLAUDE_PROVIDER_NOT_SET_UP_ID);
   if (canonical(previous) === canonical(next) && !providerSurfaceDrift) {
     emitResult(success(`${section} configuration unchanged`), options);
     return null;
@@ -3285,7 +3424,12 @@ function prepareDiagnosticSection(
       harnessDir: selected.harnessDir,
       previous,
       next,
-      overrides: diagnosticOverrides(section, next),
+      overrides: diagnosticOverrides(
+        section,
+        section === "providers" && selected.harness === "claude"
+          ? sharedProvidersRecord(next as ProvidersRecord | null)
+          : next,
+      ),
       summaryLines: summary.lines,
       notes: summary.notes,
     },
@@ -4756,25 +4900,6 @@ function unbaselinedGenerated(harnessDir: string): string[] {
   ];
 }
 
-// Compose records a plugin's consumed artifacts as objects, so the sidecar
-// shape must match what the compose hook writes, or the readers below silently
-// match nothing. See issue #1247.
-type ConsumeContribRecord = {
-  artifact: string;
-  required: boolean;
-  conditional_on?: string;
-};
-
-type StageContribRecord = {
-  produces?: string[];
-  sensors?: string[];
-  consumes?: Array<string | ConsumeContribRecord>;
-  scopes?: string[];
-  requires_stage?: string[];
-  required_sections?: string[];
-  required_sections_created?: boolean;
-};
-
 function resetProjectionCaches(): void {
   __resetGraphCache();
   _resetHarnessDataForTests();
@@ -4869,35 +4994,10 @@ function removeListItems(content: string, field: string, items: readonly string[
   return content.replace(block, replacement);
 }
 
+// The file without any plugin's additions: the refresh reads the union of
+// every sidecar, so every plugin's fragments go too.
 function stripRecordedContributions(content: string, record: StageContribRecord): string {
-  let value = content;
-  for (const [field, items] of [
-    ["produces", record.produces],
-    ["sensors", record.sensors],
-    ["scopes", record.scopes],
-    ["requires_stage", record.requires_stage],
-    ["required_sections", record.required_sections],
-  ] as const) {
-    value = removeListItems(
-      value,
-      field,
-      items ?? [],
-      field === "required_sections" && record.required_sections_created === true,
-    );
-  }
-  if (record.consumes?.length) {
-    const names = new Set(
-      record.consumes.map((entry) => typeof entry === "string" ? entry : entry.artifact),
-    );
-    const block = /^consumes:\n((?: {2}- artifact:.*\n(?: {4}(?:required|conditional_on):.*\n)*)*)/m.exec(value);
-    if (block) {
-      const kept = [...block[1].matchAll(/^ {2}- artifact:\s*([\w-]+).*\n(?: {4}(?:required|conditional_on):.*\n)*/gm)]
-        .filter((entry) => !names.has(entry[1]))
-        .map((entry) => entry[0]);
-      value = value.replace(block[0], kept.length > 0 ? `consumes:\n${kept.join("")}` : "consumes: []\n");
-    }
-  }
-  return stripPluginFragments(value);
+  return stripPluginFragments(stripRecordedAdds(content, record));
 }
 
 function stripPluginFragments(content: string): string {
@@ -5219,6 +5319,7 @@ function preserveClaudeProviderFields(
   projectFlags: ProjectFlagsRecord | null,
   prior: Baseline | null,
   notes: string[],
+  providersAnswered: boolean,
 ): Set<string> {
   const retiredManagedFiles = new Set<string>();
   const relative = `${harnessDir}/settings.json`;
@@ -5371,9 +5472,17 @@ function preserveClaudeProviderFields(
     (!previousProvider.profile ||
       currentEnv.AWS_PROFILE === previousProvider.profile)
   ) {
-    delete currentEnv.CLAUDE_CODE_USE_BEDROCK;
-    delete currentEnv.AWS_REGION;
-    if (previousProvider.profile) delete currentEnv.AWS_PROFILE;
+    // An earlier release wrote this answer into the shared file. A refresh
+    // leaves it there; only a new providers answer takes it out, and a Bedrock
+    // answer then lives in the person's settings.local.json.
+    if (providersAnswered) {
+      delete currentEnv.CLAUDE_CODE_USE_BEDROCK;
+      delete currentEnv.AWS_REGION;
+      if (previousProvider.profile) delete currentEnv.AWS_PROFILE;
+      if (nextProvider?.provider === "amazon-bedrock") {
+        notes.push(`Moved your Amazon Bedrock settings from ${relative} to ${harnessDir}/settings.local.json.`);
+      }
+    }
   } else if (currentLegacy) {
     delete currentEnv.CLAUDE_CODE_USE_BEDROCK;
     delete currentEnv.AWS_REGION;
@@ -5382,7 +5491,9 @@ function preserveClaudeProviderFields(
       !Array.isArray(staged.env)
     ? { ...staged.env as Record<string, unknown> }
     : {};
-  if (nextProvider?.provider !== "amazon-bedrock") {
+  // A providers answer stages the project's own file, which still holds the
+  // earlier answer; a Bedrock answer now goes to settings.local.json instead.
+  if (nextProvider?.provider !== "amazon-bedrock" || providersAnswered) {
     const stagedLegacy = hasLegacyClaudeProviderConfig(stagedEnv);
     if (
       previousProvider?.provider === "amazon-bedrock" ||
@@ -6524,6 +6635,7 @@ function preserveUserProviderFields(
   notes: string[],
   retiredManagedFiles: Set<string>,
   unproven: Set<string>,
+  providersAnswered: boolean,
 ): boolean {
   if (harness === "claude") {
     // Claude settings merge per entry, so the refreshed file always applies.
@@ -6536,6 +6648,7 @@ function preserveUserProviderFields(
       projectFlags,
       prior,
       notes,
+      providersAnswered,
     )) retiredManagedFiles.add(rel);
     return true;
   } else if (harness === "codex") {
@@ -6834,6 +6947,7 @@ function prepareRefreshSource(
     notes,
     retiredManagedFiles,
     unproven,
+    diagnosticsOverride !== undefined && Object.hasOwn(diagnosticsOverride, "providers"),
   );
   // A recorded flag overrides a directly customized settings value.
   applyProjectFlagsToProjection(
@@ -7935,6 +8049,8 @@ type FirstRunChoices = {
   kiro?: FirstRunKiroSession | null;
   // Kiro IDE only, asked while its Workflows feature is on: true turns it off.
   kiroWorkflowsOff?: boolean;
+  // Kiro's row, asked while Kiro CLI's own Workflows feature is on: true turns it off.
+  kiroCliWorkflowsOff?: boolean;
   // Kiro IDE on Windows only, asked while its terminal is Command Prompt: true sets PowerShell.
   kiroTerminalPowerShell?: boolean;
   // Claude Code and Codex, asked once: true shows AI-DLC's progress in the status line.
@@ -9536,6 +9652,9 @@ async function runFirstRunWizard(projectDir: string): Promise<boolean> {
   if (choices.candidate.stamp.distribution === "kiro-ide" && kiroWorkflowsQuestionDue()) {
     choices.kiroWorkflowsOff = promptYesDefault(`\n  ${KIRO_WORKFLOWS_QUESTION}`, true);
   }
+  if (choices.candidate.stamp.distribution === "kiro-ide" && kiroCliWorkflowsQuestionDue()) {
+    choices.kiroCliWorkflowsOff = promptYesDefault(`\n  ${KIRO_CLI_WORKFLOWS_QUESTION}`, true);
+  }
   if (choices.candidate.stamp.distribution === "kiro-ide" && kiroTerminalQuestionDue()) {
     choices.kiroTerminalPowerShell = promptYesDefault(`\n  ${KIRO_TERMINAL_QUESTION}`, true);
   }
@@ -9555,6 +9674,10 @@ async function runFirstRunWizard(projectDir: string): Promise<boolean> {
     if (choices.kiroWorkflowsOff !== undefined) {
       process.stdout.write("\n");
       writeMenuRow("  ", applyKiroWorkflowsAnswer(projectDir, choices.kiroWorkflowsOff));
+    }
+    if (choices.kiroCliWorkflowsOff !== undefined) {
+      process.stdout.write("\n");
+      writeMenuRow("  ", applyKiroCliWorkflowsAnswer(projectDir, choices.kiroCliWorkflowsOff));
     }
     if (choices.kiroTerminalPowerShell !== undefined) {
       process.stdout.write("\n");
@@ -9728,9 +9851,15 @@ function planManagedFiles(
         // its proof; a model written into it then reaches the record too.
         const unmodified = currentHash === priorHash ||
           (priorHash !== undefined && modelStamped.has(rel) && composedRecords.has(rel));
+        // A file staged from the project's own CRLF checkout (Codex's
+        // config.toml, Kiro CLI's mcp.json) keeps the record it equals once
+        // line endings are set aside, so a clone's refresh leaves it as committed.
+        const recordHash = priorHash !== undefined && hash !== priorHash && sha256FileMatching(source, [priorHash]) === priorHash
+          ? priorHash
+          : hash;
         const nextHash = retainBaseline
-          ? regenerated.has(rel) && targetRegular && unmodified ? composedRecords.get(rel) ?? hash : priorHash
-          : composedRecords.get(rel) ?? hash;
+          ? regenerated.has(rel) && targetRegular && unmodified ? composedRecords.get(rel) ?? recordHash : priorHash
+          : composedRecords.get(rel) ?? recordHash;
         if (nextHash !== undefined) nextHashes[rel] = nextHash;
       }
       if (runtimeGenerated(rel, descriptor.harnessDir, regenerated) && !modelWritten.has(rel)) {
@@ -11762,7 +11891,17 @@ function settingsChangeLines(
 // one back where a command can.
 function recordChangeLines(projectDir: string, context: DiagnosticsMutationContext): string[] {
   if (canonical(context.previous) === canonical(context.next)) return [];
-  const file = `${context.harnessDir}/tools/data/harness.json`;
+  // Only a Claude answer's profile changed: that lives in the person's own file.
+  const personalOnly = context.section === "providers" && context.harness === "claude" &&
+    context.previous !== null && context.next !== null &&
+    canonical(sharedProvidersRecord(context.previous as ProvidersRecord)) ===
+      canonical(sharedProvidersRecord(context.next as ProvidersRecord));
+  // With no earlier profile no command puts the file back, and the summary
+  // line already says where the answer went.
+  if (personalOnly && !(context.previous as ProvidersRecord).profile) return [];
+  const file = personalOnly
+    ? `${context.harnessDir}/settings.local.json`
+    : `${context.harnessDir}/tools/data/harness.json`;
   const command = (args: string[]): string =>
     `${configInvocationFor(projectDir)} config ${context.section} ${
       args.map((arg) => quoteCommandArgument(arg)).join(" ")
@@ -12040,16 +12179,17 @@ function projectChangeLines(projectDir: string, context: ChoicesMutationContext)
   return [changed, ...pausedChangeLines(projectDir, context)];
 }
 
-// Said once, at the change that pauses a plugin: its base is left out of the
-// list the person typed, and the plugin stays in it.
+// Said once, at the change that pauses a plugin (its base is left out of the
+// list the person typed, and the plugin stays in it), and once at the change
+// that turns its base back on. No list (all, or a reset) turns every plugin on.
 function pausedChangeLines(projectDir: string, context: ChoicesMutationContext): string[] {
-  if (context.nextPlugins === null) return [];
   const dataDir = join(projectDir, context.harnessDir, "tools", "data");
   const baseOf = (plugin: string): string | null => composedPluginBase(dataDir, plugin);
   const before = pausedBySelection(context.previousPlugins === null ? null : new Set(context.previousPlugins), baseOf);
-  const after = pausedBySelection(new Set(context.nextPlugins), baseOf);
-  return [...after].filter(([plugin, base]) => before.get(plugin) !== base).map(([plugin, base]) => {
-    const rest = (context.nextPlugins ?? []).filter((name) => name !== plugin);
+  const next = context.nextPlugins;
+  const after = pausedBySelection(next === null ? null : new Set(next), baseOf);
+  const paused = [...after].filter(([plugin, base]) => before.get(plugin) !== base).map(([plugin, base]) => {
+    const rest = (next ?? []).filter((name) => name !== plugin);
     return pausedLine(
       plugin,
       base,
@@ -12060,6 +12200,12 @@ function pausedChangeLines(projectDir: string, context: ChoicesMutationContext):
         : null,
     );
   });
+  const resumed = [...before]
+    .filter(([plugin]) => !after.has(plugin) && (next === null || next.includes(plugin)))
+    .map(([plugin, base]) =>
+      resumedLine(plugin, base, nextCompose(context.distribution, plugin, null, undefined, context.harnessDir))
+    );
+  return [...paused, ...resumed];
 }
 
 // The machine settings file lives outside the project, so its change runs as
@@ -12633,8 +12779,7 @@ export async function main(
     Boolean(process.env.AIDLC_PROJECT_DIR) ||
     Boolean(process.env.CLAUDE_PROJECT_DIR) ||
     Boolean(process.env.KIRO_PROJECT_DIR);
-  const recognized = [".git", "package.json", "Cargo.toml", "go.mod", "pyproject.toml"]
-    .some((entry) => existsSync(join(projectDir, entry)));
+  const recognized = settingsProjectAvailable(projectDir);
   const firstRunWizard = !section &&
     configInputIsTty() &&
     options.mode === "human" &&
@@ -13484,9 +13629,12 @@ export async function main(
       ...(statusLineKept ? { statusLineKept: true as const } : {}),
     };
     const baselineRel = join(descriptor.harnessDir, "tools", "data", "aidlc-manifest.json");
+    // In the line endings the committed copy has, so a CRLF clone's refresh
+    // that records nothing new leaves the file as Git checked it out.
+    const baselineNewline = regularFile(baselinePath) ? newlineOf(readFileSync(baselinePath, "utf-8")) : "\n";
     operations.push(writeOperation(
       baselineRel,
-      `${JSON.stringify(baseline, null, 2)}\n`,
+      `${JSON.stringify(baseline, null, 2)}\n`.replace(/\n/g, baselineNewline),
       expected(baselinePath),
     ));
     actions.push({ path: baselineRel, action: pathPresent(baselinePath) ? "update" : "create" });
@@ -13768,6 +13916,16 @@ export async function main(
       ? await applyKiroSessionPlan(pendingKiroSession)
       : null;
     if (kiroSession && options.mode === "human") writeKiroSessionLines(kiroSession.lines);
+    // A Claude Bedrock answer's env is written to the person's own file once
+    // AI-DLC's record is saved.
+    if (diagnosticsContext?.section === "providers" && diagnosticsContext.harness === "claude") {
+      diagnosticsContext.notes.push(...applyClaudeLocalProvider(
+        projectDir,
+        diagnosticsContext.harnessDir,
+        diagnosticsContext.previous as ProvidersRecord | null,
+        diagnosticsContext.next as ProvidersRecord | null,
+      ));
+    }
     if (diagnosticsContext && options.mode === "human") {
       writeMenuLines("", diagnosticsContext.summaryLines);
       writeMenuLines("", diagnosticsContext.notes.map((note) => `  Note: ${note}`));
@@ -13843,6 +14001,14 @@ export async function main(
       descriptor.distribution === "kiro-ide" && !argv.includes("--dry-run") && kiroWorkflowsQuestionDue()
     ) {
       changes.push(applyKiroWorkflowsAnswer(projectDir, true));
+    }
+    // Kiro CLI's own Workflows switch takes the same tools away there, so --yes
+    // takes the same recommended answer for it.
+    if (
+      options.yes && !deferKiro && !recordOnly && !modelsContext && !diagnosticsContext && !choicesContext &&
+      descriptor.distribution === "kiro-ide" && !argv.includes("--dry-run") && kiroCliWorkflowsQuestionDue()
+    ) {
+      changes.push(applyKiroCliWorkflowsAnswer(projectDir, true));
     }
     // Command Prompt as Kiro's terminal splits the person's words in AI-DLC's
     // commands; --yes takes the recommended answer, PowerShell, the same way.
@@ -14008,6 +14174,7 @@ export async function main(
         descriptor.harnessDir,
         stamp.distribution,
         outstandingActions,
+        options.yes,
       );
     }
   } catch (error) {

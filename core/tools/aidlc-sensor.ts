@@ -90,6 +90,7 @@ import {
 	aidlcDispatcherInvocation,
 	compiledExecutable,
 	resolveHarnessPath,
+	sensorFireUsage,
 } from "./aidlc-runtime-paths.ts";
 import { parseSensorManifest, type SensorManifest } from "./aidlc-sensor-schema.ts";
 import {
@@ -662,7 +663,8 @@ function handleFire(args: string[]): void {
 	// stageNode — exactly as --consumes is threaded for upstream-coverage above.
 	// Eligibility = the `produces` artifact names that are NOT questions/timestamp
 	// markers (the stem==artifact key is unsound for those non-prose files). The
-	// script applies a resolved template only when the output stem ∈ this set.
+	// script applies a resolved template only when the output file is one of
+	// these artifacts' files (artifactFilename).
 	// AIDLC_TEMPLATES_DIR is a test/relocation seam mirroring AIDLC_RULES_DIR;
 	// the default lookup is the workspace method tree's templates/ dir —
 	// <projectDir>/aidlc/spaces/<space>/memory/templates — derived via
@@ -1050,8 +1052,8 @@ function decideOutcome(
 //
 // Rationale: control-plane / data-plane separation puts per-sensor
 // findings derivation in the script (the script knows its own pass
-// threshold; e.g., required-sections script knows 2 H2 sections is the
-// minimum). The dispatcher stays generic and adds new framework sensors
+// threshold; e.g., the required-sections script counts the template headings
+// an output lacks). The dispatcher stays generic and adds new framework sensors
 // without an arm in this function.
 function readFindingsCount(out: Record<string, unknown>): number {
 	const v = out.findings_count;
@@ -1231,7 +1233,7 @@ function sensorUsage(subcommand: string | undefined): string {
 			"  Prints one sensor's manifest fields. Required: <id>.",
 		],
 		fire: [
-			`${invoke("fire")} <id> --stage <slug> --output-path <path>`,
+			sensorFireUsage(),
 			"  Fires a sensor against a stage output; emits SENSOR_FIRED and its paired result row.",
 			"  Required: <id>, --stage, --output-path. Options: --unit <name> (named on both rows)",
 		],

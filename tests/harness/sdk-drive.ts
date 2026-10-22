@@ -75,6 +75,7 @@ import {
   remainingOperationTimeoutMs,
   TestBudgetExhaustedError,
 } from "./test-budget.ts";
+import { keepAgentWords, keepLegAudit } from "./leg-evidence.ts";
 import { PersonTurnLedger, unbackedFailure } from "./person-turns.ts";
 import type { PermissionRequest } from "./stock-permissions.ts";
 import { recordWindowsFolderHolderVerdict } from "./windows-folder-holders.ts";
@@ -681,6 +682,44 @@ function writeSdkTrace(
   appendFileSync(tracePath, `${JSON.stringify({ ts: new Date().toISOString(), event, ...data })}\n`);
 }
 
+/**
+ * The tokens the drive's sessions used, per model, from Claude Code's own
+ * transcripts (the nightly's model cost). A drive that ends at a stop condition
+ * gets no result message, and a streamed reply's usage is counted before its
+ * output ends, so the transcript's last usage for each reply is the record.
+ */
+export function transcriptUsage(configDir: string): Record<string, { input: number; cacheRead: number; cacheWrite: number; output: number }> {
+  const replies = new Map<string, { model: string; usage: Record<string, number> }>();
+  const visit = (dir: string): void => {
+    for (const entry of existsSync(dir) ? readdirSync(dir, { withFileTypes: true }) : []) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (entry.name.endsWith(".jsonl")) {
+        for (const line of readFileSync(path, "utf8").split("\n")) {
+          if (!line.includes('"usage"')) continue;
+          try {
+            const message = (JSON.parse(line) as { message?: { id?: string; model?: string; usage?: Record<string, number> } }).message;
+            if (message?.id && message.usage) replies.set(message.id, { model: String(message.model), usage: message.usage });
+          } catch {
+            // A line cut off by the drive's stop is no reply.
+          }
+        }
+      }
+    }
+  };
+  visit(join(configDir, "projects"));
+  const models: Record<string, { input: number; cacheRead: number; cacheWrite: number; output: number }> = {};
+  for (const { model, usage } of replies.values()) {
+    models[model] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+    const total = models[model];
+    total.input += usage.input_tokens ?? 0;
+    total.cacheRead += usage.cache_read_input_tokens ?? 0;
+    total.cacheWrite += usage.cache_creation_input_tokens ?? 0;
+    total.output += usage.output_tokens ?? 0;
+  }
+  return models;
+}
+
 async function removeEphemeralConfigDir(path: string): Promise<void> {
   const cleanupDeadline = Date.now() + remainingCleanupTimeoutMs(NATIVE_PROCESS_CLEANUP_TIMEOUT_MS);
   for (;;) {
@@ -1014,10 +1053,12 @@ export async function driveAidlc(
         // join them to their tool_result by toolUseID.
         const content = (msg as { message?: { content?: unknown } }).message
           ?.content;
+        const lead = !(msg as { parent_tool_use_id?: unknown }).parent_tool_use_id;
         if (Array.isArray(content)) {
           for (const block of content as Array<Record<string, unknown>>) {
             if (block.type === "text" && typeof block.text === "string") {
               assistantText += block.text;
+              if (lead) keepAgentWords("claude-sdk", [{ turn, text: block.text }]);
             } else if (
               block.type === "tool_use" &&
               typeof block.id === "string"
@@ -1206,6 +1247,8 @@ export async function driveAidlc(
         });
       }
     }
+    keepLegAudit(projectDir);
+    if (tracePath) writeSdkTrace(tracePath, "usage", { models: transcriptUsage(claudeConfigDir) });
     if (ephemeralConfigDir && process.env.AIDLC_KEEP_TEMP !== "1") {
       await removeEphemeralConfigDir(ephemeralConfigDir);
     }

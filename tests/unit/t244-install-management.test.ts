@@ -772,7 +772,7 @@ describe("t244 machine configuration and update discovery", () => {
       const unavailable = await refreshUpdateState(remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS)!);
       expect(unavailable.state).toBe("unavailable");
       expect(unavailable.message).toBe(
-        `update refresh unavailable; cached version ${NEXT_VERSION} is stale or unverifiable`,
+        `could not check for a newer release; binary ${AIDLC_VERSION}, latest known ${NEXT_VERSION}, checked less than an hour ago`,
       );
       expect(readFileSync(join(machine, "update-check.json"), "utf-8")).toBe(before);
       await captive.stop();
@@ -1867,7 +1867,9 @@ describe("t244 management lifecycle", () => {
 // the version folders an update prunes, and always hold the active release's.
 describe("t244 AI-DLC's plugin catalogue keeps one path across updates", () => {
   const RECORD = ".aidlc-catalogue.json";
-  const LATER_TEST_PRO = "0.1.9";
+  // The shipped test-pro's version, from its own manifest, and a later one.
+  const TEST_PRO_VERSION = (JSON.parse(readFileSync(join(REPO_ROOT, "plugins", "test-pro", ".aidlc-plugin", "plugin.json"), "utf-8")) as { version: string }).version;
+  const LATER_TEST_PRO = "9.0.0";
   let releaseA: string;
   let releaseB: string;
   let releaseC: string;
@@ -1878,7 +1880,7 @@ describe("t244 AI-DLC's plugin catalogue keeps one path across updates", () => {
     cpSync(join(REPO_ROOT, "dist", "plugins"), laterPlugins, { recursive: true });
     for (const file of walkFiles(laterPlugins).filter((path) => path.endsWith(".json"))) {
       const path = join(laterPlugins, file);
-      writeFileSync(path, readFileSync(path, "utf-8").replaceAll('"version": "0.1.0"', `"version": "${LATER_TEST_PRO}"`));
+      writeFileSync(path, readFileSync(path, "utf-8").replaceAll(`"version": "${TEST_PRO_VERSION}"`, `"version": "${LATER_TEST_PRO}"`));
     }
     releaseA = fixture(AIDLC_VERSION, { binary: "executable" });
     releaseB = fixture(NEXT_VERSION, { binary: "executable" });
@@ -1947,7 +1949,7 @@ describe("t244 AI-DLC's plugin catalogue keeps one path across updates", () => {
     expect(rolledBack.status, rolledBack.stdout + rolledBack.stderr).toBe(0);
     expect(rolledBack.stdout.toLowerCase()).not.toContain("plugin marketplace");
     expectCatalogueOf(machine, NEXT_VERSION);
-    expect(listedTestPro(machine)).toBe("0.1.0");
+    expect(listedTestPro(machine)).toBe(TEST_PRO_VERSION);
 
     const doctor = run(DISPATCHER, ["doctor", "--json", "--project-dir", project], project, env);
     const checks = (JSON.parse(doctor.stdout) as { data: { checks: Array<{ pass: boolean; label: string }> } }).data.checks;
@@ -4113,8 +4115,9 @@ describe("t244 Windows and completion release surfaces", () => {
     expect(release).toContain(`GH_TOKEN: \${{ github.token }}`);
     expect(release).toContain('gh release create "$RELEASE_TAG" build/release/*');
     expect(release).toContain("--verify-tag");
-    // The body is this version's CHANGELOG entry, never GitHub's generated
-    // list, which names every contributing account by handle.
+    // The body is the stable page rendered from the promotion record, never
+    // GitHub's generated list, which names every contributing account by
+    // handle with no private-names scan.
     expect(release).toContain("name: Build release notes from the promotion");
     expect(release).toContain("bun scripts/release-promotion.ts notes");
     expect(release).toContain('--notes-file "$RUNNER_TEMP/release-notes.md"');

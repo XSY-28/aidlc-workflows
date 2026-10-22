@@ -593,6 +593,39 @@ describe("t-copilot-directive-budget: every Copilot directive fits VS Code's ter
     expect(claude.final.rules_content?.length ?? 0).toBeGreaterThan(0);
     expect(Buffer.byteLength(claude.results[0]?.stdout ?? "", "utf-8")).toBeGreaterThan(copilotBudget());
   });
+
+  // Reverse Engineering's step names each link's exact command for every
+  // registered repo. A workspace of many repos still gets its step: the
+  // commands ride for as many whole repos as fit, in order, and a link left out
+  // gets its exact command from the next step or from its refusal (#2865).
+  test("Reverse Engineering for 24 registered repos fits, with whole per-repo link chains in order", async () => {
+    const proj = projectFor(COPILOT_ROOT, ".aidlc", "reverse-engineering", false);
+    const statePath = seededStateFile(proj);
+    writeFileSync(statePath, readFileSync(statePath, "utf-8").replace(/^- \*\*Scope\*\*: .*$/m, "- **Scope**: enterprise"));
+    const repos = Array.from({ length: 24 }, (_, index) => `svc-${String(index + 1).padStart(2, "0")}`);
+    const registry = join(proj, "aidlc", "spaces", "default", "intents", "intents.json");
+    const rows = JSON.parse(readFileSync(registry, "utf-8")) as Array<Record<string, unknown>>;
+    rows[0].repos = repos;
+    writeFileSync(registry, `${JSON.stringify(rows, null, 2)}\n`);
+    for (const repo of repos) mkdirSync(join(proj, repo, "src"), { recursive: true });
+
+    const delivery = await deliverIn(proj, ".aidlc", "reverse-engineering");
+    expect(delivery.final.kind, delivery.final.message).toBe("run-stage");
+    for (const { stdout } of delivery.results) {
+      expect(Buffer.byteLength(stdout, "utf-8")).toBeLessThanOrEqual(copilotBudget());
+    }
+    const pipeline = (delivery.final as { pipeline?: { links: string[]; record: Array<{ link: string; repo?: string }> } })
+      .pipeline;
+    const links = pipeline?.links ?? [];
+    expect(links).toEqual(["aidlc-developer-agent", "aidlc-architect-agent"]);
+    const record = pipeline?.record ?? [];
+    expect(record.length).toBeGreaterThan(0);
+    expect(record.length).toBeLessThan(repos.length * links.length);
+    expect(record.length % links.length).toBe(0);
+    expect(record.map(({ link, repo }) => `${repo}:${link}`)).toEqual(
+      repos.slice(0, record.length / links.length).flatMap((repo) => links.map((link) => `${repo}:${link}`)),
+    );
+  });
 });
 
 describe("t-copilot-directive-budget: a workflow already under way when AI-DLC is updated (#1411)", () => {

@@ -1102,7 +1102,7 @@ This stage has a **two-part structure**: planning followed by generation.
      hashes. Contextual dependencies do not receive additional target markers.
    - Design artifacts for the CURRENT UNIT ONLY (not all units)
    - A 1-2 line summary of each inception-phase artifact with its file path
-     (requirements summary, stories summary, app design summary) -- the
+     (requirements summary, stories summary, domain design summary) -- the
      subagent can Read specific files if it needs full content
    - The current plan and unit-test-instructions.md, which that
      output already carries using the approval-content projection: the plan
@@ -1273,7 +1273,7 @@ Strictly 2-option: Approve / Request Changes.
 | support_agents    | aidlc-devsecops-agent                                                                                   |
 | mode              | inline                                                                                            |
 | Inputs            | ALL code generation outputs across all units                                                      |
-| Outputs           | `<record>/construction/build-and-test/` -- build-instructions.md, integration-test-instructions.md, performance-test-instructions.md, security-test-instructions.md, build-and-test-summary.md, test-results.md, plus conditional test instruction files |
+| Outputs           | `<record>/construction/build-and-test/` -- build-instructions.md, build-and-test-summary.md, test-results.md; strategy-dependent (declared under `optional_produces`): integration-test-instructions.md (Standard and above), performance-test-instructions.md and security-test-instructions.md (Comprehensive, when that NFR kind exists), plus other conditional test instruction files |
 
 ### Purpose
 

@@ -106,7 +106,7 @@ With this set, implicit scope resolution uses `feature`. Alternatively, record a
   ok    AWS_AIDLC_DEFAULT_SCOPE=classic (valid)
 ```
 
-`aidlc doctor` in a terminal outside Claude Code does not get the `env` block from `.claude/settings.json`, so there the same line reads `AWS_AIDLC_DEFAULT_SCOPE (unset - no project default)`. The scope a piece of work runs on shows on the `Scope:` line of `/aidlc --status`.
+`aidlc doctor` in a terminal outside Claude Code does not get the `env` block from `.claude/settings.json`, so there it shows this line only when your shell sets `AWS_AIDLC_DEFAULT_SCOPE` or a default is recorded with `aidlc config flags --default-scope`. The scope a piece of work runs on shows on the `Scope:` line of `/aidlc --status`.
 
 Why only scope and not depth or test-strategy? Each scope declares a depth, and test strategy inherits that depth unless the scope overrides it. `classic` therefore starts at Standard/Standard, `workshop` at Standard/Minimal, and `express` at Minimal/Minimal. If you need to override either, pass `--depth` or `--test-strategy` on the CLI.
 
@@ -266,6 +266,9 @@ confirmation or plan approval off for work already under way needs your own
 turn: run by the agent, it is refused with a message asking you to type it. On a Kiro IDE build that gives hooks no message text, typing it cannot work, so the refusal asks you to update Kiro IDE ([Kiro IDE guide](harnesses/kiro-ide.md#whats-different-on-kiro)). `/aidlc --status` shows the effective value and source.
 Changing scope updates scope-sourced settings while keeping your overrides;
 an absent or malformed field falls back to the scope instead of blocking the run.
+Turning summary confirmation on, by a setting or a scope change, applies to work
+that runs after it: a stage waiting at its gate, or Unit work already finished,
+is not asked for a summary it never had.
 
 The composer proposes these five, plus the scope's `review_cap`, at the compose
 gate, and you can change any of them before approving. Plan approval is the
@@ -428,13 +431,20 @@ Intent creation reads Guard Policy from the scope the plan runs on. The conducto
 The resolved value is written to the intent's `aidlc-state.md` at creation as `- **Guard Policy**: <value> (from scope <name>)`, rewritten by the flag, typed confirmation words, or a plain-words request the conductor carries out through the setter, and read by value only. Because the state file is committed with the intent, the value survives sessions and teammates see the same one; a memory edit that changes the effective value for a running intent is recorded as a `GUARD_POLICY_SET` row naming the memory file the next time a governed check runs. An intent created before this field existed stays `strict (not set)` until you set it, unless a memory file declares `relaxed` or `off`, which applies to it too; an invalid field is unavailable until `/aidlc --guard-policy` with one of the three values repairs it. The next intent starts from its scope's default again.
 
 If a state file carries both `Guard Policy` and the retired `Change Control` with
-different policy words, strict applies and status shows
-`strict (from conflicting state lines)`; memory-held strict still takes precedence.
-If both agree, the `Guard Policy` line is used. Any write of the policy line removes
-the retired line, leaving one setting. Until a conflict is resolved, `next` carries
-this notice:
+different policy words (a teammate on a release before the rename can leave both,
+since the state file travels by git), the next `next` keeps one of them and writes
+it as the only line: the one the audit trail shows was set last, else the one you
+set yourself, else the one the scope starts with, else the stricter. It records a
+`GUARD_POLICY_SET` row with `Source: command` and a `Settled` field naming both
+lines, and asks nothing. When it kept your own last choice it says nothing; when
+the record could not tell, it says once which it kept, for example:
 
-> This work has two settings for how closely AI-DLC checks changes, and they disagree, so AI-DLC checks everything for now. Do you want it to keep checking everything, carry on with a note when something you approved changes, or also skip some of its own checks? I'll ask again until you choose.
+> This work had two settings for how closely AI-DLC checks changes, and they disagreed. The record does not say which was set last, so AI-DLC keeps the stricter one: it checks everything. You can change it any time.
+
+Until then status shows `strict (from conflicting state lines)`. A team that holds
+strict in memory keeps strict, and the two lines stay as they are. If both agree,
+the `Guard Policy` line is used. Any write of the policy line removes the retired
+line, leaving one setting.
 
 #### This setting used to be called Change Control
 

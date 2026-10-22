@@ -1,4 +1,5 @@
 import { DEFAULT_SUBPROCESS_TIMEOUT_MS } from "./aidlc-runtime-budget.ts";
+import { lockFolderHeldGiveUpMs, lockFolderHeldLine } from "./aidlc-lock-line.ts";
 import { spawnSync } from "node:child_process";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { accessSync, chmodSync, closeSync, constants as fsConstants, cpSync, type Dirent, existsSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, opendirSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync, writeSync } from "node:fs";
@@ -9,6 +10,7 @@ import { TextDecoder } from "node:util";
 import { inflateSync } from "node:zlib";
 import { dlopen, FFIType, type Pointer } from "bun:ffi";
 import {
+  aidlcDispatcherInvocation,
   aidlcInvocation,
   aidlcToolInvocation,
   entrySkillInvocation,
@@ -27,6 +29,7 @@ import {
 } from "./aidlc-runtime-paths.ts";
 export { entrySkillInvocation, SPACE_NAME_REGEX } from "./aidlc-runtime-paths.ts";
 import {
+  type EngineInvocation,
   GUARD_REMEDY_WORDING,
   guardOperationInvocation,
   guardOperationMatchesEngineArgs,
@@ -104,7 +107,7 @@ export {
 // runtime require() below avoids the circular import (aidlc-graph.ts
 // imports loadScopeMapping/loadStageGraph from this file). Type-only
 // imports are erased at runtime so they don't create the cycle.
-import { readRootIntegrations } from "./aidlc-distribution.ts";
+import { readRootIntegrations, withoutBom } from "./aidlc-distribution.ts";
 import {
   isValidRepoName,
   readWorkspaceRepos,
@@ -408,6 +411,14 @@ function hostLine<K extends "missedReplyInHost" | "agentStepInHost">(
     : {};
 }
 
+function registrationLines(value: unknown): Pick<HookActivation, "registration"> {
+  const lines = value as { file?: unknown; missing?: unknown; invalid?: unknown } | null | undefined;
+  return typeof lines?.file === "string" && lines.file !== "" && typeof lines.missing === "string" &&
+      typeof lines.invalid === "string"
+    ? { registration: { file: lines.file, missing: lines.missing, invalid: lines.invalid } }
+    : {};
+}
+
 // Whether the agent's shell is in the host a harness's `{ env }` names: `NAME`
 // matches when set, `NAME=value` when it holds that value (TERM_PROGRAM=kiro).
 // A `NAME=value` variable holding another value rules the host out: Kiro CLI in
@@ -432,6 +443,7 @@ export interface HookActivation {
   agentStep?: string;
   agentStepInHost?: { env: string[]; text: string };
   agentStepEdits?: string;
+  registration?: { file: string; missing: string; invalid: string };
 }
 
 interface ShippedHarnessData {
@@ -624,6 +636,7 @@ function readShippedHarnessData(): ShippedHarnessData {
           ...(typeof activation.agentStep === "string" ? { agentStep: activation.agentStep } : {}),
           ...(typeof activation.agentStep === "string" ? hostLine("agentStepInHost", activation.agentStepInHost) : {}),
           ...(typeof activation.agentStepEdits === "string" ? { agentStepEdits: activation.agentStepEdits } : {}),
+          ...(registrationLines(activation.registration)),
         }
         : null;
     // agentFinishRecorded is evidence the engine relies on to say no reviewer
@@ -741,6 +754,13 @@ export function pausedLine(plugin: string, base: string, offCommand: string | nu
     (offCommand === null
       ? `To turn ${plugin} off as well, select the plugins you want on.`
       : `To turn ${plugin} off as well: ${offCommand}.`);
+}
+
+/** The one line a selection change says, once, when it turns `plugin`'s base
+ *  back on; `when` is when what the plugin adds comes back (`nextCompose`).
+ *  No record says whether a paused plugin added anything, hence "anything". */
+export function resumedLine(plugin: string, base: string, when: string): string {
+  return `${base} is on again, so ${plugin} runs again; anything ${plugin} adds to other stages and agents comes back ${when}.`;
 }
 
 /** The base a composed plugin builds on, from its stamp in `dataDir`. */
@@ -1326,6 +1346,8 @@ export const INTENT_VERBS: ReadonlySet<string> = new Set([
   "unarchive",
   "add-repo",
   "remove-repo",
+  "add-checkout",
+  "remove-checkout",
 ]);
 
 export const SPACE_VERBS: ReadonlySet<string> = new Set([
@@ -1339,9 +1361,10 @@ export const SPACE_VERBS: ReadonlySet<string> = new Set([
 // `archived` status, `unarchive` brings it back to the status it had.
 export type IntentLifecycleVerb = "archive" | "unarchive";
 
-// The two repo verbs that change which sibling repos a piece of work touches,
-// by the person's word: `add-repo` records one more, `remove-repo` drops one.
-export type IntentRepoVerb = "add-repo" | "remove-repo";
+// The verbs that change where a piece of work's code is, by name: `add-repo`
+// and `remove-repo` its sibling repos, `add-checkout` and `remove-checkout` a
+// checkout outside the review's reach (they take a path).
+export type IntentRepoVerb = "add-repo" | "remove-repo" | "add-checkout" | "remove-checkout";
 
 export type WorkspaceCommand =
   // `all` is only ever set (true) for `intent list --all`; a plain list omits
@@ -1373,7 +1396,7 @@ function missingWorkspaceName(
 ): WorkspaceCommand {
   const usage = verb === "space-create"
     ? "space-create <name>"
-    : `${noun} ${verb} <name>`;
+    : `${noun} ${verb} ${verb === "add-checkout" || verb === "remove-checkout" ? "<path>" : "<name>"}`;
   return {
     kind: "error",
     noun,
@@ -1408,7 +1431,7 @@ function isIntentLifecycleVerb(token: string | undefined): token is IntentLifecy
 }
 
 function isIntentRepoVerb(token: string | undefined): token is IntentRepoVerb {
-  return token === "add-repo" || token === "remove-repo";
+  return token === "add-repo" || token === "remove-repo" || token === "add-checkout" || token === "remove-checkout";
 }
 
 // `intent list [--json] [--all]` / `space list [--json]`. The flags may appear
@@ -1518,6 +1541,8 @@ export function workspaceCommandUtilityArgv(
     case "unarchive":
     case "add-repo":
     case "remove-repo":
+    case "add-checkout":
+    case "remove-checkout":
       // The lifecycle and repo verbs forward verbatim, trailing flags included:
       // `intent archive <name> --reason <text>`.
       return [command.noun, command.kind, command.name, ...command.rest];
@@ -2148,25 +2173,29 @@ function newestUserEntry(
 }
 
 // Kiro's own chat record (Kiro IDE and Kiro CLI v3 alike):
-// ~/.kiro/sessions/<workspace id>/<session id>/messages.jsonl. A typed message
-// is a `type: "user"` entry tagged `_meta.kiro.userMessageTag`; a message Kiro
-// made for the agent carries `_meta.kiro.syntheticUserMessageReason` instead
-// (measured: "agent-initiated-prompt" when a workflow finished). An entry with
-// neither, no entry for this prompt, or no record decides nothing: the record
-// may not be flushed when the hook runs.
+// ~/.kiro/sessions/<workspace id>/<session id>/messages.jsonl, found by the
+// session id alone, so the workspace hash (which follows how the folder path is
+// spelled on Windows) is never computed.
 const KIRO_SESSION_DIR_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
-export function kiroChatRecordOrigin(sessionId: string | undefined, prompt: string): TurnOrigin | null {
-  if (!sessionId || !KIRO_SESSION_DIR_RE.test(sessionId) || !prompt.trim()) return null;
+function kiroChatRecordPaths(sessionId: string | undefined): string[] {
+  if (!sessionId || !KIRO_SESSION_DIR_RE.test(sessionId)) return [];
   const root = join(homedir(), ".kiro", "sessions");
-  let workspaces: string[];
   try {
-    workspaces = readdirSync(root);
+    return readdirSync(root).map((workspace) => join(root, workspace, sessionId, "messages.jsonl")).filter(existsSync);
   } catch {
-    return null;
+    return [];
   }
-  for (const workspace of workspaces) {
-    const path = join(root, workspace, sessionId, "messages.jsonl");
-    if (!existsSync(path)) continue;
+}
+
+// A typed message is a `type: "user"` entry tagged
+// `_meta.kiro.userMessageTag`; a message Kiro made for the agent carries
+// `_meta.kiro.syntheticUserMessageReason` instead (measured:
+// "agent-initiated-prompt" when a workflow finished). An entry with neither, no
+// entry for this prompt, or no record decides nothing: the record may not be
+// flushed when the hook runs.
+export function kiroChatRecordOrigin(sessionId: string | undefined, prompt: string): TurnOrigin | null {
+  if (!prompt.trim()) return null;
+  for (const path of kiroChatRecordPaths(sessionId)) {
     const entry = newestUserEntry(path, prompt, () => true);
     if (entry === null) continue;
     const meta = entry._meta;
@@ -2177,6 +2206,74 @@ export function kiroChatRecordOrigin(sessionId: string | undefined, prompt: stri
     }
     if (typeof marks.userMessageTag === "string" && marks.userMessageTag.trim()) return { kind: "person", source: "record" };
     return null;
+  }
+  return null;
+}
+
+// How full Kiro's own record says a chat is (#2574): Kiro shows the person a
+// figure but gives the agent none. Read only. Kiro CLI's default engine keeps
+// ~/.kiro/sessions/cli/<session id>.json and saves the figure there at the end
+// of each turn. Kiro CLI v3 and Kiro IDE (@kiro/agent, read in its 2.29.0
+// source) put the figure in `contextUsage` rows of the chat record, summarize
+// the chat on their own at 80%, and then append a `tombstone` row of kind
+// `summarization`; only one at or after `since` (this chat's first turn on the
+// work) counts, so a chat summarized before the work began says nothing.
+// Rows are wrapped `{id, timestamp, payload}`, as Kiro's own loader reads them.
+// Null when nothing is known.
+export type KiroContextPressure = { kind: "usage"; percent: number } | { kind: "summarized" };
+export function kiroContextPressure(sessionId: string | undefined, since: number | null): KiroContextPressure | null {
+  if (!sessionId || !KIRO_SESSION_DIR_RE.test(sessionId)) return null;
+  const field = (value: unknown, key: string): unknown =>
+    value !== null && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
+  const figure = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  const cli = join(homedir(), ".kiro", "sessions", "cli");
+  try {
+    const chat = JSON.parse(readFileSync(join(cli, `${sessionId}.json`), "utf-8"));
+    const percent = figure(field(field(field(field(chat, "session_state"), "conversation_metadata"), "last_context_usage"), "percentage"));
+    if (percent !== null) {
+      // Kiro compacts a chat that overflows, mid-turn too, and logs a
+      // `Compaction` row in <session id>.jsonl beside it; one after this
+      // turn's `Prompt` came after the saved figure (measured live on 2.29.0).
+      const log = tailText(join(cli, `${sessionId}.jsonl`), 1 << 20)?.split("\n") ?? [];
+      for (let i = log.length - 1; i >= 0; i--) {
+        let kind: unknown;
+        try {
+          kind = field(JSON.parse(log[i]), "kind");
+        } catch {
+          continue;
+        }
+        if (kind === "Prompt") break;
+        if (kind === "Compaction") return { kind: "summarized" };
+      }
+      return { kind: "usage", percent };
+    }
+  } catch {
+    // Not a chat of Kiro CLI's default engine, or not readable now.
+  }
+  for (const path of kiroChatRecordPaths(sessionId)) {
+    const lines = tailText(path, 1 << 20)?.split("\n") ?? [];
+    let percent: number | null = null;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      let row: unknown;
+      try {
+        row = JSON.parse(lines[i]);
+      } catch {
+        continue;
+      }
+      const payload = field(row, "payload");
+      const when = Date.parse(String(field(row, "timestamp")));
+      if (
+        field(payload, "type") === "tombstone" && field(payload, "kind") === "summarization" &&
+        since !== null && Number.isFinite(when) && when >= since
+      ) {
+        return { kind: "summarized" };
+      }
+      if (percent === null && field(payload, "type") === "session_metadata" && field(payload, "key") === "contextUsage") {
+        percent = figure(field(field(payload, "value"), "usagePercentage"));
+      }
+    }
+    if (percent !== null) return { kind: "usage", percent };
   }
   return null;
 }
@@ -2227,6 +2324,24 @@ export function claudeTranscriptOrigin(transcriptPath: unknown, promptId: unknow
     return { kind: "host", reason: turnOrigin ?? (typeof origin === "string" ? origin : "system"), source: "record" };
   }
   return { kind: "person", source: "record" };
+}
+
+// Who wrote a message Claude Code fed into a running turn. The transcript keeps
+// it as an attachment entry, not a user row: {type: "attachment", attachment:
+// {type: "queued_command", origin: {kind}}} (measured 2.1.296: `human` for what
+// the person typed while the agent worked; a background task's notice, a
+// coordinator or peer agent and an auto-continuation carry their own kind).
+// Null for any other entry and for one with no origin (older builds).
+const CLAUDE_QUEUED_HOST_ORIGINS = new Set(["task-notification", "coordinator", "peer", "auto-continuation"]);
+export function claudeQueuedMessageOrigin(entry: Record<string, unknown>): "person" | "host" | null {
+  const attachment = entry.type === "attachment" ? entry.attachment : undefined;
+  if (attachment === null || typeof attachment !== "object") return null;
+  const queued = attachment as Record<string, unknown>;
+  const origin = queued.type === "queued_command" && queued.origin !== null && typeof queued.origin === "object"
+    ? (queued.origin as Record<string, unknown>).kind
+    : undefined;
+  if (origin === "human") return "person";
+  return typeof origin === "string" && CLAUDE_QUEUED_HOST_ORIGINS.has(origin) ? "host" : null;
 }
 
 // Kiro's plain-text hook channel must carry UTF-8 without terminal protocol
@@ -3416,8 +3531,9 @@ function resolveRecordDir(
   projectDir: string,
   intent?: string,
   space?: string,
+  bind?: boolean,
 ): { dir: string | null; space: string } {
-  const selection = resolveWorkflowSelection(projectDir, { space, intent });
+  const selection = resolveWorkflowSelection(projectDir, { space, intent, ...(bind === undefined ? {} : { bind }) });
   return {
     dir:
       selection.intent === null
@@ -5746,13 +5862,19 @@ export const PLAN_APPROVAL_ASK_TYPE = "plan-approval";
 export const PLAN_APPROVAL_ASKED_BY_ENGINE =
   "Plan Approval is asked by the engine now. Run next, show the person the question it returns, and end the turn.";
 
-export function planApprovalAskIsOpen(projectDir: string): boolean {
+// The engine's Plan Approval question while it is open for the selected work:
+// its step marker, which names the Unit or Units it asks about; null otherwise.
+export function openPlanApprovalAsk(projectDir: string): ActiveDirectiveMarker | null {
   try {
     const marker = readActiveDirectiveMarker(projectDir, readFileSync(stateFilePath(projectDir), "utf-8"));
-    return marker?.version === 2 && marker.kind === "ask" && marker.ask_type === PLAN_APPROVAL_ASK_TYPE;
+    return marker?.version === 2 && marker.kind === "ask" && marker.ask_type === PLAN_APPROVAL_ASK_TYPE ? marker : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function planApprovalAskIsOpen(projectDir: string): boolean {
+  return openPlanApprovalAsk(projectDir) !== null;
 }
 
 export function planApprovalRuntimeFile(projectDir: string, name: string): string {
@@ -6836,6 +6958,20 @@ export function personLineHeard(projectDir: string, sessionId: string, line: str
   return readPendingPersonLines(path, turn, work).said.includes(line);
 }
 
+// The same record for a line that stays true across turns (a lock folder a
+// program holds): said once a turn, and again after the person next speaks.
+function turnKeyedPersonLine(projectDir: string, line: string): string {
+  return `${personTurnAndWork(projectDir).turn}\u0000${line}`;
+}
+
+export function personLineHeardThisTurn(projectDir: string, sessionId: string, line: string): boolean {
+  return personLineHeard(projectDir, sessionId, turnKeyedPersonLine(projectDir, line));
+}
+
+export function markPersonLineHeardThisTurn(projectDir: string, sessionId: string, line: string): void {
+  markPersonLinesHeard(projectDir, sessionId, [turnKeyedPersonLine(projectDir, line)]);
+}
+
 // The reason the engine's skip step hands the agent for a stage the person
 // asked to skip where it stands (orchestrate's planChangeDirective). report
 // and the state tool read it back: that skip is the person's, so a stage that
@@ -7445,6 +7581,7 @@ export interface WorkflowSelectionOptions {
   space?: string;
   intent?: string;
   sessionId?: string;
+  bind?: boolean;
 }
 
 // THE ONE DOOR. Every id a host hands the engine (a hook payload's session_id,
@@ -7658,7 +7795,8 @@ export function resolveWorkflowSelection(
   // session, or identity a hook handed us, is read-only.
   const chat = rawSession
     ? resolveChat(projectDir, rawSession, {
-        bind: named === null && process.env.AIDLC_SESSION_OVERRIDE_SOURCE !== "payload",
+        bind: options.bind !== false && named === null &&
+          process.env.AIDLC_SESSION_OVERRIDE_SOURCE !== "payload",
       })
     : null;
   const sessionId = chat?.chatId ?? null;
@@ -8724,6 +8862,9 @@ export interface ActiveDirectiveGuardRecoveryResponse {
 export interface ActiveDirectiveMarker {
   version: 1 | 2; stage: string; unit?: string; state_sha256: string;
   units?: string[];
+  // The step belongs to an isolated `--single` run (its run-stage, a part of
+  // it, or the question asked over it), not to the workflow.
+  single?: true;
   revision?: number; project_sha256?: string; intent_uuid?: string | null; state_present?: boolean;
   code_generation_source_sha256?: string;
   code_generation_authority_revision?: number;
@@ -8809,6 +8950,47 @@ export class ActiveDirectiveLockContendedError extends Error {
     super(message);
     this.name = "ActiveDirectiveLockContendedError";
   }
+}
+
+// The lock folder could not be moved for the whole budget: a dead owner's, or
+// this process's own. On Windows the message is the person's line; elsewhere
+// the words of the plain busy case it falls under.
+export class ActiveDirectiveLockFolderHeldError extends ActiveDirectiveLockContendedError {
+  // The message is the person's line, not the fallback words.
+  readonly personLine: boolean;
+  constructor(fallback: string) {
+    const line = activeDirectiveLockHeldLine();
+    super(line ?? fallback);
+    this.personLine = line !== null;
+    this.name = "ActiveDirectiveLockFolderHeldError";
+  }
+}
+
+// The line where the step did not run; null where there is no likely cause.
+export function activeDirectiveLockHeldLine(): string | null {
+  return lockFolderHeldLine("stopped", activeDirectiveLockBudgetMs());
+}
+
+// The line where this step and its record went through, the folder was then
+// held, and the next step waits.
+export function activeDirectiveLockHeldAfterStepLine(): string | null {
+  return lockFolderHeldLine("went-through", Math.min(activeDirectiveLockBudgetMs(), lockFolderHeldGiveUpMs()));
+}
+
+// The line where the step went on without the record, each step waiting out
+// the lock's budget or the give-up; null where there is no likely cause.
+export function activeDirectiveLockHeldNote(): string | null {
+  return lockFolderHeldLine("goes-on", Math.min(activeDirectiveLockBudgetMs(), lockFolderHeldGiveUpMs()));
+}
+
+// A transaction in this process went on after its release spent the whole
+// budget (transactActiveDirectiveTarget does not throw for it). True once.
+let ACTIVE_DIRECTIVE_RELEASE_HELD = false;
+
+export function takeActiveDirectiveReleaseHeld(): boolean {
+  const held = ACTIVE_DIRECTIVE_RELEASE_HELD;
+  ACTIVE_DIRECTIVE_RELEASE_HELD = false;
+  return held;
 }
 
 // Thrown when an engine observer reaches a durable write primitive. The
@@ -9505,13 +9687,39 @@ function validActiveDirectiveGuardRemedies(
   });
 }
 
-function parseActiveDirectiveMarker(parsed: unknown): ActiveDirectiveMarker | null {
-  if (!isPlainObject(parsed)) return null;
-  const stage = typeof parsed.stage === "string" ? parsed.stage.trim() : "";
-  const unit = typeof parsed.unit === "string" ? parsed.unit.trim() : undefined;
-  const stateSha256 = typeof parsed.state_sha256 === "string" ? parsed.state_sha256 : "";
-  if (!/^[a-z][a-z0-9-]*$/.test(stage) || ("unit" in parsed && !unit) || !/^[0-9a-f]{64}$/.test(stateSha256)) return null;
-  if (parsed.version === 1) return { version: 1, stage, ...(unit ? { unit } : {}), state_sha256: stateSha256 };
+// Existing v2 markers may carry the former unattended operation name. Keep
+// their recorded answer intact while exposing only the route that now owns it.
+function normalizeLegacyGuardRecovery(
+  parsed: Record<string, unknown>,
+): Record<string, unknown> {
+  const remedies = Array.isArray(parsed.remedies)
+    ? parsed.remedies.map((remedy) =>
+      isPlainObject(remedy) && remedy.op === "unset-unattended"
+        ? { ...remedy, op: "request-changes" }
+        : remedy
+    )
+    : parsed.remedies;
+  const guardRecovery = isPlainObject(parsed.guard_recovery_response) &&
+      parsed.guard_recovery_response.selected_op === "unset-unattended"
+    ? { ...parsed.guard_recovery_response, selected_op: "request-changes" }
+    : parsed.guard_recovery_response;
+  return {
+    ...parsed,
+    ...(Array.isArray(parsed.remedies) ? { remedies } : {}),
+    ...(isPlainObject(parsed.guard_recovery_response)
+      ? { guard_recovery_response: guardRecovery }
+      : {}),
+  };
+}
+
+function parseActiveDirectiveMarker(value: unknown): ActiveDirectiveMarker | null {
+  if (!isPlainObject(value)) return null;
+  const stage = typeof value.stage === "string" ? value.stage.trim() : "";
+  const unit = typeof value.unit === "string" ? value.unit.trim() : undefined;
+  const stateSha256 = typeof value.state_sha256 === "string" ? value.state_sha256 : "";
+  if (!/^[a-z][a-z0-9-]*$/.test(stage) || ("unit" in value && !unit) || !/^[0-9a-f]{64}$/.test(stateSha256)) return null;
+  if (value.version === 1) return { version: 1, stage, ...(unit ? { unit } : {}), state_sha256: stateSha256 };
+  const parsed = normalizeLegacyGuardRecovery(value);
   const integer = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
   const attempt = isPlainObject(parsed.active_attempt) ? parsed.active_attempt : null;
   const resume = isPlainObject(parsed.resume) ? parsed.resume : null;
@@ -9555,6 +9763,7 @@ function parseActiveDirectiveMarker(parsed: unknown): ActiveDirectiveMarker | nu
       )) ||
     ("cursor_harness" in parsed &&
       (typeof parsed.cursor_harness !== "string" || !/^[a-z0-9][a-z0-9._-]*$/i.test(parsed.cursor_harness))) ||
+    ("single" in parsed && parsed.single !== undefined && parsed.single !== true) ||
     ("ask_type" in parsed &&
       (typeof parsed.ask_type !== "string" || !/^[a-z][a-z0-9-]*$/.test(parsed.ask_type))) ||
     ("guard_recovery_response" in parsed &&
@@ -9746,7 +9955,7 @@ function transactActiveDirectiveTarget<T>(
   if (pendingRelease) {
     const outcome = releaseCanonicalOwnerStampedLock(pendingRelease.receipt);
     if (outcome === "retryable") {
-      throw new ActiveDirectiveLockContendedError(
+      throw new ActiveDirectiveLockFolderHeldError(
         "Active-directive lock release is still pending",
       );
     }
@@ -9761,8 +9970,13 @@ function transactActiveDirectiveTarget<T>(
   assertRecordPathNoFollow(recordRoot, target.lockDir);
   mkdirSync(dirname(target.markerPath), { recursive: true });
   assertRecordPathNoFollow(recordRoot, target.markerPath);
-  const receipt = acquireActiveDirectiveLock(target.lockDir);
-  if (!receipt) throw new ActiveDirectiveLockContendedError();
+  const acquisition = acquireActiveDirectiveLock(target.lockDir);
+  const receipt = acquisition.receipt;
+  if (!receipt) {
+    throw acquisition.folderHeld
+      ? new ActiveDirectiveLockFolderHeldError("Active-directive coordination is busy")
+      : new ActiveDirectiveLockContendedError();
+  }
   ACTIVE_DIRECTIVE_TRANSACTIONS.add(target.markerPath);
   const onExit = () => releaseCanonicalOwnerStampedLock(receipt);
   ACTIVE_DIRECTIVE_EXIT_HANDLERS.set(target.markerPath, {
@@ -9816,6 +10030,7 @@ function transactActiveDirectiveTarget<T>(
   } finally {
     ACTIVE_DIRECTIVE_TRANSACTIONS.delete(target.markerPath);
     const outcome = releaseCanonicalOwnerStampedLock(receipt);
+    if (outcome === "retryable") ACTIVE_DIRECTIVE_RELEASE_HELD = true;
     const registered = ACTIVE_DIRECTIVE_EXIT_HANDLERS.get(target.markerPath);
     if (
       outcome !== "retryable" &&
@@ -9975,6 +10190,7 @@ export function writeActiveDirectiveMarker(
     steering_payload_receipt?: string;
     ask_type?: string;
     remedies?: ActiveDirectiveGuardRemedy[];
+    single?: true;
   },
   invocation?: {
     attemptId?: string;
@@ -10294,6 +10510,7 @@ export function writeActiveDirectiveMarker(
       ...(marker.kind === "ask" && marker.ask_type
         ? { ask_type: marker.ask_type }
         : { ask_type: undefined }),
+      ...(marker.single ? { single: true as const } : { single: undefined }),
       ...(marker.kind === "ask" &&
           marker.ask_type === GUARD_RECOVERY_ASK_TYPE &&
           marker.remedies !== undefined
@@ -10919,7 +11136,6 @@ const GUARD_REMEDY_ANSWER_ROUTES: Record<GuardRemedyOp, GuardRemedyAnswerPhases 
   // Present the summary (its prompt checkpoint) on the pick; record the
   // confirmation once the person gave it.
   "reconfirm-summary": { afterPick: summaryRoute("decision"), afterAnswer: summaryRoute("answer") },
-  "unset-unattended": null,
   "lower-fence": null,
 };
 
@@ -11523,9 +11739,25 @@ export function recordCopilotHumanSequence(
   });
 }
 
-// The adapter and orchestrator hash JSON.stringify([verb, ...args]) after
-// removing the dispatcher prefix, --project-dir and --aidlc-attempt-id. Compare
-// that identity to the operation's argv, not to shell spelling or jumpRequest.
+// `next --stage <stage>`, with `--unit <unit>` for one Unit's step, as the
+// engine prints it. Null for a stage or Unit that is no identifier.
+export function nextStageInvocation(stage: string, unit?: string): EngineInvocation | null {
+  const operation = { kind: "restart-stage", stage } as const;
+  if (!isGuardRecoveryOperation(operation) || (unit !== undefined && !UNIT_NAME_REGEX.test(unit))) return null;
+  const invocation = guardOperationInvocation(operation);
+  return unit === undefined ? invocation : { ...invocation, args: [...invocation.args, "--unit", unit] };
+}
+
+// The claim identity of that `next --stage`: the adapter and orchestrator
+// hash JSON.stringify([verb, ...args]) after removing the dispatcher prefix,
+// --project-dir and --aidlc-attempt-id. Null where no such claim exists.
+export function nextStageClaimSha256(stage: string, unit?: string): string | null {
+  const invocation = nextStageInvocation(stage, unit);
+  return invocation === null ? null : contentSha256(JSON.stringify(invocation.args));
+}
+
+// The selected restart's own `next --stage` is matched by its claim identity
+// (nextStageClaimSha256), never by shell spelling or jumpRequest.
 // emitJumpDirective emits this exact {kind,message} print before stage-validity
 // decoration. The adapter retains only its byte-exact resultSha256, so enumerate
 // aidlcToolInvocation("jump")'s source/native representations here. Both command
@@ -11555,7 +11787,7 @@ function copilotGuardRestartPrintHashes(
   if (
     operation?.kind !== "restart-stage" ||
     !guardOperationMatchesRemedy(operation, selected[0].op, marker.stage, marker.unit) ||
-    input.commandSha256 !== contentSha256(JSON.stringify(guardOperationInvocation(operation).args))
+    input.commandSha256 !== nextStageClaimSha256(operation.stage)
   ) return [];
   try {
     const scope = getField(stateContent, "Scope");
@@ -12792,6 +13024,36 @@ export function stageGateApproval(
   return acceptAsIs && ACCEPT_AS_IS_LABEL_RE.test((userInput ?? "").trim()) ? ACCEPT_AS_IS_CHOICE : "Approve";
 }
 
+// The person's change requests at one stage's gate (one Unit's, when a Unit is
+// named) since that gate was last approved or the stage was freshly reopened.
+// The state file's Revision Count runs across the whole workflow, so it cannot
+// say when Accept as-is is on offer: the escape hatch opens after the third
+// request on the same stage. The audit trail keeps the count across a park.
+export const ACCEPT_AS_IS_REVISION_CYCLES = 3;
+export function stageRevisionCycles(
+  rows: readonly AuditShardEvent[],
+  slug: string,
+  unit?: string,
+): number {
+  let cycles = 0;
+  for (const row of sortAttemptEvents(rows)) {
+    if (row.event !== "GATE_APPROVED" && row.event !== "GATE_REJECTED") continue;
+    if (!gateEventMatchesUnit(row.block, slug, unit)) continue;
+    cycles = row.event === "GATE_REJECTED" && !rejectionIsFreshAttempt(row.block) ? cycles + 1 : 0;
+  }
+  return cycles;
+}
+
+// An unreadable audit trail leaves the escape hatch closed: the person's
+// approval is still recorded, as Approve, never blocked on the count.
+export function stageAcceptAsIsOnOffer(projectDir: string, slug: string, unit?: string): boolean {
+  try {
+    return stageRevisionCycles(readAuditShardEvents(projectDir), slug, unit) >= ACCEPT_AS_IS_REVISION_CYCLES;
+  } catch {
+    return false;
+  }
+}
+
 // HUMAN_TURN proves only that a prompt-submit seam fired after the previous
 // resolution. Several harnesses do not expose trusted prompt text, so the
 // framework cannot prove that --user-input/--feedback/--details came from the
@@ -13203,12 +13465,23 @@ export function recordRelativeFileName(projectDir: string, root: string, file: s
   return inRecord ? fromRecord : given;
 }
 
+/**
+ * The text of a file the agent wrote for the engine to read. Windows
+ * PowerShell 5.1 writes UTF-8 with a byte order mark (`Set-Content -Encoding
+ * UTF8`, `Out-File -Encoding utf8`), and an editor can too; it is the same file,
+ * so one leading BOM is dropped (#2452). Anything bound to the file's bytes,
+ * such as a hash, stays over the bytes on disk.
+ */
+export function agentFileText(bytes: Buffer): string {
+  return bytes.toString("utf-8").replace(/^﻿/, "");
+}
+
 export function readVerificationCommandFile(projectDir: string, file: string): VerificationCommand {
   const root = recordDir(projectDir);
   if (!root) throw new Error("Verification command file requires an active intent record.");
   const path = recordFileTargetOrThrow(root, recordRelativeFileName(projectDir, root, file));
   return verificationCommandDetails(
-    readRegularFileNoFollowOrThrow(path, "verification command file", 16 * 1024).toString("utf-8"),
+    agentFileText(readRegularFileNoFollowOrThrow(path, "verification command file", 16 * 1024)),
   );
 }
 
@@ -13254,8 +13527,7 @@ export function readAnswerTextFile(projectDir: string, file: string): string {
     );
   }
   const path = recordFileTargetOrThrow(root, relativePath);
-  const text = readRegularFileNoFollowOrThrow(path, "answer text file", ANSWER_TEXT_MAX_BYTES)
-    .toString("utf-8")
+  const text = agentFileText(readRegularFileNoFollowOrThrow(path, "answer text file", ANSWER_TEXT_MAX_BYTES))
     .replace(/\r?\n$/, "");
   removeRecordFileNoFollow(root, relativePath);
   if (text.trim() === "") throw new Error(`The answer text file ${relativePath} is empty.`);
@@ -14233,16 +14505,14 @@ export function summaryScopeForRecordPath(
 // consolidated-summary receipt and that generated artifacts postdate it.
 // `workflow` identifies an isolated run; main-workflow callers omit it.
 /**
- * True when this stage owes a consolidated summary confirmation in the current
- * workflow: the guard is on, the ceremony is on, the stage declares one, and it
- * is not initialization or an autonomous Construction stage. The gate and the
- * log commands share this so they never disagree about whether one is owed.
+ * The gate and logger share this stage's summary obligation. Presentation alone
+ * ignores the guard switch: disabling enforcement preserves the question.
  */
 export function summaryConfirmationOwed(
   stage: SummaryConfirmationStage,
-  options: { stateContent?: string | null; scope?: string | null } = {},
+  options: { stateContent?: string | null; scope?: string | null; ignoreGuardSwitch?: boolean } = {},
 ): boolean {
-  if (summaryConfirmationGuardDisabled()) return false;
+  if (!options.ignoreGuardSwitch && summaryConfirmationGuardDisabled()) return false;
   if (
     resolveCeremony(
       "summary_confirmation",
@@ -14259,30 +14529,46 @@ export function summaryConfirmationOwed(
   return stage.summary_confirmation !== undefined;
 }
 
-// A Unit's stage work finished while summary confirmation was off owes no
-// summary when a later change turns it on (the person's scope change or
-// setting): finished work is never re-checked against a ceremony it was never
-// asked for. A Unit that starts the stage again after that asks it as usual.
-function unitFinishedBeforeSummaryOn(
+// Work done while summary confirmation was off owes no summary when a later
+// change turns it on (the person's scope change or setting): finished work is
+// never re-checked against a ceremony it was never asked for. That is a Unit
+// whose stage work finished before the change (unit given), and a stage whose
+// gate was already open then and has not closed since (unit null; showing the
+// gate again keeps it open). Work that runs the stage again after that asks it
+// as usual. A row that only says on again, under a value already on, turns
+// nothing on.
+function finishedBeforeSummaryOn(
   projectDir: string,
   slug: string,
-  unit: string,
+  unit: string | null,
   stateContent: string,
   auditRows: readonly AuditShardEvent[],
 ): boolean {
   const on = sortAttemptEvents(auditRows.filter((row) =>
     row.event === "CEREMONY_SET" &&
     auditBlockField(row.block, "Key") === "summary_confirmation" &&
-    auditBlockField(row.block, "New") === "on")).at(-1);
+    auditBlockField(row.block, "New") === "on" &&
+    parseCeremonySetting(auditBlockField(row.block, "Old")) !== "on")).at(-1);
   if (on === undefined) return false;
+  const before = (ts: string, shard: string, pos: number): boolean =>
+    ts < on.timestamp || (ts === on.timestamp && shard === on.shard && pos < on.pos);
+  if (unit === null) {
+    let opened: AuditShardEvent | null = null;
+    for (const row of sortAttemptEvents(auditRows)) {
+      if (!GATE_WORDS_LIFECYCLE_EVENTS.has(row.event) || auditBlockField(row.block, "Stage") !== slug) continue;
+      if (auditBlockField(row.block, "Workflow")?.startsWith("single-stage:")) continue;
+      if (row.event !== "STAGE_AWAITING_APPROVAL") opened = null;
+      else opened ??= row;
+    }
+    return opened !== null && before(opened.timestamp, opened.shard, opened.pos);
+  }
   const unitMajor =
     getField(stateContent, "Construction Iteration")?.trim() === "unit-major" ||
     getField(stateContent, "Construction Checkpoints") === "enabled";
   const last = currentUnitLifecycleRows(projectDir, "", slug, unitMajor, auditRows, stateContent)
     .filter((row) => row.unit === unit)
     .at(-1);
-  return last?.event === "UNIT_COMPLETED" &&
-    (last.ts < on.timestamp || (last.ts === on.timestamp && last.shard === on.shard && last.pos < on.pos));
+  return last?.event === "UNIT_COMPLETED" && before(last.ts, last.shard, last.pos);
 }
 
 /** The stage's questions file (for one Unit on a per-unit stage), relative to the project. */
@@ -14443,10 +14729,19 @@ export function checkSummaryConfirmationEvidence(
   }
   let auditRowsRead: AuditShardEvent[] | null = null;
   const readAuditRows = (): AuditShardEvent[] => (auditRowsRead ??= readAuditShardEvents(projectDir));
-  const finishedBeforeOn = (unit: string): boolean =>
-    options.workflow === undefined && isPerUnitStage(stage) && typeof options.stateContent === "string" &&
-    unitFinishedBeforeSummaryOn(projectDir, stage.slug, unit, options.stateContent, readAuditRows());
-  if (options.unit !== undefined && finishedBeforeOn(options.unit)) {
+  // A per-unit stage the plan runs with no Units Generation runs once at stage
+  // level: its gate and its summary are the stage's, as the Unit set below reads.
+  const stageLevelArtifacts =
+    options.stateContent !== undefined &&
+    usesStageLevelPerUnitArtifacts(
+      getField(options.stateContent ?? "", "Scope"),
+      options.stateContent,
+    );
+  const finishedBeforeOn = (unit: string | null): boolean =>
+    options.workflow === undefined && (unit !== null) === (isPerUnitStage(stage) && !stageLevelArtifacts) &&
+    typeof options.stateContent === "string" &&
+    finishedBeforeSummaryOn(projectDir, stage.slug, unit, options.stateContent, readAuditRows());
+  if (finishedBeforeOn(options.unit ?? null)) {
     return { ok: true, required: false };
   }
 
@@ -14472,13 +14767,7 @@ export function checkSummaryConfirmationEvidence(
   if (
     declared &&
     isPerUnitStage(stage) &&
-    !(
-      options.stateContent !== undefined &&
-      usesStageLevelPerUnitArtifacts(
-        getField(options.stateContent ?? "", "Scope"),
-        options.stateContent,
-      )
-    ) &&
+    !stageLevelArtifacts &&
     options.workflow === undefined &&
     options.unit === undefined
   ) {
@@ -15036,6 +15325,12 @@ export function auditBlockField(block: string, fieldName: string): string | null
   return null;
 }
 
+// The rows every `aidlc doctor` run writes about itself (collectDoctorReport is
+// their only writer). They are doctor's receipt, not work: a reader that asks
+// what changed in the work, or whether teammates still need a record, leaves
+// them out.
+export const DOCTOR_RUN_AUDIT_EVENTS: ReadonlySet<string> = new Set(["GUARDRAIL_LOADED", "HEALTH_CHECKED"]);
+
 // Whether a `GATE_REJECTED` row is a fresh attempt rather than the person's
 // change request. `aidlc-jump.ts reopen` marks its rows `Reopen: jump` (a
 // `/aidlc --stage` reopen) or `Reopen: redo` (redo on re-entry): the person
@@ -15328,9 +15623,10 @@ export function auditShardName(projectDir: string): string {
 }
 
 // This clone's shard name when it is already known, without minting a token or
-// upgrading the clone-id file: readers use it to prefer their own shard and must
-// not write.
-function knownAuditShardName(projectDir: string): string | null {
+// upgrading the clone-id file: readers use it to prefer their own shard, or to
+// tell their own rows from other clones', and must not write. Null means this
+// clone has written no shard yet.
+export function knownAuditShardName(projectDir: string): string | null {
   const scoped = scopedAuditShardName(projectDir);
   if (scoped) return scoped;
   const cached = AUDIT_SHARD_NAMES.get(canonicalPathKey(projectDir));
@@ -15372,12 +15668,13 @@ export function auditShards(
   intent?: string,
   space?: string,
   unreadableLocations?: string[],
+  bind?: boolean,
 ): string[] {
   const dirs: string[] = [];
   if (intent === undefined && space !== undefined) {
     dirs.push(join(spaceRecordRoot(projectDir, space), "audit"));
   }
-  const resolved = resolveRecordDir(projectDir, intent, space);
+  const resolved = resolveRecordDir(projectDir, intent, space, bind);
   const intentDir =
     resolved.dir === null ? null : join(resolved.dir, "audit");
   if (intentDir !== null && !dirs.includes(intentDir)) dirs.push(intentDir);
@@ -15476,6 +15773,13 @@ function auditShardBlocks(content: string): string[] {
 // Repeats inside one file are not copies and stay. Returns, per shard, the
 // block positions to skip. `ownShard` is only asked when a copy exists.
 const AUDIT_SHARD_FILE_RE = /^[a-z0-9][a-z0-9-]*-[a-z0-9]{1,32}\.md$/;
+
+// The machine a shard's file name records (the token never holds a hyphen), or
+// null for a file not named like a shard.
+export function auditShardHost(shard: string): string | null {
+  const name = basename(shard);
+  return AUDIT_SHARD_FILE_RE.test(name) ? name.slice(0, name.lastIndexOf("-")) : null;
+}
 
 export function copiedAuditBlocks(
   shards: readonly AuditShardText[],
@@ -15614,12 +15918,14 @@ export function readAuditShardEvents(
   intent?: string,
   space?: string,
   unreadableShards?: string[],
+  bind?: boolean,
 ): AuditShardEvent[] {
   const shards = auditShards(
     projectDir,
     intent,
     space,
     unreadableShards,
+    bind,
   );
   // A vanished or refused shard is skipped; growth during read is tolerated.
   const texts = readAuditShardTexts(projectDir, shards, unreadableShards);
@@ -15648,7 +15954,7 @@ export function readActiveAuditShardEvents(
   projectDir: string,
   options: { includeNotes?: boolean } = {},
 ): Array<AuditShardEvent | AuditShardNote> {
-  const selection = resolveWorkflowSelection(projectDir);
+  const selection = resolveWorkflowSelection(projectDir, { bind: false });
   if (selection.intent === null) {
     throw new Error("No active workflow is selected. Start a workflow or select an existing intent.");
   }
@@ -15658,7 +15964,7 @@ export function readActiveAuditShardEvents(
   const unreadable: string[] = [];
   const rows: Array<AuditShardEvent | AuditShardNote> = [];
   if (options.includeNotes) {
-    const shards = auditShards(projectDir, selection.intent, selection.space, unreadable);
+    const shards = auditShards(projectDir, selection.intent, selection.space, unreadable, false);
     const texts = readAuditShardTexts(projectDir, shards, unreadable);
     const copied = copiedAuditBlocks(texts, () => knownAuditShardName(projectDir));
     texts.forEach(({ shard, content, shardIndex }, index) => {
@@ -15666,7 +15972,7 @@ export function readActiveAuditShardEvents(
       rows.push(...parseAuditShardNotes(content, shard, shardIndex, copied[index]));
     });
   } else {
-    rows.push(...readAuditShardEvents(projectDir, selection.intent, selection.space, unreadable));
+    rows.push(...readAuditShardEvents(projectDir, selection.intent, selection.space, unreadable, false));
   }
   if (unreadable.length > 0) {
     throw new Error("Cannot read the active intent's audit history: an audit shard or directory is unreadable.");
@@ -16139,6 +16445,8 @@ export type SourceBaselineResult =
   | { state: "legacy" }
   | { state: "unbindable" }
   | { state: "invalid" }
+  // The audit names a well-formed baseline and no copy of it is on this machine.
+  | { state: "missing" }
   | { state: "ready"; listing: WorkspaceSourceListing };
 
 export interface FreshReviewReceipts {
@@ -16187,9 +16495,9 @@ export interface FreshReviewReceipts {
    *  project source cannot be read, now or when it was reviewed. Each is said
    *  once. */
   unitSourceKept: Set<string>;
-  /** Units the person approved at their checkpoint after their latest
-   *  re-check: that approval opens a fresh one, so their progress above
-   *  reports it unspent. */
+  /** Units the person approved at their checkpoint, or started a new attempt
+   *  for, after their latest re-check: either opens a fresh one, so their
+   *  progress above reports it unspent. */
   unitRecheckReopened: Set<string>;
   /** Effective stage-entry source baseline for unclaimed-path verification. */
   sourceBaseline: SourceBaselineResult;
@@ -18685,7 +18993,7 @@ export function completionCarriesVerifiedReview(
 }
 
 /** The REVIEW_COMPLETED field the logger writes, as `no`, on the NOT-READY
- *  fallback recorded when a retried review still wrote nothing. */
+ *  fallback recorded when a retried review still wrote no whole review. */
 export const REVIEW_FINISHED_FIELD = "Review Finished";
 
 /**
@@ -18747,8 +19055,9 @@ export function dictatedReviewNotice(stageName: string, unit?: string | null): s
 }
 
 /** The REVIEW_COMPLETED field the logger writes, as `no`, when the verdict was
- *  recorded before any agent had finished since its review was requested, on
- *  a host where that absence is evidence (noAgentFinishedSinceReview). True
+ *  recorded before the request's reviewer had finished since its review was
+ *  requested, on a host where that absence is evidence
+ *  (noReviewerFinishedSinceReview). True
  *  when written, even if an agent finishes later; distinct from
  *  REVIEW_FINISHED_FIELD, the NOT-READY fallback with no review at all. */
 export const REVIEWER_FINISHED_FIELD = "Reviewer Finished Before Verdict";
@@ -18778,28 +19087,37 @@ export function hostRecordsAgentFinishes(): boolean {
 }
 
 /**
- * Whether the record shows that no agent finished after `request`, on a host
- * where a missing completion row means that. Every doubt reads as false, so a
- * lost or late row can never put a wrong line in front of the person: another
- * host, a delegated worktree (its reviewers' rows land in the parent's ledger),
- * a chat whose hooks do not write into this record (the check log-subagent
- * makes), a background agent sent or finished since the request (the in-flight
- * ledger written since, or an entry still fresh), a completion hook that ran
- * since (its heartbeat), or any SUBAGENT_COMPLETED row, of any agent, not
- * definitely before the request. The caller holds the audit lock, so neither
- * the rows nor the ledger move while this reads.
+ * Whether the record shows that the reviewer `request` named has not finished
+ * its review since the request, on a host where a missing completion row means
+ * that. The reviewer finished only when a SUBAGENT_COMPLETED row definitely
+ * after the request names it as Agent Type and carries a Review File Digest for
+ * the request's review file: the log-subagent hook writes that digest for every
+ * review still open for the reviewer that finished, so a row naming any other
+ * agent, or naming the reviewer without the digest, is not the reviewer
+ * finishing this review (#943: dispatching an unrelated agent after the request
+ * no longer reads as the reviewer having finished). Every doubt reads as false,
+ * so a lost or late row can never put a wrong line in front of the person:
+ * another host, a delegated worktree (its reviewers' rows land in the parent's
+ * ledger), a chat whose hooks do not write into this record (the check
+ * log-subagent makes), a background agent sent or finished since the request
+ * (the in-flight ledger written since, or an entry still fresh: the ledger
+ * names no agent), a completion row that names no agent (`unknown`, a host
+ * that sent no agent type), a completion hook that ran since and left no row
+ * (its heartbeat newer than every completion row since), or a failure that
+ * hook recorded since (its drops file). The caller holds the audit lock, so
+ * neither the rows nor the ledger move while this reads.
  */
-export function noAgentFinishedSinceReview(
+export function noReviewerFinishedSinceReview(
   projectDir: string,
   events: ReadonlyArray<AuditShardEvent>,
-  request: AuditShardEvent,
+  request: Pick<OpenReviewRequest, "reviewer" | "reviewFile" | "row">,
   selection: WorkflowSelection,
 ): boolean {
   try {
     if (!hostRecordsAgentFinishes()) return false;
     if (delegatedWorktreeIntent(projectDir) !== null) return false;
     if (selection.intent === null || workflowParticipation(projectDir, selection) !== "participant") return false;
-    const requested = Date.parse(request.timestamp);
+    const requested = Date.parse(request.row.timestamp);
     if (!Number.isFinite(requested)) return false;
     const ledger = subagentInflightMarkerPath(projectDir);
     if (existsSync(ledger)) {
@@ -18807,12 +19125,31 @@ export function noAgentFinishedSinceReview(
       const inflight = inspectSubagentInflight(projectDir);
       if (inflight.malformed || inflight.freshCount > 0) return false;
     }
-    const heartbeat = join(hooksHealthReadDir(projectDir, selection.intent, selection.space), "log-subagent.last");
+    const since = events.filter((row) =>
+      row.event === "SUBAGENT_COMPLETED" && !attemptEventDefinitelyBefore(row, request.row));
+    for (const row of since) {
+      const agent = auditBlockField(row.block, "Agent Type");
+      if (agent === null || agent === "" || agent === "unknown") return false;
+      if (agent === request.reviewer && recordedReviewFileDigest(row.block, request.reviewFile) !== null) return false;
+    }
+    const health = hooksHealthReadDir(projectDir, selection.intent, selection.space);
+    const heartbeat = join(health, "log-subagent.last");
     if (existsSync(heartbeat)) {
       const beat = Date.parse(readFileSync(heartbeat, "utf-8").trim());
-      if (!Number.isFinite(beat) || beat >= requested) return false;
+      if (!Number.isFinite(beat)) return false;
+      // The hook beats, then appends its row in the same run: a beat since the
+      // request with no completion row at or after it is a run that left none.
+      if (beat >= requested && !since.some((row) => Date.parse(row.timestamp) >= beat)) return false;
     }
-    return !events.some((row) => row.event === "SUBAGENT_COMPLETED" && !attemptEventDefinitelyBefore(row, request));
+    const drops = join(health, "log-subagent.drops");
+    if (existsSync(drops)) {
+      for (const line of readFileSync(drops, "utf-8").split("\n")) {
+        if (line.trim() === "") continue;
+        const at = Date.parse(line.split("\t", 1)[0]);
+        if (!Number.isFinite(at) || at >= requested) return false;
+      }
+    }
+    return true;
   } catch {
     return false;
   }
@@ -19519,6 +19856,16 @@ export function reviewInvalidationAttemptView(
     ),
   );
   return { events, floor };
+}
+
+// The backward jump that began the stage's current attempt, when one did (the
+// attempt's only boundary). The Review brief says what it changed and
+// invalidated, which is why the gate after it shows the stale brief.
+export function backwardJumpBoundary(floor: ReadonlyArray<AuditShardEvent>): AuditShardEvent | undefined {
+  const boundary = floor.length === 1 ? floor[0] : undefined;
+  return boundary?.event === "STAGE_JUMPED" && auditBlockField(boundary.block, "Direction") === "BACKWARD"
+    ? boundary
+    : undefined;
 }
 
 export function attemptEventAfterFrontier(
@@ -21629,17 +21976,25 @@ export function freshReviewReceipts(
   }
 
   // A Unit's re-check is spent only until the person next approves the Unit
-  // at its checkpoint: that approval opens a fresh one.
+  // at its checkpoint or starts a new attempt for it (their Request Changes
+  // at its checkpoint or its team gate, or the Unit's step started again; each
+  // keeps their Feedback): either opens a fresh one. Wherever a Unit's attempts
+  // are its own (team, checkpoints on, or one Unit at a time), a Unit with no
+  // re-check of its own has not used one: the source mark above is shared by
+  // every Unit.
+  const unitAttempts = unitScopedLifecycleFloors(stateContent);
   const unitRecheckReopened = new Set<string>();
   for (const unit of new Set([...unitSourceMoved.keys(), ...unitStaleProgress.keys()])) {
     const recheck = events.slice(floorIdx + 1).findLast((row) =>
       row.event === "REVIEW_REQUESTED" && auditBlockField(row.block, "Recovery") === "stale-receipt" &&
       auditBlockField(row.block, "Stage") === stage.slug && auditBlockField(row.block, "Unit") === unit &&
       auditBlockField(row.block, "Reviewer") === reviewer && eventMatchesClaimAttempt(projectDir, row.block, unit));
-    if (!recheck || !allEvents.some((row) =>
-      row.event === "GATE_APPROVED" && auditBlockField(row.block, "Unit") === unit &&
-      auditBlockField(row.block, "User Input") === "Approve" &&
-      ["construction-unit", "walking-skeleton"].includes(auditBlockField(row.block, "Checkpoint") ?? "") &&
+    if (recheck === undefined ? !unitAttempts : !allEvents.some((row) =>
+      auditBlockField(row.block, "Unit") === unit &&
+      (row.event === "GATE_APPROVED"
+        ? auditBlockField(row.block, "User Input") === "Approve" &&
+          ["construction-unit", "walking-skeleton"].includes(auditBlockField(row.block, "Checkpoint") ?? "")
+        : row.event === "GATE_REJECTED" && unitAttempts && auditBlockField(row.block, "Feedback") !== null) &&
       gateStagesFromBlock(row.block).includes(stage.slug) &&
       eventMatchesClaimAttempt(projectDir, row.block, unit) && attemptEventDefinitelyBefore(recheck, row))) continue;
     unitRecheckReopened.add(unit);
@@ -21714,7 +22069,11 @@ export function freshReviewReceipts(
     if (baselineField === UNBINDABLE_FINGERPRINT) sourceBaseline = { state: "unbindable" };
     else if (baselineField !== null) {
       const listing = readBaselineSourceSnapshot(projectDir, stage.slug, baselineField);
-      sourceBaseline = listing === null ? { state: "invalid" } : { state: "ready", listing };
+      sourceBaseline = listing !== null
+        ? { state: "ready", listing }
+        : baselineSourceSnapshotMissing(projectDir, stage.slug, baselineField)
+          ? { state: "missing" }
+          : { state: "invalid" };
     } else if (modernSourceBindingEvidence) {
       sourceBaseline = { state: "invalid" };
     }
@@ -21837,6 +22196,174 @@ export function repoIsWorkspace(projectDir: string, repoName: string): boolean {
 // folder: the lone root, the roof of several repos, or a repo mapped to ".".
 function rootCarriesWorkspaceShell(projectDir: string, root: string): boolean {
   return resolvePath(root) === resolvePath(projectDir);
+}
+
+// A folder a person made a Git checkout of: a real .git entry (a folder, or a
+// worktree's or submodule's file), by lstat, so no link is followed. A commit
+// can never carry a .git entry, so a committed folder merely shaped like a repo
+// never passes and git never runs on its config.
+export function hasRealGitEntry(dir: string): boolean {
+  try {
+    const entry = lstatSync(join(dir, ".git"));
+    return entry.isDirectory() || entry.isFile();
+  } catch {
+    return false;
+  }
+}
+
+// The checkouts a piece of work keeps its code in where the source walk does
+// not reach: a worktree in a harness folder (Claude Code's .claude/worktrees/)
+// or one outside the project. The agent or the person names one (`intent
+// add-checkout <path>`, or a Unit's source claim inside it); the record is kept
+// per clone in the intent's .aidlc-engine/ folder, and the one source identity
+// walks each as an extra root, its files listed as `<label>@checkout/<path>`.
+// Nothing rebuilds it from the audit trail or any committed text, so a
+// teammate's clone has no record and walks as before.
+export interface RecordedSourceCheckout {
+  // Stable and path-free (a repo-name-shaped folder name), so a Unit's reviewed
+  // listing, which is committed, never carries a local path.
+  label: string;
+  path: string;
+  real: string;
+}
+
+const SOURCE_CHECKOUTS_RECORD = "source-checkouts.json";
+
+export function readRecordedSourceCheckouts(
+  projectDir: string,
+  intent?: string,
+  space?: string,
+): RecordedSourceCheckout[] {
+  const dir = recordDir(projectDir, intent, space);
+  if (dir === null) return [];
+  const file = join(engineDirFor(dir), SOURCE_CHECKOUTS_RECORD);
+  try {
+    if (!lstatSync(file).isFile()) return [];
+    const parsed = JSON.parse(readFileSync(file, "utf-8")) as { version?: unknown; checkouts?: unknown };
+    if (parsed.version !== 1 || !Array.isArray(parsed.checkouts)) return [];
+    const checkouts: RecordedSourceCheckout[] = [];
+    for (const entry of parsed.checkouts as Array<Record<string, unknown>>) {
+      if (
+        entry === null || typeof entry !== "object" ||
+        typeof entry.label !== "string" || !isValidRepoName(entry.label) ||
+        typeof entry.path !== "string" || typeof entry.real !== "string" || !isAbsolute(entry.real) ||
+        checkouts.some((known) => known.label === entry.label)
+      ) {
+        continue;
+      }
+      checkouts.push({ label: entry.label, path: entry.path, real: entry.real });
+    }
+    return checkouts;
+  } catch {
+    return [];
+  }
+}
+
+// The record's only writer. The source boundary changed, so a memo of the
+// walk taken before it no longer holds.
+export function writeRecordedSourceCheckouts(
+  projectDir: string,
+  checkouts: readonly RecordedSourceCheckout[],
+  intent?: string,
+  space?: string,
+): void {
+  refuseEngineObserverWrite("writeRecordedSourceCheckouts");
+  writeEngineFileNoFollow(
+    projectDir,
+    SOURCE_CHECKOUTS_RECORD,
+    `${JSON.stringify({ version: 1, checkouts }, null, 2)}\n`,
+    intent,
+    space,
+  );
+  workspaceSourceStateCache?.clear();
+}
+
+// How the source listing names a recorded checkout's files: `<label>@checkout`.
+export function sourceCheckoutListingRel(label: string): string {
+  return `${label}@checkout`;
+}
+
+// Whether a manifest path is spelled with a checkout's listing name as its
+// first folder (`<label>@checkout/...`): the walk's own name, so such a claim is
+// never a recorded repo's.
+export function namesSourceCheckout(path: string): boolean {
+  const head = path.replace(/^(?:\.\/)+/, "").split("/")[0];
+  return head.length > sourceCheckoutListingRel("").length && head.endsWith(sourceCheckoutListingRel(""));
+}
+
+// The recorded checkout a listing path (a key's path part, repo "") lies in,
+// and the path within it. The walk, a Unit's claims and the coverage check all
+// read a recorded checkout's files through this one name.
+export function recordedCheckoutOfListingPath(
+  path: string,
+  checkouts: readonly RecordedSourceCheckout[],
+): { checkout: RecordedSourceCheckout; rest: string } | null {
+  const slash = path.indexOf("/");
+  const head = slash === -1 ? path : path.slice(0, slash);
+  const checkout = checkouts.find((entry) => sourceCheckoutListingRel(entry.label) === head);
+  return checkout === undefined ? null : { checkout, rest: slash === -1 ? "" : path.slice(slash + 1) };
+}
+
+function comparablePath(path: string): string {
+  let real: string;
+  try {
+    real = realpathSync(path);
+  } catch {
+    real = resolvePath(path);
+  }
+  return process.platform === "win32" ? real.toLowerCase() : real;
+}
+
+// The recorded checkout at `dir`, compared by real path (case-folded on Windows).
+export function recordedCheckoutAt(
+  dir: string,
+  checkouts: readonly RecordedSourceCheckout[],
+): RecordedSourceCheckout | null {
+  const at = comparablePath(dir);
+  return checkouts.find((entry) => comparablePath(entry.real) === at) ?? null;
+}
+
+// A label for a newly recorded checkout: its folder's name made repo-name
+// shaped, with a number added when another recorded checkout has it.
+export function sourceCheckoutLabelFor(real: string, checkouts: readonly RecordedSourceCheckout[]): string {
+  const base = basename(real).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "") || "checkout";
+  const taken = new Set(checkouts.map((entry) => entry.label));
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
+}
+
+// Whether the review's source binding reaches `dir`: the source walk lists a
+// file below it that is not one of AI-DLC's own (aidlcOwnedSourceKey), under
+// its project-relative path or, for a recorded checkout, under its
+// `<label>@checkout` name. The source-work look, `intent add-checkout` and the
+// review request's claim recording all ask this one test.
+export function sourceWalkReach(
+  projectDir: string,
+  listing: ReadonlyMap<string, string> | null,
+  checkouts: readonly RecordedSourceCheckout[],
+): (dir: string) => boolean {
+  const root = comparablePath(projectDir);
+  const owned = aidlcOwnedSourceKey(projectDir);
+  const fold = (path: string): string => (process.platform === "win32" ? path.toLowerCase() : path);
+  const walked: string[] = [];
+  for (const key of listing?.keys() ?? []) {
+    if (owned(key)) continue;
+    const parsed = splitSourcePathKey(key);
+    if (parsed !== null) walked.push(fold(parsed.repo === "" ? parsed.path : `${parsed.repo}/${parsed.path}`));
+  }
+  return (dir: string): boolean => {
+    const checkout = recordedCheckoutAt(dir, checkouts);
+    let below: string;
+    if (checkout !== null) {
+      below = `${sourceCheckoutListingRel(checkout.label)}/`;
+    } else {
+      const rel = relative(root, comparablePath(dir));
+      if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return false;
+      below = `${rel.split(sep).join("/")}/`;
+    }
+    const prefix = fold(below);
+    return walked.some((path) => path.startsWith(prefix));
+  };
 }
 
 // --- Workspace source fingerprint (#629) -----------------------------------
@@ -22002,7 +22529,7 @@ const SOURCE_FINGERPRINT_HARD_EXCLUDED_NAMES = [
   "node_modules",
   "venv",
 ] as const;
-const SOURCE_FINGERPRINT_HARD_EXCLUDED_DIRS = new Set<string>(
+export const SOURCE_FINGERPRINT_HARD_EXCLUDED_DIRS: ReadonlySet<string> = new Set<string>(
   SOURCE_FINGERPRINT_HARD_EXCLUDED_NAMES,
 );
 
@@ -22112,14 +22639,17 @@ const legacyWorkspaceSourceAliases = new Map<string, string>();
 // their files. That earlier walk is redone only when a comparison would
 // otherwise fail, once per value, and yields what it recorded both before and
 // after the name exclusions above.
-const earlierBoundarySources = new Map<string, { projectDir: string; repos: readonly string[]; values?: string[] }>();
+const earlierBoundarySources = new Map<
+  string,
+  { projectDir: string; repos: readonly string[]; checkouts: readonly RecordedSourceCheckout[]; values?: string[] }
+>();
 function earlierBoundaryWorkspaceSources(current: string): readonly string[] {
   const entry = earlierBoundarySources.get(current);
   if (entry === undefined) return [];
   if (entry.values === undefined) {
     const failure = lastSourceFailure;
     try {
-      const walked = walkWorkspaceSource(entry.projectDir, entry.repos, false);
+      const walked = walkWorkspaceSource(entry.projectDir, entry.repos, false, entry.checkouts);
       entry.values = walked === null ? [] : [walked.state.fingerprint, ...(walked.legacy === null ? [] : [walked.legacy])];
     } finally {
       lastSourceFailure = failure;
@@ -23184,6 +23714,18 @@ function noteSourceFailure<T extends null | false>(
   return result;
 }
 
+// The way to repair a source boundary the walk could not finish: the source
+// registry, or, when the walk stopped in a checkout the work recorded, taking
+// that checkout out again.
+export function sourceBoundaryRepairStep(): string {
+  const repo = lastSourceFailure?.repo;
+  return repo?.endsWith("@checkout")
+    ? "Repair .aidlc-source-paths.json or the workspace source boundary, or, if the checkout recorded as " +
+      `${repo} does not hold this work's code, take it out with ` +
+      `\`${aidlcDispatcherInvocation("intent remove-checkout <its path>")}\``
+    : "Repair .aidlc-source-paths.json or the workspace source boundary";
+}
+
 export function lastWorkspaceSourceFailure(): WorkspaceSourceFailure | null {
   return lastSourceFailure === null ? null : { ...lastSourceFailure };
 }
@@ -23459,6 +24001,17 @@ function pathIsWithinRoot(root: string, target: string): boolean {
       !rel.startsWith(`..${sep}`)
     )
   );
+}
+
+// How the source listing names what a link leads to: the target's own path
+// when it lies inside the root, else the link's path marked `@target`. The walk
+// names the entries below a link this way, and a source claim through a link
+// is keyed the same way (sourceClaimCheckout), so the claim covers what the
+// walk lists.
+function linkTargetListingRel(rootReal: string, target: string, linkListingRel: string): string {
+  return pathIsWithinRoot(rootReal, target)
+    ? relative(rootReal, target).split(sep).join("/")
+    : `${linkListingRel}@target`;
 }
 
 interface SourceSymlinkResolution {
@@ -23912,8 +24465,10 @@ function packedGitObjectLocation(
   const packDir = join(objectDir, "pack");
   let indexes: string[];
   try {
+    // Pack writers choose the basename (jj uses loose-*); validate the index
+    // and its matching pack rather than requiring Git's usual pack-* prefix.
     indexes = readdirSync(packDir)
-      .filter((name) => /^pack-[0-9a-f]+\.idx$/.test(name))
+      .filter((name) => name.endsWith(".idx"))
       .sort();
   } catch {
     return null;
@@ -25093,9 +25648,7 @@ function filesystemSourceIdentity(
             ) {
               continue;
             }
-            const targetListingRel = internal
-              ? targetRelNative.split(sep).join("/")
-              : `${childListingRel}@target`;
+            const targetListingRel = linkTargetListingRel(rootReal, target, childListingRel);
             if (
               recordIdentity &&
               recordFile(
@@ -25117,9 +25670,7 @@ function filesystemSourceIdentity(
               snapshotEligible &&
               internal &&
               !existsSync(join(target, ".git"));
-            const targetListingRel = internal
-              ? targetSnapshotRel
-              : `${childListingRel}@target`;
+            const targetListingRel = linkTargetListingRel(rootReal, target, childListingRel);
             if (earlierOutput) earlierOutputDepth += 1;
             if (
               !walk(
@@ -25474,12 +26025,13 @@ function workspaceSourceStateUncached(
 ): WorkspaceSourceState | null {
   clearSourceFailure();
   const repos = knownRepos ?? intentRepos(projectDir, intent, space);
-  const walked = walkWorkspaceSource(projectDir, repos, true);
+  const checkouts = readRecordedSourceCheckouts(projectDir, intent, space);
+  const walked = walkWorkspaceSource(projectDir, repos, true, checkouts);
   if (walked === null) return null;
   const { fingerprint } = walked.state;
   if (walked.legacy === null) legacyWorkspaceSourceAliases.delete(fingerprint);
   else legacyWorkspaceSourceAliases.set(fingerprint, walked.legacy);
-  if (walked.dotnetOutputSeen) earlierBoundarySources.set(fingerprint, { projectDir, repos: [...repos] });
+  if (walked.dotnetOutputSeen) earlierBoundarySources.set(fingerprint, { projectDir, repos: [...repos], checkouts: [...checkouts] });
   else earlierBoundarySources.delete(fingerprint);
   return walked.state;
 }
@@ -25490,10 +26042,70 @@ interface WorkspaceSourceWalk {
   dotnetOutputSeen: boolean;
 }
 
+// Each recorded checkout, walked as a root of its own with the shell rule on (a
+// same-repo worktree carries the project's aidlc/ records and harness folder,
+// which are AI-DLC's own there as at the root): one fingerprint line and its
+// files listed as `<label>@checkout/<path>`. A checkout no longer on disk is
+// one `missing` line.
+interface SourceCheckoutWalk {
+  lines: string[];
+  legacyLines: string[];
+  legacyDiffers: boolean;
+  listing: WorkspaceSourceListing;
+  dotnetOutputSeen: boolean;
+}
+
+function walkSourceCheckouts(
+  checkouts: readonly RecordedSourceCheckout[],
+  dotnetOutputs: boolean,
+): SourceCheckoutWalk | null {
+  const walk: SourceCheckoutWalk = { lines: [], legacyLines: [], legacyDiffers: false, listing: new Map(), dotnetOutputSeen: false };
+  for (const checkout of [...checkouts].sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0))) {
+    const name = sourceCheckoutListingRel(checkout.label);
+    let present = false;
+    try {
+      present = statSync(checkout.real).isDirectory();
+    } catch {
+      present = false;
+    }
+    if (!present) {
+      walk.lines.push(`checkout:${checkout.label}=missing`);
+      walk.legacyLines.push(`checkout:${checkout.label}=missing`);
+      continue;
+    }
+    const source = filesystemSourceIdentity(checkout.real, true, new Set(), "follow", true, new Map(), dotnetOutputs);
+    if (source === null) {
+      if (lastSourceFailure !== null) lastSourceFailure = { ...lastSourceFailure, repo: name };
+      return null;
+    }
+    walk.dotnetOutputSeen ||= source.dotnetOutputSeen;
+    walk.lines.push(`checkout:${checkout.label}=filesystem:${source.fingerprint}`);
+    walk.legacyLines.push(`checkout:${checkout.label}=filesystem:${source.legacyFingerprint ?? source.fingerprint}`);
+    walk.legacyDiffers ||= source.legacyFingerprint !== undefined;
+    for (const [path, entry] of source.listing) walk.listing.set(`\0${name}/${path}`, entry);
+  }
+  return walk;
+}
+
+// The digest of a walk's lines, and the raw-line-ending form it had before line
+// endings were read as LF, remembered when that differs.
+function workspaceSourceDigest(lines: readonly string[]): string {
+  const digest = (parts: readonly string[]): string =>
+    createHash("sha256").update(["aidlc-workspace-source-v2", ...parts].join("\n")).digest("hex");
+  const rawParts = lines.map((line) => line.replace(/^filesystem=([0-9a-f]{64})$|=filesystem:([0-9a-f]{64})$/, (whole, lone?: string, member?: string) => {
+    const raw = rawFingerprintForm(lone ?? member ?? "");
+    if (raw === null) return whole;
+    return lone !== undefined ? `filesystem=${raw}` : `=filesystem:${raw}`;
+  }));
+  if (rawParts.some((line, at) => line !== lines[at])) rememberRawFingerprint(digest(rawParts), digest(lines));
+  return digest(lines);
+}
+
 function walkWorkspaceSource(
   projectDir: string,
   repos: readonly string[],
   dotnetOutputs: boolean,
+  checkouts: readonly RecordedSourceCheckout[] = [],
 ): WorkspaceSourceWalk | null {
   if (repos.length === 0) {
     const hasWorktreeContext = existsSync(
@@ -25520,6 +26132,22 @@ function walkWorkspaceSource(
       dotnetOutputs,
     );
     if (source === null) return null;
+    if (checkouts.length > 0 && worktreeContext === null) {
+      const extra = walkSourceCheckouts(checkouts, dotnetOutputs);
+      if (extra === null) return null;
+      const lines = [`filesystem=${source.fingerprint}`, ...extra.lines];
+      const legacyDiffers = source.legacyFingerprint !== undefined || extra.legacyDiffers;
+      return {
+        state: {
+          fingerprint: workspaceSourceDigest(lines),
+          listing: new Map([...prefixedSourceListing(source.listing), ...extra.listing]),
+        },
+        legacy: legacyDiffers
+          ? workspaceSourceDigest([`filesystem=${source.legacyFingerprint ?? source.fingerprint}`, ...extra.legacyLines])
+          : null,
+        dotnetOutputSeen: source.dotnetOutputSeen || extra.dotnetOutputSeen,
+      };
+    }
     const workspaceDigest = (filesystem: string): string =>
       createHash("sha256")
         .update(["aidlc-workspace-source-v2", `filesystem=${filesystem}`].join("\n"))
@@ -25585,6 +26213,15 @@ function walkWorkspaceSource(
     for (const [key, entry] of prefixedSourceListing(source.listing, name)) {
       listing.set(key, entry);
     }
+  }
+  if (checkouts.length > 0) {
+    const extra = walkSourceCheckouts(checkouts, dotnetOutputs);
+    if (extra === null) return null;
+    dotnetOutputSeen ||= extra.dotnetOutputSeen;
+    lines.push(...extra.lines);
+    legacyLines.push(...extra.legacyLines);
+    legacyDiffers ||= extra.legacyDiffers;
+    for (const [key, entry] of extra.listing) listing.set(key, entry);
   }
   const digest = (parts: readonly string[]): string =>
     createHash("sha256").update(["aidlc-workspace-source-v2", ...parts].join("\n")).digest("hex");
@@ -25678,7 +26315,7 @@ function sourceListingFieldDecode(value: string): string | null {
   return decoded;
 }
 
-function splitSourcePathKey(key: string): { repo: string; path: string } | null {
+export function splitSourcePathKey(key: string): { repo: string; path: string } | null {
   const separator = key.indexOf("\0");
   if (separator === -1 || key.indexOf("\0", separator + 1) !== -1) return null;
   const repo = key.slice(0, separator);
@@ -26201,7 +26838,10 @@ function ignoredPathClaimable(
  * The source keys (`<repo>\0<path>`) among `keys` that no Unit can claim
  * because Git ignores them: the paths a source manifest refuses as review
  * evidence (`ignoredSourceClaimReason`). A path whose ignore rule or HEAD
- * membership cannot be read is not returned.
+ * membership cannot be read is not returned. A file in one of the work's
+ * recorded checkouts is returned too, as a gitignored nested worktree's is: a
+ * checkout recorded after the stage began never asks a Unit to claim files it
+ * did not write.
  */
 export function unclaimableIgnoredSourceKeys(
   projectDir: string,
@@ -26214,11 +26854,16 @@ export function unclaimableIgnoredSourceKeys(
   } catch {
     return unclaimable;
   }
+  const checkouts = readRecordedSourceCheckouts(projectDir);
   const sourceClaimValidation: GitSourceClaimValidationCache = new Map();
   const candidates: { key: string; sourceRepoDir: string; path: string }[] = [];
   for (const key of keys) {
     const parsed = splitSourcePathKey(key);
     if (parsed === null) continue;
+    if (parsed.repo === "" && recordedCheckoutOfListingPath(parsed.path, checkouts) !== null) {
+      unclaimable.add(key);
+      continue;
+    }
     const sourceRepoDir = parsed.repo === "" ? projectDir : repoDir(projectDir, parsed.repo);
     if (!isGitRepoDir(sourceRepoDir)) continue;
     seedGitSourceClaimIgnorePath(sourceRepoDir, parsed.path, sourceClaimValidation);
@@ -26285,6 +26930,81 @@ export function registryExcludedSourceKeys(
     if (registryExcludesSourcePath(registry, parsed.path)) excluded.add(key);
   }
   return excluded;
+}
+
+// The checkout that judges a source claim, the claim's path within it, and the
+// path the source listing knows it by. A claim with no repo field whose path
+// lies inside a checkout nested under the project (a worktree or clone the
+// project's git does not track) is judged by that checkout's own git: the
+// outer repository's .gitignore only says the outer repository does not track
+// that folder. The innermost folder on the path with a real .git entry wins;
+// lstat only, so a link or a junction on the way is not followed, except one
+// that leads to a checkout outside the project (a junction to a clone kept
+// elsewhere): its own git judges the claim, and the claim is keyed as the walk
+// lists what the link leads to (linkTargetListingRel). A claim through any
+// other link keeps the link rules below. A claim inside one of the work's
+// recorded checkouts, by its path in the project or by its listing name
+// (`<label>@checkout/<path>`, the only spelling a checkout outside the project
+// has), is judged by that checkout's git and keyed by that listing name; a
+// listing name no recorded checkout has is refused with the step.
+function sourceClaimCheckout(
+  repoRoot: string,
+  path: string,
+  nestedAllowed: boolean,
+  checkouts: readonly RecordedSourceCheckout[] = [],
+): { dir: string; path: string; listingPath: string; reason?: string } {
+  let claim = { dir: repoRoot, path, listingPath: path };
+  if (!nestedAllowed) return claim;
+  let rootReal: string;
+  try {
+    rootReal = realpathSync(repoRoot);
+  } catch {
+    return claim;
+  }
+  const trailing = path.endsWith("/") ? "/" : "";
+  const parts = path.replace(/\/+$/, "").split("/");
+  const named = recordedCheckoutOfListingPath(path, checkouts);
+  if (named !== null) return { dir: named.checkout.real, path: named.rest, listingPath: path };
+  if (namesSourceCheckout(path) && !existsSync(join(repoRoot, parts[0]))) {
+    return {
+      ...claim,
+      reason: `${JSON.stringify(path)} names a checkout this piece of work has not recorded. Record it first with ` +
+        `\`${aidlcDispatcherInvocation("intent add-checkout <its path>")}\`, then dispatch the review again`,
+    };
+  }
+  // A folder claim may name the link itself; a file claim names a file below.
+  const folders = trailing ? parts.length : parts.length - 1;
+  let dir = repoRoot;
+  for (let at = 0; at < folders; at++) {
+    dir = join(dir, parts[at]);
+    let entry: ReturnType<typeof lstatSync>;
+    try {
+      entry = lstatSync(dir);
+    } catch {
+      return claim;
+    }
+    const rest = parts.slice(at + 1).join("/");
+    const restPath = rest === "" ? "" : `${rest}${trailing}`;
+    const recorded = entry.isDirectory() ? recordedCheckoutAt(dir, checkouts) : null;
+    if (recorded !== null) {
+      return { dir: recorded.real, path: restPath, listingPath: `${sourceCheckoutListingRel(recorded.label)}/${restPath}` };
+    }
+    if (entry.isSymbolicLink()) {
+      const target = resolveSourceSymlinkTarget(rootReal, dir)?.target ?? null;
+      if (target === null || pathIsWithinRoot(rootReal, target)) return claim;
+      try {
+        if (!statSync(target).isDirectory() || !hasRealGitEntry(target)) return claim;
+      } catch {
+        return claim;
+      }
+      const linked = linkTargetListingRel(rootReal, target, parts.slice(0, at + 1).join("/"));
+      return { dir: target, path: restPath, listingPath: `${linked}/${restPath}` };
+    }
+    if (!entry.isDirectory() || at + 1 >= parts.length) return claim;
+    // A folder with no .git entry belongs to the checkout above it.
+    if (hasRealGitEntry(dir)) claim = { dir, path: restPath, listingPath: path };
+  }
+  return claim;
 }
 
 function ignoredSourceClaimReason(
@@ -26398,11 +27118,14 @@ function ignoredSourceClaimReason(
     if (seeded.status !== 0) {
       return `Git could not seed ignore verification for ${JSON.stringify(path)}`;
     }
+    // Literal, like the probe's pathspecs: git would otherwise read a route
+    // folder's `[id]` as a character class and list its ignored siblings.
     const ignoredDescendants = spawnSync(
       "git",
       [
         "-C",
         sourceRepoDir,
+        "--literal-pathspecs",
         "ls-files",
         "-z",
         "--others",
@@ -26611,6 +27334,58 @@ function symlinkClaimTargetReason(
   return null;
 }
 
+// The review request's own write: a claim of the Unit's source manifest that
+// lies in a checkout the source walk does not reach (a worktree in a harness
+// folder) records that checkout, so the review that follows binds it. Returns
+// the checkouts it recorded. Only the review request calls this; reading or
+// checking a manifest never writes.
+export function recordUnitClaimCheckouts(
+  projectDir: string,
+  stageSlug: string,
+  unit: string,
+): RecordedSourceCheckout[] {
+  if (existsSync(join(projectDir, ".aidlc", "worktree-meta.json")) || intentRepos(projectDir).length > 0) return [];
+  const record = recordDir(projectDir);
+  if (record === null || validateUnitName(unit) !== null || !/^[a-z][a-z0-9-]*$/.test(stageSlug)) return [];
+  let writes: unknown;
+  try {
+    writes = (JSON.parse(readFileSync(join(record, "construction", unit, stageSlug, "source-manifest.json"), "utf-8")) as {
+      writes?: unknown;
+    }).writes;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(writes)) return [];
+  const checkouts = readRecordedSourceCheckouts(projectDir);
+  let reaches: ((dir: string) => boolean) | null = null;
+  const added: RecordedSourceCheckout[] = [];
+  for (const write of writes) {
+    if (!isPlainObject(write) || typeof write.path !== "string" || "repo" in write) continue;
+    const normalized = normalizeManifestSourcePath(write.path);
+    if ("reason" in normalized) continue;
+    const claim = sourceClaimCheckout(projectDir, normalized.path, true, [...checkouts, ...added]);
+    // Only a nested checkout found on the claim's own path, not a link's target
+    // or one already recorded.
+    if (claim.reason !== undefined || claim.dir === projectDir || claim.listingPath !== normalized.path) continue;
+    reaches ??= sourceWalkReach(projectDir, workspaceSourceState(projectDir)?.listing ?? null, checkouts);
+    if (reaches(claim.dir)) continue;
+    let real: string;
+    try {
+      real = realpathSync(claim.dir);
+    } catch {
+      continue;
+    }
+    if (recordedCheckoutAt(real, [...checkouts, ...added]) !== null) continue;
+    added.push({
+      label: sourceCheckoutLabelFor(real, [...checkouts, ...added]),
+      path: relative(projectDir, claim.dir).split(sep).join("/"),
+      real,
+    });
+  }
+  if (added.length > 0) writeRecordedSourceCheckouts(projectDir, [...checkouts, ...added]);
+  return added;
+}
+
 /** Strictly read and validate a unit's engine-required source-manifest.json. */
 export function readUnitSourceManifest(
   projectDir: string,
@@ -26644,7 +27419,7 @@ function validateUnitSourceManifestBytes(
 ): ReadUnitSourceManifestResult {
   let value: unknown;
   try {
-    value = JSON.parse(rawBytes.toString("utf-8")) as unknown;
+    value = JSON.parse(agentFileText(rawBytes)) as unknown;
   } catch (error) {
     return { ok: false, reason: `source-manifest.json is not valid JSON (${errorMessage(error)})` };
   }
@@ -26680,6 +27455,7 @@ function validateUnitSourceManifestBytes(
   const worktreeRelative = worktreeContext !== null;
   const recordedRepos = worktreeRelative ? [] : intentRepos(projectDir);
   const recordedRepoSet = new Set(recordedRepos);
+  const checkouts = worktreeRelative ? [] : readRecordedSourceCheckouts(projectDir);
   // The shell (aidlc/, the harness folders) is part of the root each write is
   // in only when that root is the workspace folder.
   const carriesShellAt = (sourceRepoDir: string): boolean =>
@@ -26708,6 +27484,8 @@ function validateUnitSourceManifestBytes(
       ) {
         continue;
       }
+    } else if (!worktreeRelative && namesSourceCheckout(candidate.path)) {
+      // Keyed as the walk lists a recorded checkout, whatever repos are recorded.
     } else if (recordedRepos.length > 1) {
       continue;
     } else if (recordedRepos.length === 1) {
@@ -26715,15 +27493,20 @@ function validateUnitSourceManifestBytes(
     }
     const normalized = normalizeManifestSourcePath(candidate.path);
     if ("reason" in normalized) continue;
-    const sourceRepoDir =
+    const claim = sourceClaimCheckout(
       worktreeRelative
         ? projectDir
         : canonicalRepo === undefined
           ? projectDir
-          : repoDir(projectDir, canonicalRepo);
-    seedGitSourceClaimIgnorePath(
-      sourceRepoDir,
+          : repoDir(projectDir, canonicalRepo),
       normalized.path,
+      !worktreeRelative && canonicalRepo === undefined,
+      checkouts,
+    );
+    if (claim.reason !== undefined) continue;
+    seedGitSourceClaimIgnorePath(
+      claim.dir,
+      claim.path,
       sourceClaimValidation,
     );
   }
@@ -26749,6 +27532,8 @@ function validateUnitSourceManifestBytes(
       if (!recordedRepoSet.has(canonicalRepo)) {
         return { ok: false, reason: `writes[${index}].repo ${JSON.stringify(canonicalRepo)} is not recorded for this intent`, unrecordedRepo: canonicalRepo };
       }
+    } else if (!worktreeRelative && namesSourceCheckout(write.path)) {
+      // Keyed as the walk lists a recorded checkout, whatever repos are recorded.
     } else if (recordedRepos.length > 1) {
       return { ok: false, reason: `writes[${index}].repo is required for a multi-repo intent` };
     } else if (recordedRepos.length === 1) {
@@ -26773,29 +27558,38 @@ function validateUnitSourceManifestBytes(
     ) {
       return { ok: false, reason: `writes[${index}].path is inside the framework record/shell exclusions` };
     }
-    const ignoredReason = ignoredSourceClaimReason(
+    const claim = sourceClaimCheckout(
       sourceRepoDir,
       normalized.path,
+      !worktreeRelative && canonicalRepo === undefined,
+      checkouts,
+    );
+    if (claim.reason !== undefined) return { ok: false, reason: `writes[${index}].path: ${claim.reason}` };
+    // A recorded checkout is walked with the shell rule on, so its claims are read that way too.
+    const claimCarriesShell = recordedCheckoutOfListingPath(claim.listingPath, checkouts) !== null || carriesWorkspaceShell;
+    const ignoredReason = ignoredSourceClaimReason(
+      claim.dir,
+      claim.path,
       normalized.prefix,
       pathModeIndexes,
       sourceClaimValidation,
-      carriesWorkspaceShell,
+      claimCarriesShell,
     );
     if (ignoredReason !== null) {
       return { ok: false, reason: `writes[${index}].path: ${ignoredReason}` };
     }
     const symlinkReason = symlinkClaimTargetReason(
-      sourceRepoDir,
-      normalized.path,
+      claim.dir,
+      claim.path,
       normalized.prefix,
-      carriesWorkspaceShell,
+      claimCarriesShell,
       pathModeIndexes,
       sourceClaimValidation,
     );
     if (symlinkReason !== null) {
       return { ok: false, reason: `writes[${index}].path: ${symlinkReason}` };
     }
-    const key = sourcePathKey(canonicalRepo ?? "", normalized.path);
+    const key = sourcePathKey(canonicalRepo ?? "", claim.listingPath);
     if (seen.has(key)) return { ok: false, reason: `writes[${index}] duplicates a normalized source claim` };
     seen.add(key);
     if (normalized.prefix) prefixes.push(key);
@@ -27016,10 +27810,32 @@ export function writeBaselineSourceSnapshot(
   return writeSourceSnapshot(record, join(dir, `baseline-${hash.slice(0, 12)}.tsv`), serialized);
 }
 
+/** The same listing kept under each slug, so every stage the boundary reaches reads it. Returns the one fingerprint. */
+function writeBaselineSourceSnapshotUnderStages(
+  projectDir: string,
+  stageSlugs: readonly string[],
+  listing: ReadonlyMap<string, string>,
+  intent?: string,
+  space?: string,
+): string {
+  const fingerprints = stageSlugs.map((slug) => writeBaselineSourceSnapshot(projectDir, slug, listing, intent, space));
+  return fingerprints[0];
+}
+
+/** The workspace_requires stages a boundary at `targetSlug` reaches (all of them without one), plus code-generation. */
+export function workspaceBaselineStageSlugs(targetSlug?: string): string[] {
+  const graph = loadStageGraph();
+  const from = targetSlug === undefined ? -1 : graph.findIndex((stage) => stage.slug === targetSlug);
+  const slugs = graph
+    .filter((stage, index) => stage.workspace_requires === true && index >= from)
+    .map((stage) => stage.slug);
+  return slugs.includes("code-generation") ? slugs : ["code-generation", ...slugs];
+}
+
 /** Build the modern source-baseline audit field for any workflow/stage boundary. */
 export function sourceBaselineAuditFields(
   projectDir: string,
-  stageSlug: string,
+  stageSlug: string | readonly string[],
   intent?: string,
   space?: string,
   // The repo set of a record not listed yet (start-work lists it last).
@@ -27036,9 +27852,9 @@ export function sourceBaselineAuditFields(
       return { "Source Baseline": UNBINDABLE_FINGERPRINT };
     }
     return {
-      "Source Baseline": writeBaselineSourceSnapshot(
+      "Source Baseline": writeBaselineSourceSnapshotUnderStages(
         projectDir,
-        stageSlug,
+        typeof stageSlug === "string" ? [stageSlug] : stageSlug,
         new Map(),
         intent,
         space,
@@ -27046,9 +27862,9 @@ export function sourceBaselineAuditFields(
     };
   }
   return {
-    "Source Baseline": writeBaselineSourceSnapshot(
+    "Source Baseline": writeBaselineSourceSnapshotUnderStages(
       projectDir,
-      stageSlug,
+      typeof stageSlug === "string" ? [stageSlug] : stageSlug,
       sourceState.listing,
       intent,
       space,
@@ -27149,6 +27965,28 @@ export function readBaselineSourceSnapshot(
   if (path === null) return null;
   const serialized = readSourceSnapshot(path, fingerprint);
   return serialized === null ? null : parseSourceListing(serialized);
+}
+
+// The baseline file is AI-DLC's own ignored copy, so a fresh clone or another
+// machine has none; that is lost bookkeeping, not a mismatch. A file that is
+// here (even a dangling link) and does not match is not this.
+function baselineSourceSnapshotMissing(
+  projectDir: string,
+  stageSlug: string,
+  fingerprint: string,
+  intent?: string,
+  space?: string,
+): boolean {
+  const hash = validSourceSnapshotFingerprint(fingerprint);
+  if (hash === null) return false;
+  const path = sourceSnapshotReadPath(projectDir, stageSlug, `baseline-${hash.slice(0, 12)}.tsv`, intent, space);
+  if (path === null) return false;
+  try {
+    lstatSync(path);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT";
+  }
 }
 
 // --- Workspace source snapshots keyed by the workspace fingerprint -----------
@@ -27358,7 +28196,10 @@ export function currentStageSourceBaseline(
     intent,
     space,
   );
-  return listing === null ? { state: "invalid" } : { state: "ready", listing };
+  if (listing !== null) return { state: "ready", listing };
+  return baselineSourceSnapshotMissing(projectDir, stageSlug, field, intent, space)
+    ? { state: "missing" }
+    : { state: "invalid" };
 }
 
 export interface UnitSourceSnapshot {
@@ -27639,7 +28480,7 @@ export function resolveConstructionRepo(
 // P9 end state has no flat `aidlc-docs/` root, so the whole tree stays on ONE
 // root per intent (state split across two roots is meaningless). The
 // state/audit/worktree helpers above are the load-bearing pair; these cover the
-// rest of the family (runtime graph, hook health, recovery breadcrumb, plan,
+// rest of the family (runtime graph, hook health, plan,
 // stop-hook guard, the bare docs dir, and a stage's per-run directory) plus the
 // per-worktree mirror copies.
 //
@@ -27740,6 +28581,33 @@ export function hookActivation(): HookActivation | null {
   }
 }
 
+/** Doctor's repair for a missing or unreadable project settings file; the hooks-off step names it too. */
+export function projectSettingsRepair(distribution: string): string {
+  const invoke = aidlcInvocation();
+  const source = invoke === "aidlc"
+    ? ""
+    : ` --from <the runtime/${distribution} root you copied from>`;
+  return `run \`${invoke} config --harness ${distribution}${source}\` to put back AI-DLC's hooks (your own hooks are kept)`;
+}
+
+// Missing, or there and not valid JSON (read as doctor reads it); null for a
+// valid file and for one that cannot be opened for another reason, which the
+// lines would not describe. Never throws: both callers run it outside a try.
+function registrationFault(path: string): "missing" | "invalid" | null {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf-8");
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : null;
+  }
+  try {
+    JSON.parse(withoutBom(text));
+    return null;
+  } catch {
+    return "invalid";
+  }
+}
+
 /** The doctor's recovery sentence for hooks that stopped firing, per harness. */
 export function hookExecutionRecoveryText(projectDir?: string): string {
   const declared = hookActivation()?.recovery;
@@ -27784,15 +28652,24 @@ const HOOKS_OFF_AGENT_RULES =
 export function hooksOffAgentStep(projectDir?: string, next?: string, keep?: () => string | null): string | null {
   const activation = hookActivation();
   if (!activation?.agentStep) return null;
-  // Through a link the agent would change a file outside the project.
-  const edits = activation.agentStepEdits;
-  if (edits && !plainProjectFile(resolveProjectDir(projectDir), edits)) {
-    return `${HOOKS_OFF_AGENT_RULES} \`${edits}\` in this project is a link, so do not change it. Show the person ` +
-      `this line and end your turn: "${edits} in this project is a link, so it was left as it is. Make it a plain ` +
-      `file in this project, then send your next message."`;
+  const project = resolveProjectDir(projectDir);
+  const registration = activation.registration;
+  const fault = registration ? registrationFault(join(project, registration.file)) : null;
+  let step: string;
+  if (registration && fault) {
+    const line = registration[fault].replaceAll("<repair>", projectSettingsRepair(runtimeHarnessName(project, harnessDir())));
+    step = `Show the person this line and end your turn: "${line}"`;
+  } else {
+    // Through a link the agent would change a file outside the project.
+    const edits = activation.agentStepEdits;
+    if (edits && !plainProjectFile(project, edits)) {
+      return `${HOOKS_OFF_AGENT_RULES} \`${edits}\` in this project is a link, so do not change it. Show the person ` +
+        `this line and end your turn: "${edits} in this project is a link, so it was left as it is. Make it a plain ` +
+        `file in this project, then send your next message."`;
+    }
+    // An agent given each tool's line showed the wrong one (#2167), so the engine picks it.
+    step = inHostShell(activation.agentStepInHost?.env) ? activation.agentStepInHost!.text : activation.agentStep;
   }
-  // An agent given each tool's line showed the wrong one (#2167), so the engine picks it.
-  const step = inHostShell(activation.agentStepInHost?.env) ? activation.agentStepInHost!.text : activation.agentStep;
   const kept = keep && step.includes("<entry>") ? keep() : null;
   const entry = kept === null ? undefined : `${entrySkillInvocation()} --request ${kept}`;
   return `${HOOKS_OFF_AGENT_RULES} ${fillHookActivationText(step, projectDir, next, entry)}`;
@@ -28004,6 +28881,14 @@ function creationHeartbeat(
   }
 }
 
+// The audit rows that mean the workflow advanced. A chat's session start, the
+// person's prompt and doctor's own receipt land whenever someone opens a chat
+// or runs doctor, so a reader that weighs hooks against the work (hookLiveness,
+// doctor's frozen-hook rule) counts only these.
+export function isStageOrGateEvent(event: string): boolean {
+  return event.startsWith("STAGE_") || event.startsWith("GATE_");
+}
+
 // The one comparison behind the doctor's "Hooks last fired ... but the workflow
 // last advanced ..." row and the Plan Approval decision's liveness refusal, so
 // the two cannot disagree about what "hooks are not firing" means.
@@ -28023,7 +28908,7 @@ export function hookLiveness(
   const healthDirExists = existsSync(healthDir);
   let newestStageOrGateEvent: HookHeartbeatStamp | null = null;
   for (const event of recordEvents) {
-    if (!event.event.startsWith("STAGE_") && !event.event.startsWith("GATE_")) continue;
+    if (!isStageOrGateEvent(event.event)) continue;
     const timestampMs = Date.parse(event.timestamp);
     if (
       Number.isFinite(timestampMs) &&
@@ -28104,12 +28989,6 @@ export function recordPreWorkflowHeartbeat(projectDir: string, hook: string): vo
   } catch {
     // Advisory: without it doctor keeps its "not run yet" warning.
   }
-}
-
-// `<root>/.aidlc-engine/recovery.md` - the validate-state breadcrumb the orchestrator
-// reads on resume.
-export function recoveryFilePath(projectDir: string, intent?: string, space?: string): string {
-  return join(engineDir(projectDir, intent, space), "recovery.md");
 }
 
 // `<root>/.aidlc-engine/plan.json` - `aidlc-graph resolve` output.
@@ -30479,6 +31358,16 @@ export function matchSubagentInflight(
   });
 }
 
+/** Whether an agent sent in the background at or after `sinceMs` has not
+ *  returned: a fresh in-flight entry started since. The completion hook that
+ *  records an agent's finish removes its entry; a missing or malformed ledger
+ *  shows none. */
+export function backgroundAgentOutSince(projectDir: string, sinceMs: number): boolean {
+  const current = readSubagentInflightLedger(projectDir);
+  if (!current.exists || current.malformed) return false;
+  return freshSubagentEntries(current.entries, Date.now()).some((entry) => entry.startedAtMs >= sinceMs);
+}
+
 export function inspectSubagentInflight(
   projectDir: string,
 ): SubagentInflightSummary {
@@ -31198,6 +32087,31 @@ export function readUnitGateRhythm(stateContent: string | null): UnitGateRhythm 
     : "per-stage";
 }
 
+// The per-Unit stages a stage-major walk may run as one wave
+// (stage-protocol-wave.md). The route and the verdict's step both read it.
+const WAVE_ELIGIBLE_STAGES: ReadonlySet<string> = new Set([
+  "functional-design",
+  "nfr-requirements",
+  "nfr-design",
+  "infrastructure-design",
+]);
+
+export function waveEligible(node: {
+  slug: string;
+  phase: string;
+  for_each?: string;
+  mode?: string;
+  workspace_requires?: boolean;
+}): boolean {
+  return (
+    WAVE_ELIGIBLE_STAGES.has(node.slug) &&
+    node.phase === "construction" &&
+    node.for_each === "unit-of-work" &&
+    node.mode === "inline" &&
+    node.workspace_requires !== true
+  );
+}
+
 // True only for the topology the engine can dispatch as an autonomous swarm.
 // A truthy `--unit` is not proof: the four inline Construction design stages
 // are also per-unit. Keep this predicate shared by receipt and budget guards so
@@ -31588,7 +32502,8 @@ export type GuardLifecycleState =
 export const GUARD_REMEDY_OPS = [
   "present-approval-gate",
   // The same gate as the conductor's own step: the review cap refused a pass
-  // nobody asked for, so the findings go to the gate and the person decides there.
+  // nobody asked for, or the review freeze a write nobody asked for, so the
+  // findings or the change go to the gate and the person decides there.
   "present-findings-at-gate",
   "request-review",
   "start-recovery-review",
@@ -31624,7 +32539,6 @@ export const GUARD_REMEDY_OPS = [
   "produce-stage-output",
   "repair-source-boundary",
   "reconfirm-summary",
-  "unset-unattended",
   // Lower ONE fence for this piece of work. It reaches the human in whichever
   // shape the refusing site speaks: as this remedy on a guard-recovery ask when
   // the site builds a typed refusal (the review-freeze hook does), and as the
@@ -31700,17 +32614,18 @@ export interface GuardHumanAuthorityState {
   unattended: boolean;
 }
 
-// The one place the human-authority inputs are read. `freshTurn` is the
-// human-presence evidence for the stage's gate; `unattended` is the operator's
-// declaration that no human is watching.
+// The one place the human-authority inputs are read. `freshTurn` says the
+// person may stand behind what the agent does now: their turn since the last
+// decision, or one only answers used (a reply to the agent's own question, such
+// as "yes, add them"); `unattended` is the operator's declaration that no human
+// is watching.
 export function humanAuthorityState(
   projectDir: string | null,
   options: { freshTurn?: boolean } = {},
 ): GuardHumanAuthorityState {
+  const turn = options.freshTurn !== undefined || projectDir === null ? null : humanTurnState(projectDir);
   return {
-    freshTurn:
-      options.freshTurn ??
-      (projectDir === null ? false : humanActedSinceGate(projectDir)),
+    freshTurn: options.freshTurn ?? (turn === "acted" || turn === "answered"),
     unattended: process.env.AIDLC_UNATTENDED === "1",
   };
 }
@@ -32063,6 +32978,15 @@ export function stageGateReportCommand(stage: string, result: "awaiting-approval
   );
 }
 
+// The Review brief that opens that gate (stage-protocol-reviewer.md), rendered
+// the same way: `stale` after a recovery pass, `revision` after a revision.
+export function stageReviewBriefCommand(stage: string, why: "first" | "revision" | "stale"): string {
+  return renderEngineInvocation(
+    { route: "review-brief", args: ["review", "--stage", stage, "--why", why] },
+    { harnessDir: harnessDir() },
+  );
+}
+
 // The scopes whose plan runs this stage, for a remedy that switches to one.
 function scopesRunningStage(slug: string): string[] {
   try {
@@ -32169,15 +33093,25 @@ function lifecycleResetRemedies(
       input.teamGate?.resolved === true && input.unit
         ? ` for Unit "${input.unit}"`
         : "";
+    const requestChangesReport = renderEngineInvocation(
+      {
+        route: "orchestrate",
+        args: requestChangesReportArgs(input.stage, input.unit, input.teamGate),
+      },
+      { harnessDir: harnessDir() },
+    );
+    const submitRequestChanges =
+      "submit Request Changes with their exact text unchanged, adding it as a shell-safe " +
+      `\`--reason\` value to \`${requestChangesReport}\``;
     if (input.humanAuthority.unattended) {
       return [
         {
-          op: "unset-unattended",
+          op: "request-changes",
           action:
             "Halt unattended execution and ask a human what should change. " +
             `Unset AIDLC_UNATTENDED, ask "What should change?" for stage ` +
             `"${reportStage}"${unitContext}, and end the turn. Only after the human ` +
-            "answers may their exact text be submitted as the Request Changes reason." +
+            `answers, ${submitRequestChanges}.` +
             cost("reject"),
           requiresHuman: true,
           executableNow: true,
@@ -32189,9 +33123,8 @@ function lifecycleResetRemedies(
         op: "request-changes",
         action:
           `When the person already said what should change for stage "${reportStage}"${unitContext}, ` +
-          "submit Request Changes with their exact text unchanged as the report reason. " +
-          'Otherwise ask "What should change?" and end the turn, then submit their answer ' +
-          "the same way. Either way that unlocks revision and a fresh review." +
+          `${submitRequestChanges}. Otherwise ask "What should change?" and end the turn, then ` +
+          `${submitRequestChanges}. Either way that unlocks revision and a fresh review.` +
           cost("reject"),
         requiresHuman: true,
         executableNow: true,
@@ -32323,6 +33256,24 @@ export function evaluateGuardRefusal(
       executableNow: true,
     });
   } else {
+    // The review freeze refused a write to a document whose review is final,
+    // and no turn of the person's stands behind the write: the change was the
+    // agent's own, and the freeze's own way is to quote it at the gate. A repeat
+    // still asks the person (guardRefusalStreakView), and so does a write the
+    // person may have asked for.
+    if (input.code === "REVIEW_FREEZE_ACTIVE" && !input.humanAuthority.freshTurn) {
+      const next = renderEngineInvocation({
+        route: "orchestrate",
+        args: ["next", ...(input.projectDir ? ["--project-dir", input.projectDir] : [])],
+      }, { harnessDir: harnessDir() });
+      remedies.push({
+        op: "present-findings-at-gate",
+        action: "Leave the document as its final review left it, and quote the change you meant to make at the " +
+          `next approval gate or Unit checkpoint for the person to weigh there. Carry on: run \`${next}\`.`,
+        requiresHuman: false,
+        executableNow: true,
+      });
+    }
     // The team gate needs this Unit's UNIT_COMPLETED receipt, and nothing but the
     // receipt is missing: its artifacts are already on disk (the gate checks them
     // first). Recording it is the way forward; restarting the stage or asking for
@@ -32440,7 +33391,7 @@ export function evaluateGuardRefusal(
       remedies.push({
         op: "repair-source-boundary",
         action:
-          "Repair .aidlc-source-paths.json or the workspace source boundary so " +
+          `${sourceBoundaryRepairStep()} so ` +
           "the application source can be checked, then request a fresh review.",
         requiresHuman: false,
         executableNow: state !== "completed",
@@ -32453,7 +33404,15 @@ export function evaluateGuardRefusal(
     // before that step is done, and an approved stage leaves only a stage-wide
     // reset. The ways on are the Unit's own: finish the step with the review it
     // has, or start the step again for that Unit.
-    const midStep = !reviewBudgetAvailable && input.attempt.reviewCoverage === "current"
+    // A stage this work runs with no review (express, a Review Override of
+    // none) has nothing to review and nothing to wait for: its way on is the
+    // gate, as for a stage whose passes are spent on current work. Only the
+    // budget refusal says so; the log tool sends it after the summary and
+    // every other review check passed, and any other refusal still stands
+    // between the stage and its gate.
+    const runsNoReview = input.code === "REVIEW_BUDGET_EXHAUSTED" && input.attempt.reviewBudget?.limit === 0;
+    const reviewSettled = input.attempt.reviewCoverage === "current" || runsNoReview;
+    const midStep = !reviewBudgetAvailable && reviewSettled
       ? unitStepInProgress(input)
       : null;
     if (midStep !== null) {
@@ -32467,7 +33426,7 @@ export function evaluateGuardRefusal(
       remedies.push(finish, reopenUnitStepRemedy(input.stage, midStep));
     } else if (
       !reviewBudgetAvailable &&
-      input.attempt.reviewCoverage === "current" &&
+      reviewSettled &&
       openForWork
     ) {
       // With Construction checkpoints the Unit's checkpoint is its gate, and
@@ -32481,7 +33440,12 @@ export function evaluateGuardRefusal(
         route: "orchestrate",
         args: ["next", ...(input.projectDir ? ["--project-dir", input.projectDir] : [])],
       }, { harnessDir: harnessDir() });
-      const presentGate = checkpointUnit === null
+      const presentGate = runsNoReview
+        ? checkpointUnit === null
+          ? "This stage runs no review in this work: open its approval gate for the human."
+          : `This stage runs no review in this work: run \`${showCheckpoint}\`, which shows unit ` +
+            `"${checkpointUnit}"'s checkpoint, and ask it.`
+        : checkpointUnit === null
         ? "Present the unresolved review findings at the approval gate for the " +
           "human instead of starting another review pass."
         : `Present the unresolved review findings at unit "${checkpointUnit}"'s checkpoint ` +
@@ -33029,7 +33993,7 @@ export function nextReviewStepFor(input: {
     text: `${subject} and its review is waiting for a verdict, and its one retry is spent: ${record}.` +
       (input.fallback === false
         ? ""
-        : " If the retried reviewer still wrote no review file, record NOT-READY without one; that records a " +
+        : " If the retried reviewer still wrote no whole review, record NOT-READY; that records a " +
           "review that did not finish, not a finding."),
   };
 }
@@ -34455,6 +35419,13 @@ function restoreReapPrivate(
   return false;
 }
 
+// Every try at moving the lock or released gate folder of a provably dead owner,
+// or this process's own gate, was refused: on Windows, a program holds that
+// folder open (aidlc-lock-line.ts).
+// A plain null from the gate (a mutex miss, a live owner, an invalid gate) and
+// an owner of unknown generation are not one.
+let HELD_FOLDER_RENAME_FAILURES = 0;
+
 function retireReapClaim(claimDir: string): boolean {
   for (let attempt = 0; attempt <= 100; attempt++) {
     const retired = `${claimDir}.retired.${randomUUID()}`;
@@ -34550,7 +35521,11 @@ function retryPendingReapGateRelease(claimDir: string): boolean {
   }
   if (!markReapGateReleasable(pending.receipt)) return false;
   const outcome = releaseOwnerStampedLock(pending.receipt, false, true);
-  if (outcome === "retryable") return false;
+  if (outcome === "retryable") {
+    // Our own gate folder could not be moved: part of our own release.
+    HELD_FOLDER_RENAME_FAILURES++;
+    return false;
+  }
   clearPendingReapGateRelease(claimDir);
   return true;
 }
@@ -34572,7 +35547,13 @@ function acquireReapClaim(lockDir: string): OwnerStampedLockReceipt | null {
           AUDIT_LOCK_FAULT_HOOKS_FOR_TESTS?.afterReleasableGateCheck?.(
             claimDir,
           );
-          if (!retireReapClaim(claimDir)) return null;
+          if (!retireReapClaim(claimDir)) {
+            // Only a gate whose owner is provably gone: a live owner may still
+            // be retrying its own release.
+            const owner = ownerProcessState(inspected.owner);
+            if (owner === "dead" || owner === "different") HELD_FOLDER_RENAME_FAILURES++;
+            return null;
+          }
           continue;
         }
         const state = ownerProcessState(inspected.owner);
@@ -34660,7 +35641,10 @@ function reapStaleLock(lockDir: string, reapUnstamped = true): boolean {
         if (attempt < 100) Bun.sleepSync(5);
       }
     }
-    if (!moved) return false;
+    if (!moved) {
+      HELD_FOLDER_RENAME_FAILURES++;
+      return false;
+    }
     if (!reapCandidateStillMatches(dead, candidate)) {
       if (!restoreReapPrivate(lockDir, dead)) releaseClaim = false;
       return false;
@@ -34683,6 +35667,11 @@ interface OwnerStampedLockReceipt {
   lockDir: string; tokenDir: string; owner: LockOwner & { token: string };
   // The contention budget the lock was acquired with; release retries within it.
   releaseBudgetMs?: number;
+  // A release already spent its budget once, or gave up on a held folder (the
+  // 10 s give-up). Later retries (at exit, at the next transaction) make one
+  // short try: a second budget only holds the person's tool call, and the next
+  // process reaps a dead owner's lock anyway.
+  releaseSpent?: boolean;
 }
 
 interface AuditLockReceipt extends OwnerStampedLockReceipt {
@@ -34756,19 +35745,29 @@ function releaseCanonicalOwnerStampedLock(
   // deferring it to process exit: callers such as sensors run subprocesses
   // between audit windows and must not retain the first window's lock across
   // that work.
-  const budgetMs = Math.max(500, receipt.releaseBudgetMs ?? 0);
+  const budgetMs = Math.max(500, receipt.releaseSpent ? 0 : receipt.releaseBudgetMs ?? 0);
   const deadline = process.hrtime.bigint() + BigInt(Math.ceil(budgetMs)) * 1_000_000n;
+  // Rounds whose rename of our own folder, or of a dead owner's gate, was refused.
+  let heldSince: bigint | null = null;
   for (;;) {
+    const failures = HELD_FOLDER_RENAME_FAILURES;
     const gate = acquireReapClaim(receipt.lockDir);
+    let refused = false;
     if (gate) {
       try {
         const outcome = releaseOwnerStampedLock(receipt);
         if (outcome !== "retryable") return outcome;
+        refused = true;
       } finally {
         releaseReapClaim(gate);
       }
     }
-    if (process.hrtime.bigint() >= deadline) return "retryable";
+    const now = process.hrtime.bigint();
+    heldSince = refused || HELD_FOLDER_RENAME_FAILURES > failures ? heldSince ?? now : null;
+    if (now >= deadline || heldTooLong(heldSince, now)) {
+      receipt.releaseSpent = true;
+      return "retryable";
+    }
     Bun.sleepSync(5);
   }
 }
@@ -34803,6 +35802,22 @@ function acquireOwnerStampedLock(
   retryMs: number,
   reapLiveOwnerAfterStale = true,
 ): OwnerStampedLockReceipt | null {
+  return acquireOwnerStampedLockFor(lockDir, maxRetries, retryMs, reapLiveOwnerAfterStale).receipt;
+}
+
+interface OwnerStampedLockAcquisition {
+  receipt: OwnerStampedLockReceipt | null;
+  // The rounds that ran out the budget were stopped by a dead owner's folder
+  // that could not be moved, not by a live owner.
+  folderHeld: boolean;
+}
+
+function acquireOwnerStampedLockFor(
+  lockDir: string,
+  maxRetries: number,
+  retryMs: number,
+  reapLiveOwnerAfterStale: boolean,
+): OwnerStampedLockAcquisition {
   const create = (): OwnerStampedLockReceipt | null => {
     // Negative fast path only. A missing name still goes through the complete
     // coordinated create/recovery protocol and its exclusive mkdir.
@@ -34842,17 +35857,33 @@ function acquireOwnerStampedLock(
       releaseReapClaim(gate);
     }
   };
+  // The budget is time as well as a count: a round that waits out refused
+  // renames (about 0.5 s, 1.5 s on Windows) would otherwise stretch it a
+  // hundredfold. Never less than half a second, as the release, so a small
+  // explicit count still gets its rounds. `heldSince` is when the rounds
+  // started meeting a held folder.
+  const deadline = process.hrtime.bigint() + BigInt(Math.ceil(Math.max(500, maxRetries * retryMs))) * 1_000_000n;
+  let heldSince: bigint | null = null;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const failures = HELD_FOLDER_RENAME_FAILURES;
     const acquired = create();
-    if (acquired) return acquired;
+    if (acquired) return { receipt: acquired, folderHeld: false };
     if (reapStaleLock(lockDir)) {
       const afterReap = create();
-      if (afterReap) return afterReap;
+      if (afterReap) return { receipt: afterReap, folderHeld: false };
     }
     retryOwnDeferredGateRelease(lockDir);
-    if (attempt < maxRetries) Bun.sleepSync(retryMs);
+    const now = process.hrtime.bigint();
+    heldSince = HELD_FOLDER_RENAME_FAILURES > failures ? heldSince ?? now : null;
+    if (attempt >= maxRetries || now >= deadline || heldTooLong(heldSince, now)) break;
+    Bun.sleepSync(retryMs);
   }
-  return null;
+  return { receipt: null, folderHeld: heldSince !== null };
+}
+
+// Waiting longer does not free a folder a program holds; only stopping it does.
+function heldTooLong(heldSince: bigint | null, now: bigint): boolean {
+  return heldSince !== null && now - heldSince >= BigInt(lockFolderHeldGiveUpMs()) * 1_000_000n;
 }
 
 // A gate release that could not get the native mutex stays deferred, and only
@@ -34896,16 +35927,19 @@ export function runWithOwnerStampedLock<T>(
   }
 }
 
-function acquireActiveDirectiveLock(lockDir: string): OwnerStampedLockReceipt | null {
-  // This wait protects required marker publication, not a best-effort probe.
-  // A caller can request a short/zero contention budget without changing the
-  // ownership, stale-owner, or unstamped-grace rules.
+// This wait protects required marker publication, not a best-effort probe.
+// A caller can request a short/zero contention budget without changing the
+// ownership, stale-owner, or unstamped-grace rules.
+function activeDirectiveLockBudgetMs(): number {
   const raw = process.env.AIDLC_ACTIVE_DIRECTIVE_LOCK_TIMEOUT_MS;
   const configured = raw?.trim() ? Number(raw) : NaN;
-  const timeoutMs = Number.isSafeInteger(configured) && configured >= 0
+  return Number.isSafeInteger(configured) && configured >= 0
     ? configured
     : DEFAULT_SUBPROCESS_TIMEOUT_MS;
-  return acquireOwnerStampedLock(lockDir, Math.floor(timeoutMs / 10), 10);
+}
+
+function acquireActiveDirectiveLock(lockDir: string): OwnerStampedLockAcquisition {
+  return acquireOwnerStampedLockFor(lockDir, Math.floor(activeDirectiveLockBudgetMs() / 10), 10, true);
 }
 
 // Receipts, reentrancy, and exit handlers are keyed by the acquisition-bound
@@ -36029,7 +37063,7 @@ export function effectiveSupportAgentsForProject(
  * The collaborators a stage's open gate holds it to. While a stage waits at its
  * gate, "Approve, and bring the specialists in" flips the switch for the next
  * stage; the finished stage is never re-checked against a setting it did not run
- * under (the rule unitFinishedBeforeSummaryOn applies to summary confirmation).
+ * under (the rule finishedBeforeSummaryOn applies to summary confirmation).
  * The anchor is the stage's LAST organic STAGE_AWAITING_APPROVAL row in the
  * current attempt (a relaxed Guard Policy keeps the floor after a GATE_REJECTED,
  * so a gate shown again has a later row) that no GATE_APPROVED, GATE_REJECTED or
@@ -36182,6 +37216,12 @@ export function pipelineAttemptStartedAt(
 // after confirming an open attempt. Match its boundary ordering and never
 // borrow ceremony policy from the main workflow; legacy rows return null.
 export function singleStageAttemptScope(projectDir: string, slug: string): string | null {
+  return singleStageAttemptField(projectDir, slug, "Scope");
+}
+
+// A field the latest isolated start of <slug> recorded (Scope, Depth, Test
+// Strategy), or null when that start did not record it.
+export function singleStageAttemptField(projectDir: string, slug: string, field: string): string | null {
   const workflow = `single-stage:${slug}`;
   const attemptStart = readAuditShardEvents(projectDir)
     .filter((entry) =>
@@ -36195,7 +37235,17 @@ export function singleStageAttemptScope(projectDir: string, slug: string): strin
       return a.pos - b.pos;
     })
     .pop();
-  return attemptStart ? auditBlockField(attemptStart.block, "Scope") : null;
+  return attemptStart ? auditBlockField(attemptStart.block, field) : null;
+}
+
+// The Test Strategy an isolated Code Generation run took for itself, while the
+// Code Generation step issued last is that run's and its attempt is open: its
+// Testing Contract is built to it, as its run-stage is. Null otherwise, and the
+// workflow's own setting stands.
+export function isolatedCodeGenerationTestStrategy(projectDir: string): string | null {
+  const marker = readIssuedDirectiveMarker(projectDir);
+  if (marker?.single !== true || !singleStageAttemptIsOpen(projectDir, "code-generation")) return null;
+  return singleStageAttemptField(projectDir, "code-generation", "Test Strategy");
 }
 
 export function singleStageAttemptIsOpen(
@@ -36520,21 +37570,68 @@ export function pipelineLinkEvidence(
   return { links, repos, receipts, reusedRepos, completed, missing };
 }
 
+// The handoff files a Reverse Engineering developer receipt may name, the one
+// its command names first: a registered repo's own, or the project root's,
+// which may also carry the name codekb-path prints for the root. Null with no
+// active record.
+export function developerHandoffPaths(projectDir: string, repo: string | null): string[] | null {
+  const root = recordDir(projectDir);
+  if (root === null) return null;
+  const dir = join(root, "inception", "reverse-engineering");
+  return repo !== null
+    ? [join(dir, `developer-scan-${repo}.md`)]
+    : [join(dir, "developer-scan.md"), join(dir, `developer-scan-${codekbRepoName(projectDir)}.md`)];
+}
+
+// The exact command that records one pipeline link, so the agent fills in no
+// placeholder: Reverse Engineering's lead link names its handoff file.
+export function pipelineLinkCommand(
+  projectDir: string,
+  stage: Pick<StageEntry, "slug" | "lead_agent">,
+  link: string,
+  repo: string | null,
+  singleRun: boolean,
+): string {
+  const words = [aidlcToolInvocation("log"), "link", "--stage", stage.slug, "--link", link];
+  const handoff = stage.slug === "reverse-engineering" && link === stage.lead_agent
+    ? developerHandoffPaths(projectDir, repo)?.[0]
+    : undefined;
+  if (handoff !== undefined) words.push("--artifact", quoteCommandArgument(toPosix(relative(projectDir, handoff))));
+  if (repo !== null) words.push("--repo", quoteCommandArgument(repo));
+  if (singleRun) words.push("--single");
+  return words.join(" ");
+}
+
+// The links this attempt still owes, in chain order per repo, each with the
+// command that records it.
+export function pipelineLinkRecord(
+  projectDir: string,
+  stage: Pick<StageEntry, "slug" | "lead_agent">,
+  evidence: Pick<PipelineLinkEvidence, "missing">,
+  singleRun: boolean,
+): Array<{ link: string; repo?: string; command: string }> {
+  return evidence.missing.map(({ link, repo }) => ({
+    link,
+    ...(repo !== null ? { repo } : {}),
+    command: pipelineLinkCommand(projectDir, stage, link, repo, singleRun),
+  }));
+}
+
 // The way on for missing pipeline handoffs, one sentence for the engine's
 // refusal and the state tool's floor: the conductor's own step. The evidence
 // switch is the person's, so neither names it. At an open gate `next` shows
 // the gate only once the links are in, so it comes last there; with the
 // person's approval in hand, `approval` (the step that applies it) comes last
-// instead, so they are never asked again.
+// instead, so they are never asked again. `commands` are the missing links'
+// own, from pipelineLinkRecord.
 export function pipelineLinkWayOn(
   projectDir: string,
   slug: string,
-  options: { repos: boolean; singleRun?: boolean; gateOpen?: boolean; approval?: string },
+  options: { commands: string[]; singleRun?: boolean; gateOpen?: boolean; approval?: string },
 ): string {
   const singleRun = options.singleRun === true;
   const next = `\`${aidlcToolInvocation("orchestrate")} next${singleRun ? ` --single --stage ${slug}` : ""}\``;
-  const link = `\`${aidlcToolInvocation("log")} link --stage ${slug} ` +
-    `--link <agent>${options.repos ? " --repo <repo>" : ""}${singleRun ? " --single" : ""}\``;
+  const link = options.commands.map((command) => `\`${command}\``).join(", then ");
   const last = options.approval !== undefined
     ? `; then run ${options.approval}: the person's approval stands, so they are not asked again`
     : options.gateOpen ? `; then re-run ${next}, which shows the gate again` : "";
@@ -36543,7 +37640,7 @@ export function pipelineLinkWayOn(
     (guardPolicyAcceptsChanges(projectDir)
       ? ""
       : "Rejection starts a new attempt: earlier scans and receipts cannot certify this revision, even for a targeted artifact edit. ") +
-    `After each link returns, run ${link}${last}. ` +
+    `After each link returns, run its command: ${link}${last}. ` +
     "Do not re-stamp an old handoff or disable evidence checks to reopen the gate.";
 }
 
@@ -41483,8 +42580,16 @@ export type AnswerModeChoice = "guide" | "file" | "chat";
 export const ANSWER_MODE_FIELD = "Answer Mode";
 /** The DECISION_RECORDED field naming which of the engine's own questions a row is. */
 export const QUESTION_KIND_FIELD = "Question Kind";
-/** The learnings ritual's "Anything to add?" options (stage-protocol-learnings.md section 13). */
+/** The learnings ritual's "Anything to add?" question and options (stage-protocol-learnings.md section 13). */
+export const LEARNINGS_NOTE_QUESTION = "Anything to add for next time?";
 export const LEARNINGS_NOTE_CHOICES = ["Nothing to add", "Add a note"] as const;
+/**
+ * Its question of which diary notes to keep, asked first when there are any.
+ * Keeping none is an option of its own, listed first: Claude Code's question
+ * box read a multi-select with nothing ticked as unanswered.
+ */
+export const LEARNINGS_KEEP_QUESTION = "Which notes from this step should I keep as practices for future work?";
+export const LEARNINGS_KEEP_NONE = "Keep none of these";
 /** Its value for the mode question, written by the command the step note hands the agent. */
 export const ANSWER_MODE_QUESTION_KIND = "answer-mode";
 /** Its value for the learnings ritual's "Anything to add?", written by the command that module names. */
@@ -41513,14 +42618,52 @@ export function isAnswerModeDecision(block: string): boolean {
 }
 /**
  * True when a DECISION_RECORDED block is the learnings ritual's "Anything to
- * add?": its Question Kind says so. A row recorded before that field existed
- * is that question when it offers exactly the ritual's two choices.
+ * add?": its Question Kind says so. A row with no kind is that question when it
+ * offers both of the ritual's choices: one recorded before the field existed,
+ * or the whole learnings box logged as one question.
  */
 export function isLearningsNoteDecision(block: string): boolean {
   const kind = auditBlockField(block, QUESTION_KIND_FIELD);
   if (kind !== null) return kind === LEARNINGS_NOTE_QUESTION_KIND;
-  return (auditBlockField(block, "Options") ?? "").split(",").map((option) => option.trim()).join(",") ===
-    LEARNINGS_NOTE_CHOICES.join(",");
+  const offered = (auditBlockField(block, "Options") ?? "").split(",").map((option) => option.trim());
+  return LEARNINGS_NOTE_CHOICES.every((choice) => offered.includes(choice));
+}
+/**
+ * For a typed reply, true when the agent's recorded answer picks Add a note:
+ * the whole answer, or one of its picks when it records several ("Keep none of
+ * these; Add a note", or stage-protocol.md's "Q1: ...; Q2: Add a note"). Only
+ * the exact label counts. A new way an agent writes its record is the agent's
+ * to log with the command it was given, not another rule here.
+ */
+export function picksAddANote(details: string): boolean {
+  return details.split(/[;,]/).some((pick) => pick.trim().replace(/^Q\d+:\s*/, "") === LEARNINGS_NOTE_CHOICES[1]);
+}
+/**
+ * Whether the person picked Add a note in a question box, as the human-turn
+ * hook recorded their reply word for word (its QUESTION_REPLIED rows, written
+ * on Claude Code and Codex) for the turn that answers: the named message's,
+ * else the latest in this clone's shard. Null when that turn was typed, with no
+ * box reply on record. It reads the exact option the person picked, never the
+ * agent's account of it.
+ */
+export function boxPicksAddANote(projectDir: string, messageId?: string): boolean | null {
+  try {
+    const blocks = readAppendOnlyFileNoFollowOrThrow(auditFilePath(projectDir), "audit shard").toString("utf-8")
+      .replace(/\r\n/g, "\n").split("\n---\n");
+    const isTurn = (block: string) => auditBlockField(block, "Event") === "HUMAN_TURN";
+    let turn = blocks.length - 1;
+    while (turn >= 0 && !(isTurn(blocks[turn]) &&
+      (messageId === undefined || auditBlockField(blocks[turn], "Message Id") === messageId))) turn--;
+    if (turn < 0) return null;
+    const replies: string[] = [];
+    for (let index = turn + 1; index < blocks.length && !isTurn(blocks[index]); index++) {
+      if (auditBlockField(blocks[index], "Event") === "QUESTION_REPLIED") replies.push(auditBlockField(blocks[index], "Reply") ?? "");
+    }
+    if (replies.length === 0) return null;
+    return replies.some((reply) => reply.split(", ").includes(LEARNINGS_NOTE_CHOICES[1]));
+  } catch {
+    return null;
+  }
 }
 const ANSWER_MODE_OTHERS: Record<AnswerModeChoice, string> = {
   guide: "edit the file or chat",
@@ -42599,6 +43742,64 @@ export function recordGuardStoodAside(
   }
 }
 
+export type GuardRefusalEvent =
+  | "PLAN_APPROVAL_BLOCKED"
+  | "STATE_TRANSITION_BLOCKED"
+  | "STAGE_RULES_BLOCKED"
+  | "REVIEW_FREEZE_BLOCKED"
+  | "REVIEWER_SCOPE_BLOCKED";
+
+
+export function recordGuardBlockedRow(
+  projectDir: string,
+  row: {
+    eventType: GuardRefusalEvent;
+    hook: string;
+    reason: string;
+    tool?: string;
+    target?: string;
+    session?: string | null;
+    stage?: string;
+    unit?: string | null;
+    intent?: string | null;
+    space?: string;
+  },
+): boolean {
+  try {
+    if (!existsSync(cloneIdPath(projectDir))) return false;
+    if (!existsSync(auditFilePath(projectDir, row.intent ?? undefined, row.space))) return false;
+    const fields: Record<string, string> = {
+      Guard: row.hook,
+      Reason: row.reason,
+      ...(row.tool ? { Tool: row.tool } : {}),
+      ...(row.target ? { Target: row.target } : {}),
+      ...(row.session ? { Session: row.session } : {}),
+      ...(row.stage ? { Stage: row.stage } : {}),
+      ...(row.unit ? { Unit: row.unit } : {}),
+    };
+    if (!acquireAuditLock(projectDir, 5, 50, row.intent ?? undefined, row.space)) {
+      recordHookDrop(
+        projectDir,
+        row.hook,
+        `audit lock contended; ${row.eventType} row dropped (block still enforced)`,
+      );
+      return false;
+    }
+    const audit = require("./aidlc-audit.ts") as {
+      appendAuditEntryUnlocked: typeof AppendAuditEntryUnlocked;
+    };
+    try {
+      audit.appendAuditEntryUnlocked(row.eventType, fields, projectDir, row.intent ?? undefined, row.space);
+      return true;
+    } finally {
+      releaseAuditLock(projectDir, row.intent ?? undefined, row.space);
+    }
+  } catch {
+    return false;
+  }
+}
+
+
 // Ledger append for the two Change Control rows. Under `relaxed` the
 // CHANGE_ACCEPTED row IS the evidence that stands in for the refusal, and the
 // CHANGE_CONTROL_SET row is how a moved setting is traced, so neither append
@@ -42765,7 +43966,7 @@ export function recordAcceptedChanges(
         changeControlLedgerAppend(projectDir, "CHANGE_ACCEPTED", acceptedChangeFields(change), selection);
       } catch (error) {
         throw new Error(
-          `Cannot continue under a relaxed or off Guard Policy: the accepted change for "${change.stage}"` +
+          `Cannot continue: the accepted change for "${change.stage}"` +
             `${change.unit ? ` (unit ${change.unit})` : ""} could not be recorded in the audit ledger ` +
             `(${errorMessage(error)}). Repair the ledger, then run the same command again.`,
         );
@@ -42781,8 +43982,9 @@ export function recordAcceptedChanges(
  * the effective value for this running intent since it was last recorded,
  * write one GUARD_POLICY_SET row naming that source. The previous effective
  * value is the newest GUARD_POLICY_SET row (or a CHANGE_CONTROL_SET row written
- * by an earlier release), else the state-derived value (the intent's line when
- * valid, otherwise strict).
+ * by an earlier release) in the shared causal order, else the state-derived
+ * value (the intent's line when valid, otherwise strict), which is also where
+ * it starts when the newest rows disagree.
  */
 export function governedGuardPolicy(
   projectDir: string,
@@ -42798,15 +44000,14 @@ export function governedGuardPolicy(
   // The newest setting row is read and the flip row written under one lock, so
   // two governed checks observing the same memory edit at once record it once.
   withAuditLock(projectDir, () => {
-    const events = readAuditShardEvents(projectDir, intent, selection.space);
-    let previous: GuardPolicy | null = null;
-    for (const row of events) {
-      if (row.event !== "GUARD_POLICY_SET" && row.event !== "CHANGE_CONTROL_SET") continue;
-      previous = parseGuardPolicy(auditBlockField(row.block, "New Value")) ?? previous;
-    }
-    if (previous === null) {
-      previous = resolution.stateValue;
-    }
+    const settings = readAuditShardEvents(projectDir, intent, selection.space).filter((row) =>
+      (row.event === "GUARD_POLICY_SET" || row.event === "CHANGE_CONTROL_SET") &&
+      parseGuardPolicy(auditBlockField(row.block, "New Value")) !== null);
+    // Shards are read in filename order (a teammate's clone keeps its own), so
+    // "newest" is the shared causal order; newest rows that disagree tell nothing.
+    const newest = new Set(maximalAttemptEvents(settings).map((row) =>
+      parseGuardPolicy(auditBlockField(row.block, "New Value"))!));
+    const previous = newest.size === 1 ? [...newest][0] : resolution.stateValue;
     if (previous !== resolution.value) {
       appendGuardPolicySetRow(
         projectDir,

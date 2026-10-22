@@ -59,7 +59,7 @@ const CORRUPTED = join(FIXTURES_DIR, "state-corrupted.md");
 
 let proj: string;
 
-// Per-intent record paths. state + heartbeat + recovery root under the default
+// Per-intent record paths. state, heartbeat and the old compaction note root under the default
 // intent's record; the audit trail is a DIR of per-clone shards (read via the
 // glob below). session-start's appendAuditEntry CREATES its own shard if missing
 // (no audit-existence gate), so no shard needs pre-seeding - seedAuditFile only
@@ -87,7 +87,8 @@ function heartbeatPath(p: string): string {
   return join(seededRecordDir(p), ".aidlc-engine/hooks-health", "session-start.last");
 }
 
-function recoveryPath(p: string): string {
+// A compaction note an earlier AI-DLC left in the record; nothing reads it now.
+function oldRecoveryNotePath(p: string): string {
   return join(seededRecordDir(p), ".aidlc-engine/recovery.md");
 }
 
@@ -213,6 +214,10 @@ describe("t10 session-start SessionStart hook (mechanism cli — spawned hook + 
       "if you were doing the work of a `run-stage` you still hold, finish its steps and run the `report` built from it (its stage, plus `--unit` in team-owned Unit work)",
     );
     expect(parsed.additionalContext).toContain("otherwise `continue` with the rules receipt you hold, or run `next`");
+    // A person who asked to stop or pause is parked, with the exact command.
+    expect(parsed.additionalContext).toMatch(
+      /saying anything else; if the person asked to stop or pause, run `[^`]*aidlc[^`]*orchestrate[^`]* park --person-asked` and end the turn; if you were doing the work/,
+    );
   });
 
   // Kiro CLI, opencode and Kiro IDE hide the note from the person, so after a
@@ -311,25 +316,19 @@ describe("t10 session-start SessionStart hook (mechanism cli — spawned hook + 
     expect(ctx).toContain("Scope: feature");
   });
 
-  test("includes the recovery-breadcrumb NOTE when .aidlc-engine/recovery.md exists [.sh test 8]", () => {
+  test("an old recovery.md left in the record adds no note to the context", () => {
     seedStateFile(proj, MID_IDEATION);
-    mkdirSync(dirname(recoveryPath(proj)), { recursive: true });
-    writeFileSync(recoveryPath(proj), "# Recovery breadcrumb\n", "utf-8");
-    const r = fire(proj);
-    const ctx = JSON.parse(r.stdout.trim()).additionalContext as string;
-    expect(ctx).toContain("recovery breadcrumb");
-    expect(ctx).toContain(
-      "NOTE: A compaction recovery breadcrumb exists at .aidlc-engine/recovery.md",
+    mkdirSync(dirname(oldRecoveryNotePath(proj)), { recursive: true });
+    writeFileSync(
+      oldRecoveryNotePath(proj),
+      "# AIDLC Recovery Breadcrumb\n**Current stage**: requirements-analysis\n",
+      "utf-8",
     );
-  });
-
-  test("omits the recovery-breadcrumb NOTE when no breadcrumb [.sh test 9]", () => {
-    seedStateFile(proj, MID_IDEATION);
-    // createTestProject seeds no .aidlc-engine/recovery.md.
-    expect(existsSync(recoveryPath(proj))).toBe(false);
     const r = fire(proj);
     const ctx = JSON.parse(r.stdout.trim()).additionalContext as string;
-    expect(ctx).not.toContain("recovery breadcrumb");
+    expect(ctx).toContain("Current Stage: feasibility");
+    expect(ctx).not.toContain(".aidlc-engine/recovery.md");
+    expect(ctx).not.toContain("breadcrumb");
   });
 
   test("writes the session-start.last heartbeat when state exists [.sh test 10]", () => {

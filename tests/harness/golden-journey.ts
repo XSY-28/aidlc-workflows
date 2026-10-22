@@ -8,9 +8,11 @@
 // The person never reads the agent's prose. What they pick in a menu comes from
 // the menu itself; what they type when a turn ends comes from what the engine
 // recorded as waiting for them: a question it logged and nobody answered, a
-// stage waiting for approval, or the engine's last ask. When a turn ends with
-// nothing waiting for them, the journey is stuck. When the same thing reaches
-// them twice, they were asked twice. Both are failures, named in `problems`.
+// stage waiting for approval, the engine's last ask, or a question in the
+// stage's questions file still without an answer (the Stop hook ends the turn
+// on that one too). When a turn ends with nothing waiting for them, the journey
+// is stuck. When the same thing reaches them twice, they were asked twice. Both
+// are failures, named in `problems`.
 //
 // The test drives with driveAidlc (sdk-drive.ts), which already fails a drive
 // whose agent records a decision the person did not make (person-turns.ts). A
@@ -23,9 +25,10 @@
 // problem (stock-permissions.ts), and the other prompts are listed.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { auditBlockField, readAuditShardEvents } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
+import { hasPendingQuestion } from "../../dist/claude/.claude/hooks/aidlc-continue-workflow.ts";
+import { auditBlockField, readAuditShardEvents, stageDir } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
 import { parseDirectiveOutput } from "./directive-output.ts";
 import { declaredScope, expectedStages, sourceStages } from "./scope-run.ts";
 import { claudePromptProblems } from "./stock-permissions.ts";
@@ -169,13 +172,32 @@ function stageAwaitingApproval(proj: string): string | undefined {
 }
 
 /**
+ * The first question in the stage's questions files whose answer is blank: its
+ * heading and its options as listed (lettered, bulleted, or both). Whether one
+ * waits is the Stop hook's call (`hasPendingQuestion`); this only finds it.
+ */
+function blankQuestion(proj: string, phase: string, stage: string): { question: string; options: string[] } | undefined {
+  const dir = stageDir(proj, phase, stage);
+  const names = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith("-questions.md")).sort() : [];
+  for (const name of names) {
+    for (const section of readFileSync(join(dir, name), "utf-8").split(/^(?=## )/m)) {
+      if (!/\[Answer\]:[ \t]*_*[ \t]*$/m.test(section)) continue;
+      const question = /^## (.+)$/m.exec(section)?.[1].trim() ?? name;
+      const options = [...section.matchAll(/^(?:[-*][ \t]+(?:[A-Z][.)][ \t]+)?|[A-Z][.)][ \t]+)(.+)$/gm)].map((m) => m[1].trim());
+      return { question, options };
+    }
+  }
+  return undefined;
+}
+
+/**
  * The engine's last step handed to the agent, read from the agent's own Bash
  * results. A print after it changes nothing waiting for the person (the
  * engine's "Nothing was started: the person has not answered the plan question
  * yet" to an agent that ran ahead), so the step before it counts; a print alone
  * is the last step.
  */
-function lastEngineStep(results: readonly CapturedToolResult[]): Record<string, unknown> | undefined {
+export function lastEngineStep(results: readonly CapturedToolResult[]): Record<string, unknown> | undefined {
   let print: Record<string, unknown> | undefined;
   for (let i = results.length - 1; i >= 0; i--) {
     const t = results[i];
@@ -397,6 +419,17 @@ export class GoldenPerson {
       this.said.push(`typed ${JSON.stringify(words)} for the ${type} question at ${stage}`);
       return words;
     }
+    // The agent asked a question from the stage's file without logging it: the
+    // person sees it and answers it as they answer a logged one.
+    const phase = (readStateField(readStateFile(this.j.proj) ?? "", "Lifecycle Phase") ?? "").toLowerCase();
+    const blank = hasPendingQuestion(this.j.proj, stage, phase) ? blankQuestion(this.j.proj, phase, stage) : undefined;
+    if (blank) {
+      const again = this.reach(`${stage} | ${norm(blank.question)}`, `"${blank.question}" at ${stage}`);
+      if (!again && blank.options.some((o) => /^Approve Plans?\b/.test(o))) this.planAsked++;
+      const words = plainChoice(blank.options) ?? this.ownWords(stage) ?? recommended(blank.options) ?? blank.options[0] ?? "Go with what you recommend";
+      this.said.push(`typed ${JSON.stringify(words)} for "${clip(blank.question, 120)}" (in the questions file) at ${stage}`);
+      return words;
+    }
     this.problems.push(`turn ${turn} ended at ${stage} with nothing asked of the person; the engine's last step was ${clip(JSON.stringify(step ?? null))}`);
     return undefined;
   }
@@ -486,14 +519,17 @@ export function goldenPathProblems(j: GoldenJourney, run: GoldenRun): string[] {
 
   // The person answered one question in their own words, where the stage asked
   // one: a stage may find the request clear and ask none. That every answer is
-  // backed by their own turn is the drive's own check (person-turns.ts). The
-  // check that their words are kept as their answer is re-enabled with the fix
-  // that keeps the person's own words on every answer: today a picker answer in
-  // their own words can be recorded as the option it is closest to.
+  // backed by their own turn is the drive's own check (person-turns.ts). Their
+  // words are on the record as given: the reply a question box carried back
+  // (QUESTION_REPLIED), or the Person Reply beside the answer the agent logged.
   const own = j.ownWords;
   const asked = own !== undefined && rows.some((r) => r.event === "DECISION_RECORDED" && stageField(r) === own.stage &&
     plainChoice(decisionOptions(r)) === undefined);
   if (own && asked && !run.ownWordsUsed) problems.push(`no question at ${own.stage} took the person's own words`);
+  const kept = own !== undefined && rows.some((r) =>
+    [r.event === "QUESTION_REPLIED" ? auditBlockField(r.block, "Reply") : null, auditBlockField(r.block, "Person Reply")]
+      .some((words) => words !== null && norm(words).includes(norm(own.words))));
+  if (own && run.ownWordsUsed && !kept) problems.push(`the person's own words at ${own.stage} are not on the record`);
   return problems;
 }
 

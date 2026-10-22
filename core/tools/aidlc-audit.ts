@@ -70,6 +70,10 @@ const VALID_EVENT_TYPES = new Set([
   // receipt for the new definition (aidlc-validity.ts).
   "STAGE_DEFINITION_CHANGED",
   "SHARED_INPUT_AMENDED",
+  // A code-producing stage's source-work check found no new code where it
+  // looked, and what it did: the agent's first report refused, the approval
+  // question put to the person, or Guard Policy off standing aside.
+  "SOURCE_WORK_NOT_FOUND",
   // Phase lifecycle
   "PHASE_STARTED",
   "PHASE_COMPLETED",
@@ -83,6 +87,7 @@ const VALID_EVENT_TYPES = new Set([
   "WORKFLOW_ARCHIVED",
   "WORKFLOW_UNARCHIVED",
   "INTENT_REPOS_CHANGED",
+  "INTENT_CHECKOUTS_CHANGED",
   // Session events (hook-owned)
   "SESSION_STARTED",
   "SESSION_RESUMED",
@@ -177,6 +182,8 @@ const VALID_EVENT_TYPES = new Set([
   // developer-agent dispatch was refused because no unit had an approved
   // code-generation plan on disk (stage Steps 2-3 must precede Step 4).
   "PLAN_APPROVAL_BLOCKED",
+  "STATE_TRANSITION_BLOCKED",
+  "STAGE_RULES_BLOCKED",
   // A guard's deterministic off-switch was set while a workflow existed, so a
   // tool call passed without enforcement. One row per streak: the hook appends
   // only when the newest row in its shard is not already this event.
@@ -304,6 +311,7 @@ const EVENT_HEADINGS: Record<string, string> = {
   STAGE_COMPLETED: "Stage Completion",
   STAGE_DEFINITION_CHANGED: "Stage Definition Changed",
   SHARED_INPUT_AMENDED: "Shared Input Amended",
+  SOURCE_WORK_NOT_FOUND: "Source Work Not Found",
   STAGE_JUMPED: "Stage Jump",
   STAGE_SKIPPED: "Stage Skip",
   PHASE_STARTED: "Phase Start",
@@ -317,6 +325,7 @@ const EVENT_HEADINGS: Record<string, string> = {
   WORKFLOW_ARCHIVED: "Workflow Archived",
   WORKFLOW_UNARCHIVED: "Workflow Unarchived",
   INTENT_REPOS_CHANGED: "Intent Repos Changed",
+  INTENT_CHECKOUTS_CHANGED: "Intent Checkouts Changed",
   SESSION_STARTED: "Session Start",
   SESSION_RESUMED: "Session Resume",
   SESSION_COMPACTED: "Session Compacted",
@@ -357,6 +366,8 @@ const EVENT_HEADINGS: Record<string, string> = {
   REVIEWER_SCOPE_BLOCKED: "Reviewer Scope Blocked",
   REVIEW_FREEZE_BLOCKED: "Review Freeze Blocked",
   PLAN_APPROVAL_BLOCKED: "Plan Approval Blocked",
+  STATE_TRANSITION_BLOCKED: "State Transition Blocked",
+  STAGE_RULES_BLOCKED: "Stage Rules Blocked",
   GUARD_DISABLED: "Guard Disabled",
   DOCUMENT_INDEXED: "Document Indexed",
   DOCUMENT_UPDATED: "Document Updated",
@@ -445,6 +456,10 @@ const CLI_RESERVED_EVENT_TYPES = new Set([
   // Hook-owned too: it is the person's own reply, so only the hook that saw
   // the question box may write it.
   "QUESTION_REPLIED",
+  // Hook-owned like HUMAN_TURN: it says an agent finished, and a review's
+  // verdict reads its absence as "no reviewer finished" (#2427), so only the
+  // SubagentStop hook that saw the host's completion may write it.
+  "SUBAGENT_COMPLETED",
   "SUMMARY_CONFIRMATION_RECORDED",
   "VERIFICATION_COMMAND_RECORDED",
   "CONSTRUCTION_POLICY_RECORDED",
@@ -510,6 +525,9 @@ export const CLI_PROTECTED_EVENT_TYPES = new Set([
   "STAGE_COMPLETED",
   "STAGE_DEFINITION_CHANGED",
   "SHARED_INPUT_AMENDED",
+  // The check's own record of a first refusal opens the gate on the next
+  // report; a forged one would skip the agent's refusal.
+  "SOURCE_WORK_NOT_FOUND",
   "HUMAN_TURN",
   "HOST_TURN",
   "QUESTION_UNANSWERED",
@@ -625,6 +643,8 @@ const MERGE_PROTECTED_EVENT_TYPES = new Set([
   "PLAN_APPROVAL_RECORDED",
   "PLAN_APPROVAL_OVERRIDDEN",
   "PLAN_APPROVAL_SKIPPED",
+  // The source-work check's own record opens the main checkout's gate.
+  "SOURCE_WORK_NOT_FOUND",
   "AUTONOMY_MODE_SET",
   "UNIT_OWNERSHIP_SET",
   "UNITS_ASSIGNED",

@@ -35,6 +35,7 @@ import {
 } from "node:path";
 import { pathToFileURL } from "node:url";
 import { QUESTION_UNAVAILABLE, readQuestion, retireRequest, startedRequestFor } from "./aidlc-question-store.ts";
+import { planApprovalAskState } from "./aidlc-plan-approval-ask.ts";
 import {
   appendAuditEntries,
   appendAuditEntry,
@@ -112,6 +113,7 @@ import {
   selectionDroppedOrderingEdges,
   stageGraphDrift,
   type GraphStage,
+  takeComposerScores,
   validateGrid,
   validateScope,
 } from "./aidlc-graph.ts";
@@ -171,7 +173,9 @@ import {
   GIT_PLATFORM_ARGS,
   auditBlockField,
   auditFilePath,
+  auditShardHost,
   auditShards,
+  knownAuditShardName,
   assertChangeControlLedgerWritable,
   GUARD_POLICY_FIELD,
   GUARD_POLICY_VALUES,
@@ -315,11 +319,14 @@ import {
   readAllAuditShards,
   readAuditShardEvents,
   resolveBoltDag,
+  ACCEPT_AS_IS_REVISION_CYCLES,
+  stageRevisionCycles,
   unitGateStatus,
   unitLifecycleSnapshot,
   unitPlainName,
   recoveryRepoCandidates,
   readActiveDirectiveMarker,
+  openPlanApprovalAsk,
   activeDirectiveOutOfDateReason,
   readUnitClaimRegistryCache,
   readUnitScopeStamp,
@@ -370,6 +377,7 @@ import {
   pausedPlugins,
   pausedBySelection,
   pausedLine,
+  resumedLine,
   composedPluginBase,
   projectDescriptionFilePath,
   PROJECT_DESCRIPTION_FILE,
@@ -382,6 +390,7 @@ import {
   commandAtPersonsTerminal,
   clearSessionIntentUuid,
   sourceBaselineAuditFields,
+  workspaceBaselineStageSlugs,
   unitDependencyPath,
   withAuditLock,
   validScopes,
@@ -414,8 +423,16 @@ import {
   fillHookActivationText,
   hookActivation,
   hookExecutionRecoveryText,
+  projectSettingsRepair,
   hookLiveness,
   workspaceSourceState,
+  hasRealGitEntry,
+  readRecordedSourceCheckouts,
+  recordedCheckoutAt,
+  sourceCheckoutLabelFor,
+  sourceCheckoutListingRel,
+  sourceWalkReach,
+  writeRecordedSourceCheckouts,
   type WorkspaceSourceState,
   boltName,
   legacyBoltName,
@@ -465,10 +482,12 @@ import {
   projectDiffPlan,
   recordedContributionGaps,
   type StageContribRecord,
+  stripRecordedAdds,
   syncCommand,
   tomlFragmentText,
   withFileLineEndings,
 } from "./aidlc-plugin.ts";
+import { resolveHookPath } from "./aidlc.ts";
 import { executePlan } from "./aidlc-transaction.ts";
 import {
   aidlcDispatcherInvocation,
@@ -759,6 +778,8 @@ Utilities:
   intent unarchive <name>  Bring an archived intent back as it was (in-flight or complete)
   intent add-repo <name>  Add a sibling repo to the active piece of work (until Units Generation is approved)
   intent remove-repo <name>  Take a sibling repo out of the active piece of work (never the last one)
+  intent add-checkout <path>  Record a checkout outside the review's reach (a harness-folder worktree, or one outside the project) so the review covers the code there
+  intent remove-checkout <path>  Take a recorded checkout out of the active piece of work's review
   space list        List spaces (read-only; --json for structured output)
   space switch <name>  Switch the active space (bare space <name> still works)
   space create <name>  Create a new space (space-create <name> still works)
@@ -823,11 +844,13 @@ export function renderHelpText(): string {
   const mapping = loadScopeMapping();
   const defaultResolution = defaultScopeResolution();
   const effectiveDefaultScope = defaultResolution.error ? "" : defaultResolution.scope;
+  // The stages a scope runs after Initialization, of all the stages after it:
+  // the count its plan offer gives on existing code. Help has no project, so a
+  // new project's Reverse Engineering skip is the offer's to say.
+  const total = loadStageGraph().filter((stage) => stage.phase !== "initialization").length;
   const scopeLines = [...validScopes()].map((name) => {
     const def = mapping[name];
-    const execute = Object.values(def.stages).filter((v) => v === "EXECUTE")
-      .length;
-    const total = Object.keys(def.stages).length;
+    const execute = gridCostSummary(def.stages).shown;
     const depth = def.depth.toLowerCase();
     const ts = def.testStrategy
       ? `, ${def.testStrategy.toLowerCase()} test strategy`
@@ -1092,50 +1115,6 @@ function installedStagesRoot(): string {
   return resolveHarnessPath(["aidlc-common", "stages"], { mutable: true });
 }
 
-// Remove recorded values from a `field:` block. An emptied block collapses to
-// the inline `field: []` form (the shape compose's merge expanded from); a
-// created-by-compose required_sections field is deleted outright.
-function removeListValues(content: string, field: string, values: ReadonlySet<string>, dropEmptyField: boolean): string {
-  const blockRe = new RegExp(`^${field}:\\n((?:  - .+\\n)*)`, "m");
-  const m = content.match(blockRe);
-  if (!m) return content;
-  const entries = [...m[1].matchAll(/^ {2}- (.+)$/gm)].map((x) => x[1]);
-  const removeIndexes = new Set<number>();
-  const remaining = new Set(values);
-  // Compose renders ordinary structural additions unquoted. Prefer that exact
-  // spelling so a legacy sidecar cannot remove an equivalent quoted membership
-  // that predated the plugin.
-  for (let i = 0; i < entries.length; i++) {
-    if (remaining.delete(entries[i].trim())) removeIndexes.add(i);
-  }
-  // required_sections are rendered quoted while their sidecar values are bare.
-  // Remove at most one canonical match for each recorded addition.
-  for (const value of remaining) {
-    const index = entries.findIndex((entry, i) => {
-      if (removeIndexes.has(i)) return false;
-      const bare = entry.trim().replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
-      return bare === value;
-    });
-    if (index !== -1) removeIndexes.add(index);
-  }
-  const kept = entries.filter((_, i) => !removeIndexes.has(i));
-  const replacement = kept.length > 0
-    ? `${field}:\n${kept.map((v) => `  - ${v}`).join("\n")}\n`
-    : dropEmptyField ? "" : `${field}: []\n`;
-  return content.replace(blockRe, replacement);
-}
-
-function removeConsumesEntries(content: string, artifacts: ReadonlySet<string>): string {
-  const blockRe = /^consumes:\n((?: {2}- artifact:.*\n(?: {4}(?:required|conditional_on):.*\n)*)*)/m;
-  const m = content.match(blockRe);
-  if (!m) return content;
-  const kept = [...m[1].matchAll(/^ {2}- artifact:\s*([\w-]+).*\n(?: {4}(?:required|conditional_on):.*\n)*/gm)]
-    .filter((entry) => !artifacts.has(entry[1]))
-    .map((entry) => entry[0]);
-  const replacement = kept.length > 0 ? `consumes:\n${kept.join("")}` : "consumes: []\n";
-  return content.replace(blockRe, replacement);
-}
-
 // Strip every sentinel-marked prose fragment this plugin spliced. The open
 // and close markers carry the plugin name, so removal needs no sidecar.
 // Anchors may themselves contain colons (after-step:9, in:Sensors), so the
@@ -1185,28 +1164,8 @@ function stripDisabledPluginContributions(
         const before = readFileSync(path, "utf-8");
         // A CRLF checkout strips as the LF text compose wrote, in its own line endings.
         const content = withFileLineEndings(before, (text) => {
-          let content = text;
           const record = manifest[f.replace(/\.md$/, "")];
-          if (record) {
-            if (record.produces?.length) content = removeListValues(content, "produces", new Set(record.produces), false);
-            if (record.sensors?.length) content = removeListValues(content, "sensors", new Set(record.sensors), false);
-            if (record.scopes?.length) content = removeListValues(content, "scopes", new Set(record.scopes), false);
-            if (record.requires_stage?.length) content = removeListValues(content, "requires_stage", new Set(record.requires_stage), false);
-            if (record.consumes?.length) {
-              const artifacts = record.consumes.flatMap((entry) =>
-                typeof entry === "string"
-                  ? [entry]
-                  : entry && typeof entry.artifact === "string"
-                    ? [entry.artifact]
-                    : []
-              );
-              content = removeConsumesEntries(content, new Set(artifacts));
-            }
-            if (record.required_sections?.length) {
-              content = removeListValues(content, "required_sections", new Set(record.required_sections), record.required_sections_created === true);
-            }
-          }
-          return removePluginFragments(content, plugin);
+          return removePluginFragments(record ? stripRecordedAdds(text, record) : text, plugin);
         });
         if (content !== before) {
           writeFileSync(path, content, "utf-8");
@@ -1455,6 +1414,11 @@ function handleSelectPlugins(projectDir: string, positional: string[]): void {
           base,
           rest.length > 0 ? `${entrySkillInvocation()} plugin select ${rest.join(",")}` : null,
         )}\n`);
+      }
+      // And once at the select that turns a paused plugin's base back on.
+      for (const [plugin, base] of pausedBefore) {
+        if (pausedAfter.has(plugin) || !nameSet.has(plugin)) continue;
+        process.stdout.write(`${resumedLine(plugin, base, nextCompose(harnessName, plugin, null))}\n`);
       }
     } catch (err) {
       resetSelectionSensitiveCaches();
@@ -1989,6 +1953,8 @@ To get started:
   // aidlc-orchestrate.ts). The line carries the way back, in the harness's own
   // entry word. A live run read "Status: Running" over paused work and the
   // agent had to correct it.
+  // Read for the selected work only, as the step marker below is.
+  const planAsk = flags.intent || flags.space ? null : openPlanApprovalAsk(projectDir);
   const parkedAt = (getField(content, "Parked At Stage") ?? "").trim();
   const parked = (getField(content, "Parked") ?? "").trim().length > 0 &&
     parkedAt.length > 0 && parkedAt === currentStage &&
@@ -2004,6 +1970,17 @@ To get started:
       ? `${stageLabel(unitStage, unitStage.slug) ?? unitStage.slug} for ${activeUnit}`
       : currentName;
     statusLine = `Paused at ${at}${stopped}; pick it back up with ${entrySkillInvocation()} --resume`;
+  } else if (planAsk !== null) {
+    // The code plan question is open: the work waits on the person, in the
+    // question's own words, not on the agent; while they edit the files
+    // themselves (the question's own record says so), on their edit.
+    const units = planAsk.units ?? (typeof planAsk.unit === "string" ? [planAsk.unit] : []);
+    const plans = units.length > 1
+      ? `code plans for ${units.join(", ")}`
+      : `code plan${units.length === 1 ? ` for ${units[0]}` : ""}`;
+    statusLine = planApprovalAskState(projectDir) === "editing"
+      ? `Waiting for you to finish editing the ${plans}`
+      : `Awaiting your approval on the ${plans}`;
   } else if (currentCheckbox?.state === "awaiting-approval") {
     const displayName = currentName;
     statusLine = `Awaiting your approval on ${displayName}`;
@@ -2022,12 +1999,20 @@ To get started:
     }
   } else if (currentCheckbox?.state === "revising") {
     const displayName = currentName;
-    const revisionCount = getField(content, "Revision Count");
-    // If the Revision Count field is missing, omit the count rather than
-    // render a literal "?" — state files authored before the field existed
-    // would otherwise render "revision ? of 3".
-    statusLine = revisionCount
-      ? `Revising ${displayName} (revision ${revisionCount} of 3)`
+    // This stage's own change requests, the count its Accept as-is waits on;
+    // the state file's Revision Count runs across the whole workflow. With no
+    // readable request on record, the count is left out.
+    let revisionCount = 0;
+    try {
+      revisionCount = stageRevisionCycles(
+        readAuditShardEvents(projectDir, flags.intent, flags.space),
+        currentStage,
+      );
+    } catch {
+      // Status remains useful when the ledger is absent or unreadable.
+    }
+    statusLine = revisionCount > 0
+      ? `Revising ${displayName} (revision ${revisionCount} of ${ACCEPT_AS_IS_REVISION_CYCLES})`
       : `Revising ${displayName}`;
   } else if (currentCheckbox?.state === "completed" && status === "Running") {
     // Post-approve window: the stage was approved (→ [x]) but the orchestrator
@@ -3021,14 +3006,6 @@ function canonical(value: unknown): string {
     return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonical(object[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
-}
-
-function projectSettingsRepair(distribution: string): string {
-  const invoke = aidlcInvocation();
-  const source = invoke === "aidlc"
-    ? ""
-    : ` --from <the runtime/${distribution} root you copied from>`;
-  return `run \`${invoke} config --harness ${distribution}${source}\` to put back AI-DLC's hooks (your own hooks are kept)`;
 }
 
 const FLOW_ALTERING_CLAUDE_HOOKS = new Set([
@@ -4313,6 +4290,19 @@ export async function collectDoctorReport(
       });
     } else {
       for (const h of expectedHooks) {
+        if (compiled) {
+          const packaged = resolveHookPath(h, undefined, projectDir);
+          const runs = packaged !== "" && existsSync(packaged);
+          const name = h.replace(/^aidlc-/, "").replace(/\.ts$/, "");
+          results.push({
+            pass: runs,
+            label: runs
+              ? `${h} present`
+              : `${h} is not in this install's runtime: \`${aidlcInvocation()} engine hook ${name}\` exits 1 without running it`,
+            fix: `\`${aidlcInvocation()} engine hook\` runs only the hooks the installed runtime ships; register a project hook in .claude/settings.json with a command that runs its own file`,
+          });
+          continue;
+        }
         const hookPath = join(projectDir, harness, "hooks", h);
         results.push({
           pass: existsSync(hookPath),
@@ -4751,26 +4741,23 @@ export async function collectDoctorReport(
   const treeVersions = harnessTreeVersionsCheck(projectDir);
   if (treeVersions) results.push(treeVersions);
 
-  // 4a. Project-default scope — real env overrides the recorded project flag.
-  // The framework fallback is not a configured project default.
+  // 4a. Project-default scope: real env overrides the recorded project flag.
+  // The framework fallback is not a configured project default, so with
+  // nothing set there is no row: in a terminal this process cannot see the
+  // value Claude Code passes from .claude/settings.json, and "unset" would be
+  // false there.
   const defaultResolution = defaultScopeResolution();
   const envScope = defaultResolution.scope;
-  if (defaultResolution.source !== "env") {
-    results.push({
-      pass: true,
-      label: "AWS_AIDLC_DEFAULT_SCOPE (unset - no project default)",
-    });
-  } else if (!defaultResolution.error && validScopes().has(envScope)) {
-    results.push({
-      pass: true,
-      label: `AWS_AIDLC_DEFAULT_SCOPE=${envScope} (valid)`,
-    });
-  } else {
-    results.push({
-      pass: false,
-      label: `AWS_AIDLC_DEFAULT_SCOPE=${envScope} (invalid)`,
-      fix: `valid values: ${[...validScopes()].join(", ")}`,
-    });
+  if (defaultResolution.source === "env") {
+    results.push(
+      !defaultResolution.error && validScopes().has(envScope)
+        ? { pass: true, label: `AWS_AIDLC_DEFAULT_SCOPE=${envScope} (valid)` }
+        : {
+          pass: false,
+          label: `AWS_AIDLC_DEFAULT_SCOPE=${envScope} (invalid)`,
+          fix: `valid values: ${[...validScopes()].join(", ")}`,
+        },
+    );
   }
 
   // 4c. Plugin selection — doctor is a full-graph consumer. Runtime consumers
@@ -5206,7 +5193,8 @@ export async function collectDoctorReport(
   //       before workflow progress → hooks have not had a chance to fire. Pass.
   //       This preserves debug-only dirs and ignores doctor's HEALTH_CHECKED.
   //   (b) No readable heartbeat after progress, or unreadable .last files →
-  //       hooks should have fired. Fail.
+  //       hooks should have fired. Fail, or warn when only other clones'
+  //       audit shards record the progress.
   //   (c) Readable .last files exist → compare the newest one to progress.
   // The comparison itself lives in aidlc-lib.ts (hookLiveness) because the Plan
   // Approval decision refuses on the same staleness.
@@ -5235,12 +5223,38 @@ export async function collectDoctorReport(
     !heartbeatDirExists &&
     workflowHasProgress
   ) {
-    const stages = progressedStageCount === 1 ? "stage" : "stages";
-    results.push({
-      pass: false,
-      label: `Hooks have never executed although this workflow has progressed ${progressedStageCount} ${stages}`,
-      fix: hookExecutionRecovery,
-    });
+    // Heartbeats are git-ignored and stay in the clone whose hooks wrote them,
+    // while audit shards travel in commits. Progress that only other clones'
+    // shards record says nothing about this clone's hooks, and the hooks step
+    // would be aimed at the wrong machine.
+    const ownShard = knownAuditShardName(projectDir);
+    const ranElsewhere = stageOrGateEvents.length > 0 &&
+      stageOrGateEvents.every((event) => basename(event.shard) !== ownShard);
+    if (ranElsewhere) {
+      const hosts = [
+        ...new Set(
+          stageOrGateEvents
+            .map((event) => auditShardHost(event.shard))
+            .filter((host): host is string => host !== null),
+        ),
+      ].sort();
+      const clones = hosts.length > 1 ? "other clones" : "another clone";
+      results.push({
+        pass: false,
+        severity: "warn",
+        label: `This workflow was run in ${clones}${hosts.length > 0 ? ` (${hosts.join(", ")})` : ""}; this clone has no hook record for it yet`,
+        fix:
+          "nothing to fix in this clone: its hooks record this workflow once you carry on with it here. " +
+          `To check the hooks where it ran, run doctor in ${hosts.length > 1 ? "those clones" : "that clone"}`,
+      });
+    } else {
+      const stages = progressedStageCount === 1 ? "stage" : "stages";
+      results.push({
+        pass: false,
+        label: `Hooks have never executed although this workflow has progressed ${progressedStageCount} ${stages}`,
+        fix: hookExecutionRecovery,
+      });
+    }
   } else if (
     heartbeatDirExists &&
     !hasHookFiredContent &&
@@ -7861,11 +7875,15 @@ function handleIntentCreate(projectDir: string, flags: Record<string, string>): 
   // An engine question's answer names its request by id. The copy is removed
   // once the answer starts work, so look for that work before the copy.
   const questionId = flags.request;
+  // The requests this creation answers: its own and the one it was composed
+  // from (a report-only or task-less composition), for the composer's scores.
+  const answers: string[] = [];
   if (questionId !== undefined) {
     const session = resolveWorkflowSelection(projectDir, { space: flags.space }).sessionId ?? undefined;
     if (answerAlreadyStarted(projectDir, questionId, session)) return;
     const question = readQuestion(projectDir, questionId);
     if (!question) die(QUESTION_UNAVAILABLE);
+    answers.push(questionId, ...(question.composedFrom ? [question.composedFrom] : []));
     flags.arguments = question.text;
     flags.scope ||= question.proposedScope;
     // Depth, test strategy and review the person set in this chat before any
@@ -8325,7 +8343,7 @@ function handleIntentCreate(projectDir: string, flags: Record<string, string>): 
       // not from the registry.
       ...sourceBaselineAuditFields(
         projectDir,
-        "code-generation",
+        workspaceBaselineStageSlugs(),
         created.dirName,
         created.space,
         repos,
@@ -8346,6 +8364,7 @@ function handleIntentCreate(projectDir: string, flags: Record<string, string>): 
             "Stages added": planChanges.add.join(", ") || "none",
           }
         : {}),
+      ...takeComposerScores(projectDir, answers, plannedStages.stages),
     }, created.dirName, created.space);
 
     // PHASE_STARTED for the Init phase — Init always runs. Other phases emit
@@ -8621,6 +8640,9 @@ function handleIntentCreateStateBuild(
 
   const totalInScope = executeStages.length;
   const completedInit = graph.filter((s) => s.phase === "initialization").length;
+  // The lines the person reads count the stages the plan runs after
+  // Initialization, from the list the offer and each stage's start count.
+  const shownInScope = plannedStages(stageProgress, scope).length;
 
   const firstPostInitEntry = graph.find((s) => s.slug === firstPostInit);
   const firstPostInitPhase = firstPostInitEntry
@@ -8763,11 +8785,11 @@ ${stageProgress}
     Languages: scan.languages,
     Frameworks: scan.frameworks,
     "Build System": scan.buildSystem,
-    Details: `${totalInScope} stages in scope, routing to ${firstPostInit}`,
+    Details: `${shownInScope} stages in scope, routing to ${firstPostInit}`,
   }, createdDir, createdSpace);
   appendAuditEvent(projectDir, "STAGE_COMPLETED", {
     Stage: "state-init",
-    Details: `State initialized: ${scope} scope, ${totalInScope} stages, routing to ${firstPostInit}`,
+    Details: `State initialized: ${scope} scope, ${shownInScope} stages, routing to ${firstPostInit}`,
   }, createdDir, createdSpace);
 
   // Phase hand-off: initialization → first post-init phase. The state file
@@ -8809,7 +8831,7 @@ ${stageProgress}
       : "";
   process.stdout.write(
     `Intent created: ${createdDir} (space: ${createdSpace})
-State initialized: ${scope} scope, ${totalInScope} stages, ${effectiveDepth} depth
+State initialized: ${scope} scope, ${shownInScope} stages, ${effectiveDepth} depth
 ${composedPlan ? `Plan: ${composedPlanLabel(flags["plan-name"])}, for this piece of work only (no scope file written)\n` : ""}Project type: ${projectType}${declaredType ? " (you said so)" : ""}
 ${declaredType === "Brownfield" && scan.projectType !== "Brownfield" ? `${NO_CODE_FOUND_YET}\n` : ""}Languages: ${scan.languages}
 Frameworks: ${scan.frameworks}
@@ -8985,6 +9007,10 @@ function handleIntent(
   }
   if (verbOrTarget === "add-repo" || verbOrTarget === "remove-repo") {
     handleIntentRepos(projectDir, verbOrTarget, positional[2]);
+    return;
+  }
+  if (verbOrTarget === "add-checkout" || verbOrTarget === "remove-checkout") {
+    handleIntentCheckouts(projectDir, verbOrTarget, positional[2]);
     return;
   }
   const target = verbOrTarget === "switch" ? positional[2] : verbOrTarget;
@@ -9421,6 +9447,117 @@ function handleIntentRepos(
       break;
   }
   process.stdout.write(`${lines.join(" ")}\n`);
+}
+
+// `/aidlc intent add-checkout <path>` / `/aidlc intent remove-checkout <path>`:
+// name a checkout the work's code is kept in where the review would not see it
+// (a worktree in a harness folder such as .claude/worktrees/, or one outside
+// the project), so the review binds it and the source-work check finds it; or
+// take it out again. The agent runs it from its own knowledge of where it wrote
+// the code, or the person does; it never asks. Unlike add-repo it has no Units
+// Generation cut-off (it is needed in Code Generation), works for work that
+// records no repos, and takes a path. The folder needs a real .git entry; a
+// path the review already reaches, or inside AI-DLC's own folders, is refused
+// with the reason. Same locks and audit-first order as add-repo; the record is
+// the intent's per-clone .aidlc-engine/ file, never the audit row.
+function handleIntentCheckouts(
+  projectDir: string,
+  verb: "add-checkout" | "remove-checkout",
+  typed: string | undefined,
+): void {
+  if (!typed) die(`Usage: aidlc-utility intent ${verb} <path>`);
+  const selection = resolveWorkflowSelection(projectDir);
+  const space = selection.space;
+  const dirName = selection.intent;
+  if (!dirName) {
+    die(`No piece of work is active in space "${space}"; switch to one first (${entrySkillInvocation()} intent list).`);
+  }
+  const target = resolve(projectDir, typed);
+  const outcome = withAuditLock(projectDir, () =>
+    withAuditLock(projectDir, () => {
+      const checkouts = readRecordedSourceCheckouts(projectDir, dirName, space);
+      const state = readStateFile(projectDir, dirName, space);
+      const stage = (getField(state, "Current Stage") ?? "").trim() || "none";
+      if (verb === "remove-checkout") {
+        const known = recordedCheckoutAt(target, checkouts) ??
+          checkouts.find((entry) => entry.label === typed || entry.path === typed) ?? null;
+        if (known === null) return { kind: "absent" as const };
+        const next = checkouts.filter((entry) => entry.label !== known.label);
+        appendAuditEntryUnlocked(
+          "INTENT_CHECKOUTS_CHANGED",
+          { Stage: stage, Removed: known.label, Path: known.path, Checkouts: next.map((entry) => entry.label).join(", ") || "none" },
+          projectDir,
+          dirName,
+          space,
+        );
+        writeRecordedSourceCheckouts(projectDir, next, dirName, space);
+        return { kind: "removed" as const, checkout: known };
+      }
+      let real = "";
+      try {
+        real = realpathSync(target);
+        if (!statSync(real).isDirectory()) real = "";
+      } catch {
+        real = "";
+      }
+      if (real === "") {
+        die(`intent add-checkout refused: ${typed} is not a folder on this machine. Make the checkout there first.`);
+      }
+      if (!hasRealGitEntry(real)) {
+        die(`intent add-checkout refused: ${typed} is not a Git checkout (no .git entry in it). Name the worktree or clone itself.`);
+      }
+      const known = recordedCheckoutAt(real, checkouts);
+      if (known !== null) return { kind: "already" as const, checkout: known };
+      for (const own of ["aidlc", ".aidlc"]) {
+        let ownReal = join(projectDir, own);
+        try {
+          ownReal = realpathSync(ownReal);
+        } catch {
+          // Not there: nothing can be inside it.
+        }
+        const rel = relative(ownReal, real);
+        if (rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))) {
+          die(`intent add-checkout refused: ${typed} is inside AI-DLC's own ${own}/ folder, which holds no code of yours.`);
+        }
+      }
+      if (sourceWalkReach(projectDir, workspaceSourceState(projectDir, dirName, space)?.listing ?? null, checkouts)(real)) {
+        return { kind: "reached" as const };
+      }
+      const checkout = { label: sourceCheckoutLabelFor(real, checkouts), path: typed, real };
+      const next = [...checkouts, checkout];
+      appendAuditEntryUnlocked(
+        "INTENT_CHECKOUTS_CHANGED",
+        { Stage: stage, Added: checkout.label, Path: typed, Checkouts: next.map((entry) => entry.label).join(", ") },
+        projectDir,
+        dirName,
+        space,
+      );
+      writeRecordedSourceCheckouts(projectDir, next, dirName, space);
+      return { kind: "added" as const, checkout };
+    }, dirName, space),
+  );
+  // What happened and the way back, in a line; never this command's own line.
+  switch (outcome.kind) {
+    case "absent":
+      process.stdout.write(`${typed} is not one of the checkouts this piece of work records; nothing changed.\n`);
+      break;
+    case "already":
+      process.stdout.write(
+        `${typed} is already recorded for this piece of work's review (as ${sourceCheckoutListingRel(outcome.checkout.label)}); nothing changed.\n`,
+      );
+      break;
+    case "reached":
+      process.stdout.write(`The review already covers ${typed}; nothing to record.\n`);
+      break;
+    case "added":
+      process.stdout.write(
+        `Recorded ${typed} for this piece of work's review, as ${sourceCheckoutListingRel(outcome.checkout.label)}. You can remove it any time.\n`,
+      );
+      break;
+    case "removed":
+      process.stdout.write(`Removed ${outcome.checkout.path} from this piece of work's review. You can add it back any time.\n`);
+      break;
+  }
 }
 
 // `/aidlc space` (list) · `/aidlc space <name>` (switch the active-space
@@ -11842,9 +11979,10 @@ function handleScopeChange(projectDir: string, flags: Record<string, string>): v
           graph.find((s) => s.slug === c.slug)?.phase !== "initialization",
       ).length;
       // What happened and how to go back, then each stage it skipped, the Unit
-      // work it dropped, and each setting whose value changed. Nothing else
-      // runs until the person asks: on finished work the stage started above
-      // is what they asked for, and `next` carries on into it.
+      // work it dropped, and each setting whose value changed. Whether the
+      // work goes on in the same turn is `next`'s call (its scope-change
+      // print); on finished work the stage started above is what they asked
+      // for, and `next` carries on into it.
       outputLines = [
         `Switched to ${newScope} (${SCOPE_GLOSS}): ${summary.shown} stages (${shownDone} done), ` +
           `${gates} approval gates.` +
@@ -12345,7 +12483,11 @@ function handleScopeSave(projectDir: string, flags: Record<string, string>, rawA
       stages[stage.slug] =
         action === "EXECUTE" || (greenfieldOnly && stage.slug === "reverse-engineering") ? "EXECUTE" : "SKIP";
     }
-    const running = Object.values(stages).filter((a) => a === "EXECUTE").length;
+    // The saved plan's lines count the stages it runs after Initialization, the
+    // count its plan offer gives on existing code (the plan keeps Reverse
+    // Engineering for the next project); the audit row keeps every stage it runs.
+    const running = gridCostSummary(stages).shown;
+    const executing = Object.values(stages).filter((a) => a === "EXECUTE").length;
 
     const depth = getField(content, "Depth") || scopeDef.depth;
     const testStrategy = getField(content, "Test Strategy");
@@ -12391,7 +12533,7 @@ function handleScopeSave(projectDir: string, flags: Record<string, string>, rawA
         appendAuditEvent(projectDir, "SCOPE_SAVED", {
           Scope: scope,
           "Saved as": name,
-          "Stages in Scope": String(running),
+          "Stages in Scope": String(executing),
         }, flags.intent, flags.space));
     } catch (error) {
       die(`Cannot save the scope: ${errorMessage(error)}`);

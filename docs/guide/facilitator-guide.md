@@ -86,7 +86,7 @@ week before the workshop. That costs them minutes and shows whether the
 hooks, the PATH and the folder trust are wired.
 
 The `workshop` scope (`/aidlc workshop`) is for the facilitated group session
-itself. It is a 26-stage run, not a readiness check.
+itself. It is a 23-stage run, not a readiness check.
 
 ---
 
@@ -117,17 +117,17 @@ vision note.
 ## Keep side tasks small: name the scope
 
 A plain `/aidlc <description>` has the agent propose a plan from its words, or
-offer to compose one, and `classic`, the default, runs 18 of 33 stages. A bug
+offer to compose one, and `classic`, the default, runs 15 of 30 stages after setup. A bug
 report in plain words is usually proposed `bugfix`; when the agent offers to
 compose instead, the list beside the offer names `bugfix` first, and picking
 the default runs a much larger workflow. Name the scope as the first word:
 
 | The side task is... | Type | Stages |
 |---|---|---|
-| A known bug with a known fix | `/aidlc bugfix <what is broken>` | 9 / 33 |
-| A small change or a quick end-to-end try | `/aidlc express <the change>` | 10 / 33 |
+| A known bug with a known fix | `/aidlc bugfix <what is broken>` | 6 / 30 |
+| A small change or a quick end-to-end try | `/aidlc express <the change>` | 7 / 30 |
 
-`feature` runs every stage (33 / 33). It suits a production feature, not a
+`feature` runs every stage (30 / 30). It suits a production feature, not a
 side task. See [Workflow Profiles](workflow-profiles.md) for every scope.
 
 Start a side task in its own project folder, so it does not mix with the
@@ -153,6 +153,26 @@ answer or a contradiction still gets a follow-up.
 `bugfix`, `express`, `poc`, `refactor`, and `security-patch` already default
 to `Minimal`. `classic`, `feature`, and `workshop` default to `Standard`. See
 [Scopes and Depth](05-scopes-and-depth.md#the-3-depth-levels).
+
+---
+
+## Fewer stops: learnings and summary confirmation
+
+`workshop` keeps two checks at every stage: the "Anything to add for next
+time?" learnings question and the `Looks correct` summary confirmation. In a
+room that is often more stops than the group needs. Turn both off when the
+work starts:
+
+```
+/aidlc workshop --learnings off --summary-confirmation off <the work>
+```
+
+Questions and approval gates still run. Learnings off means nothing from the
+run is saved to project or team memory; summary confirmation off means a
+misread answer is caught at the approval gate instead of before the artifact is
+written. Keep learnings on when teaching the learning loop is part of the
+session. See
+[Fewer stops](05-scopes-and-depth.md#fewer-stops-for-a-workshop-or-small-work).
 
 ---
 
@@ -238,7 +258,7 @@ it before anything else.
 | The workflow waits and does not move on | If it shows a question or an approval gate, it is waiting for you: answer what it shows, one of the options it lists, or **Approve** / **Request Changes** at a gate. If it shows neither and the agent says work is still running in the background, let that finish. `/aidlc --status` shows where it is. To leave a stage, jump with `/aidlc --stage <slug>`. |
 | Answers or approvals are not recorded, or the doctor says hooks have never executed | The host is not running AI-DLC's hooks. Fix what the doctor names (PATH, folder trust, hook approval, the chosen agent), restart the harness, and run the readiness pass mark again. |
 | The agent's `aidlc` commands are refused during Code Generation, and they start with `cd <path>;` | Ask the agent to run each `aidlc` command on its own, with nothing before it. The check refuses a `cd` in front of a command unless it can tell the `cd` stays in the current folder, and it cannot tell that for an unquoted Windows path such as `cd C:\path`. `aidlc --status`, `aidlc doctor`, and `aidlc engine orchestrate next` on their own are allowed. Older builds also refuse plain `aidlc --status` and `aidlc doctor` in this state; go to the next row. |
-| Code Generation work is refused with `Plan Approval authority is ambiguous or stale` (under Guard Policy `off`: `cannot select one approval target`) even after the plan was approved | First let the agent run the command the refusal names, exactly as written and on its own. The refusal spells it the way this install runs it: `aidlc engine orchestrate next` in a native install, `bun <harness-dir>/tools/aidlc-orchestrate.ts next` in a copied one. When the refusal says the plan is already approved, nobody needs to approve it again. If the same refusal comes back, use the last resort below. `/aidlc --plan-approval off` and Guard Policy `off` do not release this refusal, except while Units build in parallel: there a lowered fence lets the write through with the stand-aside line, and with the fence on a Unit's code belongs in its prepared worktree under `.aidlc/worktrees/`, where it passes. |
+| Code Generation work is refused with `Plan Approval authority is ambiguous or stale` (under Guard Policy `off`: `cannot select one approval target`) even after the plan was approved | First let the agent run the command the refusal names, exactly as written and on its own. The refusal spells it the way this install runs it: `aidlc engine orchestrate next` in a native install, `bun <harness-dir>/tools/aidlc-orchestrate.ts next` in a copied one. When the refusal says the plan is already approved, nobody needs to approve it again. If the same refusal comes back, use the last resort below. `/aidlc --plan-approval off` and Guard Policy `off` do not release this refusal, with two exceptions. Under Guard Policy `off` a build step the chat compaction set aside goes on by itself when its plan was approved, so this refusal does not appear there. While Units build in parallel a lowered fence lets the write through with the stand-aside line, and with the fence on a Unit's code belongs in its prepared worktree under `.aidlc/worktrees/`, where it passes. |
 | The conversation is long or confused | Open a new chat and type `/aidlc --resume`. The workflow continues from the files on disk, not from the old conversation. |
 
 ### Last resort: switch the Plan Approval check off

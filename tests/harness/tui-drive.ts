@@ -138,6 +138,7 @@ import {
 } from "./person-turns.ts";
 import { stateFilePathFor } from "./sdk-drive.ts";
 import { createBunBackend } from "./tui-bun-backend.ts";
+import { keepLegAudit, keepTranscriptWords } from "./leg-evidence.ts";
 import { nativeCleanupDeadlineMs } from "./tui-bun-process.ts";
 import { selectedTuiBackend } from "./tui-runtime.ts";
 import { tuiOperationDeadline } from "./tui-time-budget.ts";
@@ -1218,7 +1219,18 @@ async function cmdCapture(backend: Backend, a: Args): Promise<void> {
 async function cmdKill(backend: Backend, a: Args): Promise<void> {
   const session = requireFlag(a, "session");
   writeTuiTrace(session, "kill", {});
+  let fixture: string | null = null;
+  try {
+    fixture = backend.fixtureCwd(session);
+  } catch {
+    // A session with no readable record keeps nothing more.
+  }
   await backend.kill(session);
+  // The session is over and its project still on disk (tests/harness/leg-evidence.ts).
+  if (fixture) {
+    keepLegAudit(fixture);
+    keepTranscriptWords(fixture);
+  }
   process.stdout.write(`killed session '${session}'\n`);
 }
 

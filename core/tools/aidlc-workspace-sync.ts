@@ -169,6 +169,13 @@ function cloneUrl(manifest: WorkspaceManifest, repo: WorkspaceRepoEntry): string
   return manifest.org === undefined ? null : `git@github.com:${manifest.org}/${repo.name}.git`;
 }
 
+// What workspace-sync prints hides the userinfo of any address in it, so a
+// token in a repos.json url stays off the screen and out of the agent's
+// transcript; git still gets the address as written.
+export function maskUserinfo(text: string): string {
+  return text.replace(/([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/?#]*@/g, "$1***@");
+}
+
 function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
@@ -961,7 +968,7 @@ function cloneIntoStage(
     const destination = stagePaths.get(repo.name) ?? "";
     const url = cloneUrl(manifest, repo) ?? "";
     console.log(
-      `  staging clone ${repo.name} from ${url}` +
+      `  staging clone ${repo.name} from ${maskUserinfo(url)}` +
         (repo.branch ? ` (branch ${repo.branch})` : "") +
         " ...",
     );
@@ -972,7 +979,7 @@ function cloneIntoStage(
     if (result.status !== 0) {
       throw new SyncFailure(
         `git clone failed for ${repo.name} (exit ${result.status}): ` +
-          (result.stderr.trim() || "check the clone URL and credentials"),
+          (maskUserinfo(result.stderr.trim()) || "check the clone URL and credentials"),
       );
     }
     if (repo.branch && currentBranch(destination) !== repo.branch) {

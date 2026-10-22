@@ -145,12 +145,14 @@ function edit(path: string, from: string, to: string): void {
   writeFileSync(path, text.replace(from, to));
 }
 
-// test-pro 0.1.1: one sentence of its build-and-test fragment and one of its
-// quality-agent fragment say more.
+// test-pro's next patch version: one sentence of its build-and-test fragment
+// and one of its quality-agent fragment say more.
 function update(plugin: string): void {
   for (const dir of readdirSync(plugin).filter((name) => name.startsWith("."))) {
     const manifest = join(plugin, dir, "plugin.json");
-    if (existsSync(manifest)) edit(manifest, '"version": "0.1.0"', '"version": "0.1.1"');
+    if (!existsSync(manifest)) continue;
+    const version = (JSON.parse(readFileSync(manifest, "utf-8")) as { version: string }).version;
+    edit(manifest, `"version": "${version}"`, `"version": "${version.replace(/\d+$/, (patch) => String(Number(patch) + 1))}"`);
   }
   edit(join(plugin, "contributions", "construction", "build-and-test.md"), ...STAGE_LINE);
   edit(join(plugin, "contributions", "agents", "aidlc-quality-agent.md"), ...PERSONA_LINE);
@@ -268,6 +270,16 @@ describe("a refresh after a later compose carries the plugin's additions over", 
     sync(project);
     edit(join(project.dir, ".kiro", STAGE), "### Step 1: Analyze Testing Requirements", "### Step 1: Analyze Testing Requirements (our team's)");
     expect(conflicts(project)).toEqual([`.kiro/${STAGE} (locally modified or unowned)`]);
+  });
+
+  test("kiro: a line the person wrote that matches one the plugin added is theirs: config keeps the conflict and the line", () => {
+    const project = composed("kiro");
+    expect(config(project, "--yes").status).toBe(0);
+    const stagePath = join(project.dir, ".kiro", STAGE);
+    edit(stagePath, "  - nfr-design\n", "  - \"nfr-design\"\n  - nfr-design\n");
+    expect(conflicts(project)).toEqual([`.kiro/${STAGE} (locally modified or unowned)`]);
+    config(project, "--yes");
+    expect(readFileSync(stagePath, "utf-8")).toContain("  - \"nfr-design\"\n");
   });
 
   test("kiro: a project set up with no record, then a plugin update synced, then config: no conflict", () => {
