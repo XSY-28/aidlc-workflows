@@ -24905,7 +24905,9 @@ function gitHeadOid(worktreeDir: string): string | null {
 function filesystemSourceIdentity(
   root: string,
   carriesWorkspaceShell: boolean,
-  excludedTopLevel: ReadonlySet<string> = new Set(),
+  // Paths below the root the walk leaves out: a top-level name (the roof's
+  // folders) or a folder further down (another repo mapped inside this one).
+  excludedPaths: ReadonlySet<string> = new Set(),
   symlinkTargetMode: SourceSymlinkTargetMode = "follow",
   useWorktreeContext = true,
   // A materialized commit has no `.git` in its submodules; each expanded
@@ -25322,6 +25324,8 @@ function filesystemSourceIdentity(
     listing.set(listingPath, entry);
     return true;
   };
+  const foldPath = (path: string): string => (process.platform === "win32" ? path.toLowerCase() : path);
+  const excluded = new Set([...excludedPaths].map(foldPath));
   const walk = (
     dir: string,
     rel = "",
@@ -25468,8 +25472,7 @@ function filesystemSourceIdentity(
           continue;
         }
         if (
-          rel === "" &&
-          excludedTopLevel.has(entry.name) &&
+          excluded.has(foldPath(childRel)) &&
           !registeredPathRelevant(childRegistryRel)
         ) {
           continue;
@@ -26183,6 +26186,20 @@ function walkWorkspaceSource(
       listing.set(key, entry);
     }
   }
+  // Each repo's files are listed once, under its own name: a repo walked in
+  // place leaves out the folders of the other repos mapped inside it (the
+  // packages a workspace repo records as gitlinks, say).
+  const mappedDirs = [...new Set([...repos, ...readWorkspaceRepos(projectDir).entries.keys()])]
+    .map((name) => comparablePath(repoDir(projectDir, name)));
+  const reposInside = (dir: string): Set<string> => {
+    const root = comparablePath(dir);
+    const inside = new Set<string>();
+    for (const other of mappedDirs) {
+      const rel = relative(root, other);
+      if (rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) inside.add(rel.split(sep).join("/"));
+    }
+    return inside;
+  };
   for (const name of [...repos].sort()) {
     // A repo beside the workspace never holds the shell, so nothing there
     // belongs to the framework; a repo that is the workspace folder does.
@@ -26195,7 +26212,7 @@ function walkWorkspaceSource(
     const source = filesystemSourceIdentity(
       dir,
       rootCarriesWorkspaceShell(projectDir, dir),
-      new Set(),
+      reposInside(dir),
       "follow",
       true,
       new Map(),
