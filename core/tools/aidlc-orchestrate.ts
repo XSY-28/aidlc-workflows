@@ -242,6 +242,7 @@ import {
   type GuardRemedy,
   type GuardRecoveryAskData,
   humanAuthorityState,
+  humanRepliedSinceGate,
   latestMainWorkflowStageRunFloorForProject,
   unitLifecycleRunFloorForProject,
   unitScopedLifecycleFloors,
@@ -316,6 +317,7 @@ import {
   commandAtPersonsTerminal,
   unattendedHumanPresenceHint,
   personSpokeSinceGate,
+  personsGateReply,
   planApprovalAskIsOpen,
   planApprovalRuntimeFile,
   readPlanApprovalRuntimeRecord,
@@ -495,6 +497,7 @@ import {
   type UnitClaimOverview,
 } from "./aidlc-unit.ts";
 import {
+  approvedComposerPlan,
   type Consume,
   type GraphStage,
   loadGraph,
@@ -3623,8 +3626,19 @@ function openApprovalGateStage(stateContent: string): string | null {
 
 // Words while a stage's approval gate is open: the conductor reads whether
 // they answer it, the same split as openQuestionReplyDirective.
-function openGateReplyDirective(stage: string, requestId: string, folder: string): PrintDirective {
+function openGateReplyDirective(
+  stage: string,
+  requestId: string,
+  folder: string,
+  replies: Array<{ id: string; at: string }>,
+): PrintDirective {
   const orchestrate = aidlcToolInvocation("orchestrate");
+  // The person's replies the decision would stand on, by id and time only:
+  // the agent has their words, and names the one its reading came from when it
+  // is not all of them.
+  const named = replies.length === 0 ? "" : " Their replies since the last decision, oldest first: " +
+    `${replies.map((reply) => `${reply.id} (${reply.at})`).join(", ")}; when their choice is in one of them ` +
+    "and not the others, add `--message <id>` to the report.";
   return printDirective(
     `Stage "${stage}" is waiting for the person's approval, and their reply may answer it. Read it. If it ` +
       `approves, run \`${orchestrate} report --stage ${shellArg(stage)} --result approved --user-input "Approve"\`; ` +
@@ -3635,7 +3649,7 @@ function openGateReplyDirective(stage: string, requestId: string, folder: string
       "follow what it returns. If it is about something else, such as new " +
       `work or a change to the plan, run \`${orchestrate} next --request ${requestId}\` and follow what it returns: ` +
       "the engine kept their words and asks them where that work belongs. If you cannot tell which it is, ask the " +
-      "person in one short question and follow their answer.",
+      `person in one short question and follow their answer.${named}`,
   );
 }
 
@@ -5815,6 +5829,15 @@ function createPrintDirective(
   }
   for (const key of CEREMONY_KEYS) {
     if (flags.ceremony?.[key]) cmd.push(`${CEREMONY_FLAGS[key]} ${flags.ceremony[key]}`);
+  }
+  // The stage changes of a plan composed for this request are the ones the
+  // composer validated and the gate showed, so a list retyped by hand on
+  // Approve never drops or adds a stage. A creation with no list is the
+  // person's own pick of the plain scope (after a Reject), and keeps it.
+  if (flags.planChanges && flags.request) {
+    const composedFrom = readQuestion(projectDir, flags.request)?.composedFrom;
+    const approved = approvedComposerPlan(projectDir, [flags.request, ...(composedFrom ? [composedFrom] : [])], scope);
+    if (approved) flags.planChanges = approved.skip.length > 0 || approved.add.length > 0 ? approved : undefined;
   }
   if (flags.planChanges?.skip.length) cmd.push(`--skip ${flags.planChanges.skip.join(",")}`);
   if (flags.planChanges?.add.length) cmd.push(`--add ${flags.planChanges.add.join(",")}`);
@@ -10663,7 +10686,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
       const gateFolder = gateNode && !(isPerUnit(gateNode) && !usesStageLevelPerUnitArtifacts(gateScope, stateContent))
         ? commonFolder(resolveProduces(gateNode, null, engineRelativeRecordDir(pd), codekbCtxFor(pd)))
         : "";
-      emit(openGateReplyDirective(gateStage, words.id, gateFolder));
+      emit(openGateReplyDirective(gateStage, words.id, gateFolder, personsGateReply(pd, resolveInvokingSessionId(pd), gateStage).replies));
       return;
     }
     // Words alone (nothing `next` reads as a flag, scope, verb or noun) may
@@ -15383,6 +15406,7 @@ interface ReportFlags {
   overrideBlockingSensors?: boolean;
   unit?: string; // --unit <name>: required for team-owned per-unit gates
   park?: boolean; // --park: the person also asked to stop here for now
+  message?: string; // --message <id>: the one message of the person's the agent read the decision from
   // A re-entry request (--result resumed): the choice the conductor read from
   // the person's words, the stage they named for a jump, and the Units it is
   // for when they named one (--unit) or said every Unit (--every-unit).
@@ -15406,6 +15430,7 @@ const REPORT_FLAGS = [
   "--single",
   "--override-blocking-sensors",
   "--park",
+  "--message",
   "--choice",
   "--target",
   "--every-unit",
@@ -15414,7 +15439,8 @@ const REPORT_FLAGS = [
 // Extract report's flags. --result is the verdict; --user-input carries the
 // choice the conductor read from the person's reply, while --reason carries
 // rejection feedback or an early completion reason. --park records that the
-// person also asked to stop for now.
+// person also asked to stop for now. --message names the one message of theirs
+// the decision was read from, when it is not every reply since the last one.
 // --skeleton-stance carries the conductor's classified walking-skeleton stance
 // (the classify round-trip): it does NOT commit a transition — it records the
 // stance so the next `next` resolves the deferred gate.
@@ -15466,6 +15492,9 @@ function parseReportFlags(args: string[]): ReportFlags {
     } else if (a === "--choice" && i + 1 < args.length) {
       flags.choice = args[i + 1];
       i++;
+    } else if (a === "--message" && i + 1 < args.length) {
+      flags.message = args[i + 1];
+      i++;
     } else if (a === "--target" && i + 1 < args.length) {
       flags.target = args[i + 1];
       i++;
@@ -15495,6 +15524,8 @@ function parseReportFlags(args: string[]): ReportFlags {
       missingValue(a, "a unit name");
     } else if (a === "--choice") {
       missingValue(a, "<resume|redo|jump|fresh>");
+    } else if (a === "--message") {
+      missingValue(a, "the id of the person's message");
     } else if (a === "--target") {
       missingValue(a, "a stage name");
 
@@ -15564,9 +15595,9 @@ function changeNoticesFromToolOutput(stdout: string): string[] {
   return notices;
 }
 
-// `state reject` names the feedback in its JSON only when it recorded the
-// person's own typed words (feedback_source "person"); null otherwise.
-function personsFeedbackFromToolOutput(stdout: string): string | null {
+// Whether `state reject` recorded the person's own words as the feedback
+// (feedback_source "person" in its JSON).
+function personsFeedbackFromToolOutput(stdout: string): boolean {
   for (const line of stdout.split("\n")) {
     if (!line.startsWith("{")) continue;
     let parsed: unknown;
@@ -15576,17 +15607,15 @@ function personsFeedbackFromToolOutput(stdout: string): string | null {
       continue;
     }
     if (parsed === null || typeof parsed !== "object") continue;
-    const record = parsed as Record<string, unknown>;
-    if (record.feedback_source === "person" && typeof record.feedback === "string") return record.feedback;
+    if ((parsed as Record<string, unknown>).feedback_source === "person") return true;
   }
-  return null;
+  return false;
 }
 
-// The revision works from what the person said, not from a rewording of it.
-function personsFeedbackSentence(words: string | null): string {
-  return words === null
-    ? ""
-    : ` The feedback was recorded in the person's own words; revise from exactly what they said: ${JSON.stringify(words)}`;
+// The revision works from what the person said, not from a rewording of it:
+// their words are on the record, and in the chat for the agent to read.
+function personsFeedbackSentence(theirs: boolean): string {
+  return theirs ? " The feedback is on the record in the person's own words; revise from what they asked for." : "";
 }
 
 /** A directive with the notices attached, or unchanged when there are none. */
@@ -16630,6 +16659,7 @@ function approvesTogetherFromToolOutput(stdout: string): string[] {
 function approveArgs(slug: string, flags: ReportFlags): string[] {
   const args = ["approve", slug];
   if (flags.userInput) args.push("--user-input", flags.userInput);
+  if (flags.message) args.push("--message", flags.message);
   if (flags.unit) args.push("--unit", flags.unit);
   return args;
 }
@@ -17430,6 +17460,7 @@ function handleReport(args: string[], projectDir: string | undefined): void {
         if (flags.userInput) {
           rejectArgs.push("--user-input", flags.userInput);
         }
+        if (flags.message) rejectArgs.push("--message", flags.message);
         for (const finding of flags.rejectFindings ?? []) {
           rejectArgs.push("--reject-finding", finding);
         }
@@ -17483,7 +17514,7 @@ function handleReport(args: string[], projectDir: string | undefined): void {
       }
       const committed: string[] = [];
       const changeNotices: string[] = [];
-      let personsFeedback: string | null = null;
+      let personsFeedback = false;
       for (const subArgs of sequence) {
         const res = spawnState(pd, subArgs);
         if (res.exitCode !== 0) {
@@ -17502,7 +17533,7 @@ function handleReport(args: string[], projectDir: string | undefined): void {
         }
         committed.push(subArgs[0]);
         changeNotices.push(...changeNoticesFromToolOutput(res.stdout));
-        personsFeedback ??= personsFeedbackFromToolOutput(res.stdout);
+        personsFeedback ||= personsFeedbackFromToolOutput(res.stdout);
       }
       // A Unit approval where the person also asked to stop for now parks.
       const parked = flags.result === "approved" && flags.park === true &&
@@ -17597,10 +17628,10 @@ function handleReport(args: string[], projectDir: string | undefined): void {
   }
 
   // The conductor read the person's reply and reports the choice they made;
-  // state approve checks that a person replied since the gate was shown and
-  // records their own words. A report at a held human gate that names no
-  // choice, or passes host cancellation text, records nothing and changes no
-  // state. "Approve, but let's stop there for today" is the approval plus
+  // state approve checks that a person replied since the last decision and
+  // since the stage started, and records their own words. A report at a held
+  // human gate that names no choice, or passes host cancellation text, records
+  // nothing and changes no state. "Approve, but let's stop there for today" is the approval plus
   // --park, which parks once the approval is recorded. With their reply on
   // record, the agent reports the choice it read from it; only with none does
   // the gate wait for one.
@@ -17619,10 +17650,10 @@ function handleReport(args: string[], projectDir: string | undefined): void {
       ? printDirective(
         `${refused}, and the open question is the Plan Approval question, not the gate for "${slug}". ${planApprovalAnswerStep()}`,
       )
-      : personSpokeSinceGate(pd, { replies: true })
+      : humanRepliedSinceGate(pd)
       ? printDirective(
-        `${refused}. The person has replied since the gate was shown: report the choice they made with --user-input ` +
-          '("Approve", say), without asking them again.',
+        `${refused}. The person has replied since the last decision: report the choice their reply makes with ` +
+          '--user-input ("Approve", say), without asking them again.',
       )
       : turnEndingPrint(
         `The question for "${slug}" is still open. ${refused}. No reply from the person is on record since the gate ` +
@@ -17718,6 +17749,7 @@ function handleReport(args: string[], projectDir: string | undefined): void {
       subArgs = ["reject", slug];
       if (feedback) subArgs.push(`--feedback=${feedback}`);
       if (flags.userInput) subArgs.push("--user-input", flags.userInput);
+      if (flags.message) subArgs.push("--message", flags.message);
       for (const finding of flags.rejectFindings ?? []) {
         subArgs.push("--reject-finding", finding);
       }

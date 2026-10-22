@@ -214,8 +214,8 @@ export interface CodeGenerationApproval {
   instructionsExist: boolean;
   approved: boolean;
   contractValid: boolean;
-  fingerprintValid: boolean;
-  receiptValid: boolean;
+  fingerprintValid: boolean | null;
+  receiptValid: boolean | null;
   contractHash: string | null;
   approvalFingerprint: string | null;
   directiveEpoch: string | null;
@@ -4089,8 +4089,7 @@ export function offersPlanApprovalOverride(error: unknown): boolean {
 export function personAskedForPlanApprovalOverride(projectDir: string): boolean {
   const offered = engineAskMark(projectDir, PLAN_APPROVAL_OVERRIDE_OFFERED);
   if (offered === null || !personRepliedAfter(projectDir, offered)) return false;
-  const state = humanTurnState(projectDir, { replies: true });
-  return state === "acted" || state === "answered";
+  return humanTurnState(projectDir, { replies: true }) === "acted";
 }
 
 /** Their words for the record: their latest reply since the offer, when the host passed any. */
@@ -5062,8 +5061,8 @@ export function evaluateCodeGenerationApproval(
     instructionsExist: false,
     approved: false,
     contractValid: false,
-    fingerprintValid: false,
-    receiptValid: false,
+    fingerprintValid: null,
+    receiptValid: null,
     contractHash: null,
     approvalFingerprint: null,
     directiveEpoch: null,
