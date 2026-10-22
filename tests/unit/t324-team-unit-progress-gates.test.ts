@@ -584,6 +584,51 @@ describe("t324 team-owned unit progress and per-unit gates", () => {
     expect(unitGates.every((gate) => typeof gate.unit === "string")).toBe(true);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
+  // A `next` before a done Unit's completion receipt (a resume, a second chat)
+  // got the stage body back, so the Unit started over. The team route names
+  // the step the Unit still owes, as the solo routes do.
+  const named = (step: Directive): string[] =>
+    [...String(step.message).matchAll(/`([^`]+)`/g)].map((match) => match[1].replace(/^bun \S*aidlc-(\w+)\.ts /, "$1 "));
+
+  test("a Unit written and reviewed, with no completion receipt, is named its receipt, then its gate", () => {
+    const proj = seedProject({ ownership: "team" });
+    const body = runNext(proj);
+    expect(body).toMatchObject({ kind: "run-stage", stage: "functional-design", unit: "alpha", gate: false });
+    expect(typeof body.reviewer).toBe("string");
+    expect(runState(proj, ["unit", "start", "--stage", "functional-design", "--unit", "alpha"]).rc).toBe(0);
+    coverUnit(proj, "alpha", "functional-design");
+    logReviewReady(proj, "functional-design", "alpha", String(body.reviewer));
+    // The Stop hook's probe still sees the Unit's stage.
+    expect(runNextWithEnv(proj, { ...ENV, AIDLC_STOP_HOOK_PROBE: "1" }))
+      .toMatchObject({ kind: "run-stage", stage: "functional-design", unit: "alpha" });
+    const step = runNext(proj);
+    expect(step.kind, JSON.stringify(step)).toBe("print");
+    expect(named(step)).toEqual(["state unit complete --stage functional-design --unit alpha", "orchestrate next"]);
+    expect(runState(proj, ["unit", "complete", "--stage", "functional-design", "--unit", "alpha"]).rc).toBe(0);
+    expect(runNext(proj)).toMatchObject({
+      kind: "run-stage", stage: "functional-design", unit: "alpha", gate: true, unit_gate: "per-stage",
+    });
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
+  // A started workflow is what shows the files are this attempt's (the
+  // stage's first attempt), so the fixture records its start.
+  test("a Unit whose files are written and never reviewed is named its review, then its receipt", () => {
+    const proj = seedProject({ ownership: "team" });
+    appendAuditEntry("WORKFLOW_STARTED", { Scope: "feature" }, proj);
+    const body = runNext(proj);
+    expect(body).toMatchObject({ kind: "run-stage", stage: "functional-design", unit: "alpha", gate: false });
+    expect(runState(proj, ["unit", "start", "--stage", "functional-design", "--unit", "alpha"]).rc).toBe(0);
+    coverUnit(proj, "alpha", "functional-design");
+    const review = runNext(proj);
+    expect(review.kind, JSON.stringify(review)).toBe("print");
+    const [request, then, ...rest] = named(review);
+    expect(request).toStartWith(`log review --stage functional-design --reviewer ${String(body.reviewer)} --unit alpha --iteration 1`);
+    expect([then, ...rest]).toEqual(["orchestrate next"]);
+    logReviewReady(proj, "functional-design", "alpha", String(body.reviewer));
+    expect(named(runNext(proj))).toEqual(["state unit complete --stage functional-design --unit alpha", "orchestrate next"]);
+    expect(runState(proj, ["unit", "complete", "--stage", "functional-design", "--unit", "alpha"]).rc).toBe(0);
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
   test("unit-end rhythm emits one chain gate after code-generation", () => {
     const proj = seedProject(
       { ownership: "team", rhythm: "unit-end" },
@@ -1044,6 +1089,34 @@ describe("t324 team-owned unit progress and per-unit gates", () => {
     expect(auditBlockField(row("GATE_REJECTED"), "Feedback")).toBe(typed);
     expect(auditBlockField(row("GATE_REJECTED"), "Conductor Summary")).toBe("Split the entities");
     expect(auditBlockField(row("STAGE_REVISING"), "Feedback")).toBe(typed);
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
+  // The count Accept as-is waits on (#1083), at a team Unit's gate: the reply
+  // that shows the gate again carries this Unit's own change requests, never
+  // another Unit's at the same stage.
+  test("a team Unit gate shown again carries that Unit's change-request count", () => {
+    const proj = seedProject({ ownership: "team" }, ["alpha"]);
+    settleBody(proj, runNext(proj));
+    expect(runNext(proj)).toMatchObject({ stage: "functional-design", unit: "alpha", gate: true });
+    const args = ["--stage", "functional-design", "--unit", "alpha"];
+    expect(runReport(proj, [...args, "--result", "awaiting-approval"]).kind).toBe("print");
+    appendAuditEntry("GATE_REJECTED", { Stage: "functional-design", Unit: "beta", Feedback: "beta only" }, proj);
+    type GateReply = Directive & { revision_cycle?: number; accept_as_is?: string };
+    const shown: GateReply[] = [];
+    for (let round = 1; round <= 3; round++) {
+      const rejected = runReport(proj, [
+        ...args, "--result", "rejected", "--user-input", "Request Changes", "--reason", `change ${round}`,
+      ]);
+      expect(rejected.kind, JSON.stringify(rejected)).toBe("print");
+      // The Unit redoes its step, as the person asked, before its gate is shown again.
+      settleBody(proj, runNext(proj));
+      shown.push(runReport(proj, [...args, "--result", "revised"]) as GateReply);
+    }
+    expect(shown.map((reply) => [reply.kind, reply.revision_cycle, reply.accept_as_is])).toEqual([
+      ["print", 1, undefined],
+      ["print", 2, "next-revision"],
+      ["print", 3, "offered"],
+    ]);
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   // A live run (Codex): the person asked for another review at an open gate,

@@ -322,7 +322,7 @@ Session re-entry, bare or with `--resume`, carries on (option 1) with no menu. T
 
 **1. Resume from last checkpoint** -- The default. Continues from the in-progress stage: `next --resume` reads `aidlc-state.md` to determine completed/in-progress/not-started stages.
 
-**2. Redo current stage** -- With `--unit <unit>` or `--every-unit` for the Units the person named, the directive names `next --stage <the step the walk is on>` with that flag, which reopens that step for those Units. Otherwise the directive names `aidlc-jump.ts execute --target <current> --direction redo --scope <scope>`, which resets the current stage's checkbox; the next `next` re-runs it from scratch. Under solo unit-major Construction, once any Unit has finished work, Redo applies to the Unit the walk is on instead and the other Units keep their finished work: it names `aidlc-jump.ts reopen ... --via redo` for that Unit's step, whether the Unit is on it, paused at it, or at its summary or checkpoint stop (after `aidlc-state.ts unpark` in a parked workflow). On a step the Unit has not started it names only `aidlc-state.ts unpark` in a parked workflow (re-run `next` and do the step). See the unit-major paragraph under "Resume (State File Exists)" above.
+**2. Redo current stage** -- With `--unit <unit>` or `--every-unit` for the Units the person named, the directive names `next --stage <the step the walk is on>` with that flag, which reopens that step for those Units. When `--unit` names the Unit the walk is on, at the step it is on, that is the Unit's own Redo described below (`aidlc-jump.ts reopen ... --via redo`): a `next` naming it would only route back to where it stopped. Otherwise the directive names `aidlc-jump.ts execute --target <current> --direction redo --scope <scope>`, which resets the current stage's checkbox; the next `next` re-runs it from scratch. Under solo unit-major Construction, once any Unit has finished work, Redo applies to the Unit the walk is on instead and the other Units keep their finished work: it names `aidlc-jump.ts reopen ... --via redo` for that Unit's step, whether the Unit is on it, paused at it, or at its summary or checkpoint stop (after `aidlc-state.ts unpark` in a parked workflow). On a step the Unit has not started it names only `aidlc-state.ts unpark` in a parked workflow (re-run `next` and do the step). See the unit-major paragraph under "Resume (State File Exists)" above.
 
 **3. Jump to stage** -- With `--target <stage slug>` for the stage the person named, the directive names `next --stage <that slug>`, with `--unit <unit>` or `--every-unit` carried over when the person named a Unit or said every Unit (an unknown stage is refused with the stage list; `next --stage` resolves the direction and validates the target). Without a target, it tells the conductor to ask which stage, then report again with it.
 
@@ -1207,7 +1207,10 @@ AskUserQuestion({
 
 ### Revision Loop Escape Hatch
 
-After 3 "Request Changes" cycles on the same stage, a third option appears:
+The reply that shows the gate (`report --result awaiting-approval` or
+`revised`) carries the stage's own change-request count, `revision_cycle`,
+read from the audit trail so it survives a park. When it also carries
+`accept_as_is: "offered"` (from the third request on), a third option appears:
 
 ```
 AskUserQuestion({
@@ -1224,7 +1227,7 @@ AskUserQuestion({
 
 The "Accept as-is" option logs the decision, marks the stage complete, and overrides the NO EMERGENT BEHAVIOR RULE for that specific stage.
 
-After the 2nd revision cycle (before the escape hatch activates), the approval question includes a note: "After one more revision, an 'Accept as-is' option will become available."
+When the reply carries `accept_as_is: "next-revision"` (at the second request, before the escape hatch activates), the approval question includes a note: "After one more revision, an 'Accept as-is' option will become available." The conductor takes both from the reply and never counts the rounds in the chat.
 
 ### Final Stage Gate (4.7 Feedback & Optimization)
 

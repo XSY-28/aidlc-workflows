@@ -146,6 +146,7 @@ import {
   bodyRuns,
   numberedOptionLine,
   numberedProseQuestion,
+  REPO_PLACEHOLDER,
   showsGateAgain,
   validateDirective,
   withAgentNotes,
@@ -250,6 +251,7 @@ import {
   installedHarnessName,
   recordGuardRefusal,
   currentGuardRecoveryAskMarker,
+  type ActiveDirectiveGuardRemedy,
   type SummaryConfirmationEvidence,
   gridCostSummary,
   type PlanChanges,
@@ -324,6 +326,8 @@ import {
   pipelineLinkEvidence,
   pipelineLinkRecord,
   pipelineLinkWayOn,
+  owedPipelineLinks,
+  completedPipelineLinks,
   parseBoltDag,
   type KnowledgeCommand,
   parseKnowledgeCommand,
@@ -346,6 +350,8 @@ import {
   readAllAuditShards,
   QUESTION_TURN_REPLY,
   readAuditShardEvents,
+  ACCEPT_AS_IS_REVISION_CYCLES,
+  stageRevisionCycles,
   reviewCheckOffer,
   readApplicableTeamUnitScopeStamp,
   readStateFile,
@@ -357,6 +363,8 @@ import {
   kiroIdeLegacyPlanApprovalSessionId,
   kiroContextPressure,
   relativeCodekbDir,
+  intentsRegistryPath,
+  MANY_REPOS,
   relativeRecordDirForSelection,
   relativeSpaceRecordPrefix,
   reviewArtifactEntries,
@@ -608,7 +616,7 @@ function commonFolder(paths: readonly string[]): string {
   const shared: string[] = [];
   for (let index = 0; index < split[0].length; index++) {
     const segment = split[0][index];
-    if (split.some((parts) => parts[index] !== segment) || segment.includes("<")) break;
+    if (split.some((parts) => parts[index] !== segment) || segment.includes("<") || segment === REPO_PLACEHOLDER) break;
     shared.push(segment);
   }
   return shared.join("/");
@@ -619,14 +627,27 @@ function commonFolder(paths: readonly string[]): string {
 // named by its path from the folder they share (a questions file with how many
 // questions it holds and how many are answered), and that folder. A stage that
 // writes once per repo (Reverse Engineering in a workspace of sibling repos)
-// names each file by its repo, "orders-svc/architecture.md"; a single-folder
-// stage names the bare file. "" when the folder cannot be named (a stage that
-// repeats per Unit, with no Unit named).
+// names the repos whose files are all there, or how many from MANY_REPOS, in
+// one line whatever their number; a single-folder stage names the bare file.
+// "" when the folder cannot be named (a stage that repeats per Unit, with no
+// Unit named).
 function producedLine(node: GraphStage, unit: string | null, unitFolders: boolean, projectDir: string): string {
   if (unitFolders && !unit) return "";
-  const paths = resolveProduces(node, unitFolders ? unit : null, engineRelativeRecordDir(projectDir), codekbCtxFor(projectDir));
+  const ctx = codekbCtxFor(projectDir);
+  const paths = resolveProduces(node, unitFolders ? unit : null, engineRelativeRecordDir(projectDir), ctx);
   const folder = commonFolder(paths);
   if (!folder) return "";
+  if (paths.some((path) => path.includes(REPO_PLACEHOLDER))) {
+    const done = ctx.repos.filter((repo) =>
+      paths.every((path) => existsSync(join(projectDir, ...path.replace(REPO_PLACEHOLDER, repo).split("/"))))
+    );
+    if (done.length === 0) return `${node.name} is ready for your review. Its output goes in ${folder}/, one folder per repository.`;
+    const whose = done.length >= MANY_REPOS
+      ? `${done.length} repositories`
+      : done.length === 1 ? done[0] : `${done.slice(0, -1).join(", ")} and ${done[done.length - 1]}`;
+    return `${node.name} is ready for your review. It produced the code knowledge base of ${whose}, ` +
+      `${paths.length} files each, in ${folder}/, one folder per repository.`;
+  }
   const names = paths
     .filter((path) => existsSync(join(projectDir, path)))
     .map((path) => {
@@ -1487,6 +1508,16 @@ function prepareEmission(directive: Directive): PreparedEmission {
       : null;
     if (line !== null) directive.narration = line;
   }
+  // The count follows the stage's own progress line; the gate shown again
+  // keeps saying what the stage produced.
+  if (
+    directive.kind === "run-stage" && directive.stage === "reverse-engineering" && directive.unit === undefined &&
+    directive.gate_only !== true
+  ) {
+    const projectDir = emissionProjectDir(directive);
+    const scope = projectDir ? reverseEngineeringScopeNarration(projectDir) : null;
+    if (scope !== null) directive.narration = directive.narration ? `${directive.narration} ${scope}` : scope;
+  }
   // The plan step is the conductor's own. The stage's dispatched mode would read
   // "hand the draft to the developer" (a Kiro run did, and the guard refused the
   // dispatch before approval), so while the plan is written, revised or repaired
@@ -1602,7 +1633,11 @@ function prepareEmission(directive: Directive): PreparedEmission {
   }
   const serialized = JSON.stringify(result.data);
   const serializedBytes = Buffer.byteLength(serialized, "utf-8");
-  if (serializedBytes > directiveMaxBytes()) {
+  // The limit is what a host shows of one command result. A route check's
+  // print goes only to `unit start`'s pipe, and it skips the transport that
+  // fits the agent's own step, so the limit would turn a step the agent was
+  // handed into an error and refuse the Unit's start.
+  if (serializedBytes > directiveMaxBytes() && !isRouteCheckProbe()) {
     const message = oversizeDirectiveMessage(result.data, serializedBytes, directiveLimit());
     // A step that cannot be sent is answered with an error the person can act
     // on, which the host shows and the conductor stops on, rather than a failed
@@ -1948,6 +1983,81 @@ function legacyPlanApprovalRecoveryDirective(): AskDirective {
   };
 }
 
+// v2.11 persisted the unattended label and action beside its retired op. The
+// parser updates the routing identity; this exact historical shape keeps the
+// answered ask current until its rejected report spends it.
+function sameGuardRecoveryRemedy(
+  current: ActiveDirectiveGuardRemedy,
+  issued: ActiveDirectiveGuardRemedy,
+): boolean {
+  if (
+    current.op === issued.op &&
+    current.label === issued.label &&
+    current.action === issued.action &&
+    current.interaction === issued.interaction &&
+    sameGuardOperation(current.operation, issued.operation)
+  ) {
+    return true;
+  }
+  if (
+    current.op !== "request-changes" ||
+    issued.op !== "request-changes" ||
+    current.label !== "Request Changes" ||
+    issued.label !== "Stop working unattended" ||
+    current.interaction !== "human-input" ||
+    issued.interaction !== current.interaction ||
+    current.operation !== undefined ||
+    issued.operation !== undefined
+  ) {
+    return false;
+  }
+  const unattendedStart =
+    "Halt unattended execution and ask a human what should change. " +
+    'Unset AIDLC_UNATTENDED, ask "What should change?" for stage ';
+  const attendedStart =
+    "When the person already said what should change for stage ";
+  const targetStart = current.action.startsWith(unattendedStart)
+    ? unattendedStart
+    : current.action.startsWith(attendedStart)
+      ? attendedStart
+      : null;
+  if (targetStart === null) return false;
+  const targetEnd = current.action.indexOf(
+    targetStart === unattendedStart
+      ? ", and end the turn."
+      : ", submit Request Changes",
+    targetStart.length,
+  );
+  if (targetEnd === -1) return false;
+  const target = current.action.slice(targetStart.length, targetEnd);
+  if (!/^"[a-z][a-z0-9-]*"(?: for Unit "[A-Za-z0-9._-]+")?$/.test(target)) {
+    return false;
+  }
+  const costAt = current.action.indexOf(
+    " Construction runs one unit at a time here, so ",
+    targetEnd,
+  );
+  const request = current.action.slice(0, costAt === -1 ? undefined : costAt);
+  if (
+    !request.includes("submit Request Changes") ||
+    !request.includes("`--reason`") ||
+    (
+      targetStart === unattendedStart
+        ? !request.endsWith("`.")
+        : !request.endsWith("Either way that unlocks revision and a fresh review.")
+    )
+  ) {
+    return false;
+  }
+  const cost = costAt === -1 ? "" : current.action.slice(costAt);
+  return issued.action ===
+    "Halt unattended execution and ask a human what should change. " +
+      `Unset AIDLC_UNATTENDED, ask "What should change?" for stage ${target}, ` +
+      "and end the turn. " +
+      "Only after the human answers may their exact text be submitted as the Request Changes reason." +
+      cost;
+}
+
 // Whether the issued marker already IS this guard-recovery ask for this state.
 function guardRecoveryAskMarkerIsCurrent(
   projectDir: string,
@@ -1966,13 +2076,10 @@ function guardRecoveryAskMarkerIsCurrent(
     current.remedies !== undefined &&
     marker.remedies !== undefined &&
     current.remedies.length === marker.remedies.length &&
-    current.remedies.every((remedy, index) =>
-      remedy.op === marker.remedies?.[index]?.op &&
-      remedy.label === marker.remedies[index]?.label &&
-      remedy.action === marker.remedies[index]?.action &&
-      remedy.interaction === marker.remedies[index]?.interaction &&
-      sameGuardOperation(remedy.operation, marker.remedies[index]?.operation)
-    );
+    current.remedies.every((remedy, index) => {
+      const issued = marker.remedies?.[index];
+      return issued !== undefined && sameGuardRecoveryRemedy(issued, remedy);
+    });
 }
 
 
@@ -2745,6 +2852,18 @@ function narrateSpecialistStage(node: GraphStage, scope: string, stateContent: s
 //
 // The placeholder unit (a scope with no unit DAG) is not a real name, so it
 // falls back to the stage alone rather than saying the token out loud.
+export const RE_LARGE_SCOPE_REPOS = 10;
+
+export function reverseEngineeringScopeNarration(projectDir: string): string | null {
+  // The repos the work records, the set Reverse Engineering reads.
+  const repos = intentRepos(projectDir).length;
+  if (repos <= 1) return null;
+  const base = `Reverse Engineering reads ${repos} repositories here.`;
+  return repos >= RE_LARGE_SCOPE_REPOS
+    ? `${base} Analysing all ${repos} may take significant time and consume many tokens: say which repositories matter to narrow the scope, or continue and all ${repos} are analysed.`
+    : base;
+}
+
 function narratePerUnitBeat(directive: RunStageDirective): string | null {
   if (directive.gate !== false) return null;
   const unit = directive.unit;
@@ -6859,10 +6978,6 @@ function codekbCtxFor(pd: string): CodekbCtx {
   };
 }
 
-function codekbArtifactRepos(ctx: CodekbCtx): string[] {
-  return ctx.repos.length > 1 ? ctx.repos : [ctx.codekbRepo];
-}
-
 // Resolve a single artifact vocabulary name to its canonical aidlc-docs/... path
 // UNDER THE STAGE THAT OWNS THE FILE. Non-per-unit stages map to
 // `aidlc-docs/<phase>/<stage-slug>/<name>.md`; per-unit Construction stages
@@ -6907,6 +7022,10 @@ function resolveArtifactPath(
   return `${prefix}/${owner.phase}/${owner.slug}/${filename}`;
 }
 
+// A work that records several repos names each codekb artifact once, with
+// REPO_PLACEHOLDER for the repo (repos_note says which): one path per repo
+// grew the step past what a host shows of one result from about 45 repos
+// (#2874). The completion check and the sensors resolve every repo themselves.
 function resolveArtifactPaths(
   name: string,
   owner: GraphStage,
@@ -6915,20 +7034,33 @@ function resolveArtifactPaths(
   codekbCtx?: CodekbCtx,
 ): string[] {
   if (isCodekb(owner) && codekbCtx && codekbCtx.repos.length > 1) {
-    const filename = artifactFilename(name);
-    return codekbArtifactRepos(codekbCtx).map(
-      (repo) =>
-        `${relativeCodekbDir(codekbCtx.projectDir, repo, codekbCtx.space)}/${filename}`,
-    );
+    return [`${relativeCodekbDir(codekbCtx.projectDir, REPO_PLACEHOLDER, codekbCtx.space)}/${artifactFilename(name)}`];
   }
   return [resolveArtifactPath(name, owner, unit, recordPrefix, codekbCtx)];
 }
 
+// Which repos a REPO_PLACEHOLDER path stands for, for the agent: their names
+// while there are few, else how many and where the list is.
+function reposNote(ctx: CodekbCtx): string {
+  const lead = `Each path with ${REPO_PLACEHOLDER} is one file per repository this work covers`;
+  const repos = ctx.repos;
+  if (repos.length < MANY_REPOS) {
+    return `${lead}: ${repos.slice(0, -1).join(", ")} and ${repos[repos.length - 1]}.`;
+  }
+  const registry = toPosix(relative(ctx.projectDir, intentsRegistryPath(ctx.projectDir, ctx.space)));
+  return `${lead}, ${repos.length} of them, named in the repos list of this work's row in ${registry}.`;
+}
+
+// The repos whose copy of a REPO_PLACEHOLDER path exists on disk.
+function reposWithFile(ctx: CodekbCtx, path: string): string[] {
+  return ctx.repos.filter((repo) => existsSync(join(ctx.projectDir, ...path.replace(REPO_PLACEHOLDER, repo).split("/"))));
+}
+
 // Resolve a consumed artifact under its producer. Compile enforces exactly one
 // producer for every consumed name; unconsumed shared names never reach here.
-// Multi-repo codekb producers expand to one path per registered repo; an orphan
-// consume defensively falls back to the consuming node so the directive remains
-// well formed.
+// Multi-repo codekb producers resolve to their one REPO_PLACEHOLDER path; an
+// orphan consume defensively falls back to the consuming node so the directive
+// remains well formed.
 function resolveConsumePaths(
   name: string,
   node: GraphStage,
@@ -7113,8 +7245,11 @@ function splitConsumesByPresence(
       present.push(c.path);
       continue;
     }
-    const abs = join(codekbCtx.projectDir, ...c.path.split("/"));
-    if (existsSync(abs)) {
+    // A path written once for several repos is an input while any of them has it.
+    const exists = c.path.includes(REPO_PLACEHOLDER)
+      ? reposWithFile(codekbCtx, c.path).length > 0
+      : existsSync(join(codekbCtx.projectDir, ...c.path.split("/")));
+    if (exists) {
       present.push(c.path);
       continue;
     }
@@ -7490,7 +7625,7 @@ function buildRunStageDirective(
     });
     directive.pipeline = {
       links: evidence.links,
-      completed: evidence.completed,
+      ...completedPipelineLinks(evidence.completed),
       record: pipelineLinkRecord(codekbCtx.projectDir, node, evidence, singleRun),
     };
   }
@@ -7513,6 +7648,13 @@ function buildRunStageDirective(
     }
   }
   if (absent.length > 0) directive.consumes_absent = absent;
+  if (
+    codekbCtx &&
+    [...directive.produces, ...directive.consumes, ...absent.map(({ path }) => path)]
+      .some((path) => path.includes(REPO_PLACEHOLDER))
+  ) {
+    directive.repos_note = reposNote(codekbCtx);
+  }
   // next_stage: the display name of the in-scope stage that follows this one, so
   // the approval gate's Approve option reads "Continue to <next_stage>" verbatim
   // instead of a guessed constant. Computed here at emit time: the gate is
@@ -10999,6 +11141,8 @@ function applyGateOnlyShape(
     if (narration) directive.narration = narration;
     addReviewCheckOffer(directive, projectDir, gateNode, unit);
     addContextParkOffer(directive, projectDir);
+    // Counted as the gate is reported: a Unit's own only at a team Unit gate.
+    addRevisionCycle(directive, projectDir, directive.stage, directive.unit_gate ? unit : null);
   }
   directive.protocol_modules = (directive.protocol_modules ?? []).filter(
     (module) =>
@@ -11135,6 +11279,8 @@ function applyConstructionCheckpointShape(
     directive.stage_file = rechecked.stage_file;
     directive.consumes = rechecked.consumes;
     directive.produces = rechecked.produces;
+    if (rechecked.repos_note !== undefined) directive.repos_note = rechecked.repos_note;
+    else delete directive.repos_note;
   }
   directive.protocol_modules = checkpoint.rereview
     ? ["reviewer", "reviewer-repair", "construction", "checkpoint"]
@@ -13168,7 +13314,12 @@ function emitTeamUnitMajorRunStage(
         );
         directive.gate = false;
         directive.unit = unit;
-        emit(directive);
+        // A Unit whose work is done is named the step it still owes, as on the
+        // solo routes, never its stage body again.
+        emitUnitStepOrStage(
+          unitReceiptOnlyStep(projectDir, stage, unit, recordPrefix, codekbCtx, unitKind, ledger, refreshedState, scope),
+          directive,
+        );
         return;
       }
       const confirmation = checkSummaryConfirmationEvidence(projectDir, stage, {
@@ -13639,11 +13790,14 @@ const OTHER_UNITS_KEPT =
 // and Plan Approval do not carry over). The step is the one the Unit is on or
 // paused at, the summary's step, or at a checkpoint the last step the Unit did.
 // A step the Unit has not started has nothing to reset, so next routes it.
+// `named` is a Redo that names a Unit and step: only that Unit on that step is
+// redone here, null otherwise.
 function unitMajorRedo(
   projectDir: string,
   scope: string,
   stateContent: string,
   currentSlug: string,
+  named?: { unit: string; stage: string },
 ): string | null {
   const walk = unitMajorWalkBeat(projectDir, scope, stateContent, currentSlug);
   if (!walk || walk.step.kind === "covered") return null;
@@ -13666,6 +13820,7 @@ function unitMajorRedo(
         .find((stage) => unitsWithStageWork(projectDir, stage, walk.context).includes(unit))?.slug ??
         blockSlugs[blockSlugs.length - 1]
       : step.stage.slug;
+  if (named && (named.unit !== unit || named.stage !== redone)) return null;
   if (step.kind === "work" && !unitOpenCheckpoints(projectDir, redone).some((open) => open.unit === unit)) {
     return `Redo accepted at "${redone}" for unit "${unit}". ${only} step is redone: ` +
       `${unpark ? `run ${unpark}` : ""}re-run \`next\` and do "${redone}" for unit "${unit}" from the start. ` +
@@ -15073,9 +15228,11 @@ const COMPLETION_RESULTS = new Set(["completed", "complete", "done"]);
 // still owes are named with their exact commands.
 function pipelineRejectedMessage(pd: string, node: GraphStage, slug: string): string {
   const record = pipelineLinkRecord(pd, node, pipelineLinkEvidence(pd, node), false);
+  const owed = owedPipelineLinks(record);
   const commands = record.length === 0
     ? ""
-    : ` Record each link with its command once its agent returns: ${record.map(({ command }) => `\`${command}\``).join(", then ")}.`;
+    : ` Record each link with its command once its agent returns: ${owed.commands}` +
+      `${owed.others ? `; then re-run \`${aidlcToolInvocation("orchestrate")} next\`${owed.others}` : ""}.`;
   if (guardPolicyAcceptsChanges(pd)) {
     return `Recorded rejected for "${slug}". The links already recorded still hold, so only the work the person's words ask ` +
       `to redo runs again; record a link again only after its agent has run again.${commands} Report revised when that work is done.`;
@@ -15458,6 +15615,28 @@ function addContextParkOffer(
   if (reply.kind === "run-stage") settledNotices.push(line);
   else reply.narration = reply.narration ? `${reply.narration}\n${line}` : line;
   markPersonLinesHeard(projectDir, chat, [KIRO_CONTEXT_OFFER_HEARD]);
+}
+
+// How many times the person asked for changes at this gate, and whether that
+// opens Accept as-is, said on the reply that shows the gate. The count comes
+// from the audit trail, so a parked run offers it where the chat no longer
+// remembers; an unreadable trail says nothing, and the gate stays two options.
+function addRevisionCycle(
+  reply: { revision_cycle?: number; accept_as_is?: "offered" | "next-revision" },
+  projectDir: string,
+  slug: string,
+  unit: string | null,
+): void {
+  let cycles = 0;
+  try {
+    cycles = stageRevisionCycles(readAuditShardEvents(projectDir), slug, unit ?? undefined);
+  } catch {
+    return;
+  }
+  if (cycles === 0) return;
+  reply.revision_cycle = cycles;
+  if (cycles >= ACCEPT_AS_IS_REVISION_CYCLES) reply.accept_as_is = "offered";
+  else if (cycles === ACCEPT_AS_IS_REVISION_CYCLES - 1) reply.accept_as_is = "next-revision";
 }
 
 // A retired relaxed or off line needs confirmation before its notice stops. The
@@ -15959,9 +16138,7 @@ function checkPipelineLinkEvidence(
   const singleRun = options.singleRun === true;
   const evidence = pipelineLinkEvidence(pd, node, { singleRun });
   if (evidence.missing.length === 0) return { ok: true };
-  const missing = evidence.missing.map(({ link, repo }) =>
-    repo ? `${repo}:${link}` : link
-  );
+  const owed = owedPipelineLinks(pipelineLinkRecord(pd, node, evidence, singleRun));
   const refusal = singleRun
     ? `Cannot complete an isolated run of "${slug}" because these pipeline handoffs have not been recorded for this isolated run`
     : `Cannot present "${slug}" for approval because these pipeline handoffs have not been recorded for the current run`;
@@ -15971,9 +16148,9 @@ function checkPipelineLinkEvidence(
     // (dispatch, record, the same report again), so the turn goes on.
     ...(options.approval !== undefined ? { step: true as const } : {}),
     message:
-      `${refusal}: ${missing.join(", ")}. ` +
+      `${refusal}: ${owed.missing}. ` +
       pipelineLinkWayOn(pd, slug, {
-        commands: pipelineLinkRecord(pd, node, evidence, singleRun).map(({ command }) => command),
+        owed,
         singleRun,
         ...(options.approval !== undefined ? { approval: options.approval } : {}),
       }),
@@ -16666,6 +16843,16 @@ function emitTypedResumeChoice(
       ));
       return;
     }
+    // Naming the Unit the walk is on, at the step it is on, is that Unit's
+    // Redo (#2772): `next --stage <step> --unit <it>` would only route back to
+    // where it stopped, picking its old work up again instead of redoing it.
+    const own = flags.unit !== undefined && validScopes().has(scope)
+      ? unitMajorRedo(pd, scope, stateContent, slug, { unit: flags.unit, stage: step })
+      : null;
+    if (own !== null) {
+      emit(move(printDirective(own)));
+      return;
+    }
     emit(move(printDirective(
       `Redo accepted. Run \`next --stage ${shellArg(step)}${units}\`; it reopens that step for the Units named and says plainly if it cannot.`,
     )));
@@ -17316,6 +17503,7 @@ function handleReport(args: string[], projectDir: string | undefined): void {
       if (unitGate.kind === "print" && (flags.result === "awaiting-approval" || flags.result === "revised")) {
         addReviewCheckOffer(unitGate, pd, node, unit);
         addContextParkOffer(unitGate, pd);
+        addRevisionCycle(unitGate, pd, slug, unit);
       }
       emit(unitGate);
       return;
@@ -17585,6 +17773,7 @@ function handleReport(args: string[], projectDir: string | undefined): void {
         if (narration) gateReply.narration = narration;
         addReviewCheckOffer(gateReply, pd, node, unit);
         addContextParkOffer(gateReply, pd);
+        addRevisionCycle(gateReply, pd, slug, unit);
       }
     }
     emit(gateReply);

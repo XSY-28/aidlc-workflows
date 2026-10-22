@@ -133,9 +133,10 @@ same consumed concept is emitted by two stages, pick distinct names that
 disambiguate.
 
 Shared names are valid when no stage consumes them. The shipped `traceability`
-artifact follows this pattern: eight stages each write their own
+artifact follows this pattern: nine stages each write their own
 `traceability.json` under their own record directory, and no downstream stage
-resolves `traceability` through `producersOf()`.
+resolves `traceability` through `producersOf()` (the traceability check reads
+Requirements Analysis' record by its path).
 
 Today's one example: both `build-and-test` (Construction) and
 `performance-validation` (Operation) write a file called `test-results.md`.
@@ -234,7 +235,12 @@ every intent in the space, keyed by repo rather than by intent. The path is
 resolved outside the record-relative rule via the `isCodekb` branch in
 `resolveArtifactPath` (`core/tools/aidlc-orchestrate.ts`), and
 the same directory is printed by the read-only native route
-`aidlc engine workspace codekb`.
+`aidlc engine workspace codekb`. In a piece of work that records more than one
+repo, a step names each of these artifacts once, as
+`aidlc/spaces/<space>/codekb/{repo}/<name>.md`, and its `repos_note` says which
+repos `{repo}` stands for (`resolveArtifactPaths`), so a workspace of any size
+fits in one step; the completion check and the sensors still read every repo's
+files.
 
 **Canonical name ≠ filename for collisions.** Where a collision is split
 (see above), the on-disk filename may keep the pre-split form

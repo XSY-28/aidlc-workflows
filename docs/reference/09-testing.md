@@ -1474,6 +1474,19 @@ The runner writes these additional artifacts under its timestamped log directory
   left out by reason and lists the first of them by path.
   The live collectors copy it with the rest of the log tree and the sanitizer
   redacts it before upload.
+- `e2e-artifacts/<test>/attempt-N/leg-evidence/`: what every live leg keeps,
+  passing or not, taken by `tests/harness/leg-evidence.ts` at each driver's own
+  end point (an SDK drive, a TUI session's kill, a Codex exec, a Copilot or
+  opencode turn) while the project is still on disk. `audit/<project>/` holds a
+  copy of each audit shard of every project the leg drove, at its path in the
+  project; `words-*.ndjson` holds one line per text the agent showed the
+  person (`ts`, `harness`, `turn`, `text`), from the SDK's messages, the TUI
+  session's Claude Code transcript, or the Copilot and opencode output (Codex
+  keeps its words in its own exec logs). A text over 8 KiB and a shard over
+  256 KiB keep their start and end with the cut said between them; a leg keeps
+  at most 1 MiB here, and `not-kept.txt` says once when it reached that. Two
+  weeks of nightlies measured about 20 KB a leg. The sanitizer treats the
+  folder as a driver trace (below).
 - `e2e-worker-storage.json`: checkout pool location, estimated snapshot size,
   and whether checkout copies were retained. Windows pools use short private
   paths under the system temporary directory so deep report paths do not break
@@ -2257,8 +2270,8 @@ Linux and macOS legs turn neither on.
 
 Every full-suite `tests/logs/` upload first runs `scripts/ci-sanitize-logs.ts` and
 is blocked if sanitization fails. Full-suite and shared deterministic jobs retain
-eligible driver NDJSON, `sdk-drive*`, `tui-drive*` and `e2e-artifacts/**/traces`
-by default so tool calls, completion boundaries and timeout behavior remain
+eligible driver NDJSON, `sdk-drive*`, `tui-drive*`, `e2e-artifacts/**/traces`
+and `leg-evidence/` by default so tool calls, completion boundaries and timeout behavior remain
 available for diagnosis. Repository variable `AIDLC_NIGHTLY_UPLOAD_TRACES=0`
 opts out of trace retention. The standalone sanitizer still deletes these traces
 unless its `AIDLC_NIGHTLY_UPLOAD_TRACES` environment variable is `1`. Invalid
@@ -2286,7 +2299,9 @@ their own machine, in two layers kept apart:
   agent tool error, each naming its run, harness, OS, test, stage and
   evidence file and line) and one `legs/<leg>/story.md` per leg: what the
   person typed and picked, what they were asked, what the agent ran and said,
-  in time order, cut to a size budget.
+  in time order, cut to a size budget, and each decision recorded for the
+  person with the reply of theirs kept beside it, so a reader judges each
+  reply against its record.
 - `bun scripts/trace-audit.ts judge <out>` (`scripts/trace-audit-judge.ts`,
   instructions in `scripts/trace-audit-judge.md`) hands each test's legs to the
   maintainer's own `claude` in print mode, able only to read (`Read`, `Grep`,
@@ -2298,8 +2313,10 @@ their own machine, in two layers kept apart:
   bound each call.
 
 The extractor reads only what the run kept: an SDK drive trace keeps the
-first 240 characters of each tool reply and none of the agent's words, and a
-leg's audit shard is kept only when its fixture is retained.
+first 240 characters of each tool reply, and each leg's `leg-evidence/` folder
+keeps the audit of every project it drove and what the agent told the person,
+which the story places among the leg's other events by time. A story says at
+its top when a leg kept neither.
 
 ## Kiro prompt-hook transport controls
 

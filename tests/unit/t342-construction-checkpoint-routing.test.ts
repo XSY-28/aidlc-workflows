@@ -408,9 +408,9 @@ describe("t342 Construction checkpoint routing", () => {
     cpSync(AIDLC_SRC, join(p, ".claude"), { recursive: true });
     cover(p, "alpha");
     recordCommand(p);
-    const run = (args: string[], input?: Record<string, unknown>) => spawnSync(process.execPath, args, {
+    const run = (args: string[], input?: Record<string, unknown>, extra: Record<string, string> = {}) => spawnSync(process.execPath, args, {
       encoding: "utf-8", cwd: p,
-      env: { ...process.env, AIDLC_PROJECT_DIR: p, CLAUDE_PROJECT_DIR: p, AIDLC_HARNESS_DIR: ".claude" },
+      env: { ...process.env, AIDLC_PROJECT_DIR: p, CLAUDE_PROJECT_DIR: p, AIDLC_HARNESS_DIR: ".claude", ...extra },
       input: input ? JSON.stringify({ session_id: "t342-stop", ...input }) : undefined,
       timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
     });
@@ -419,7 +419,9 @@ describe("t342 Construction checkpoint routing", () => {
     const stop = () => {
       // Each stop stands for a new turn, so the hook's repeat count starts over.
       rmSync(join(seededRecordDir(p), ".aidlc-engine", "stop-hook"), { recursive: true, force: true });
-      const result = run([join(p, ".claude/hooks/aidlc-continue-workflow.ts")], { hook_event_name: "Stop", stop_hook_active: false });
+      // Read where nobody attends, where the hook still pushes handed-out work
+      // on (an attended, gated run ends its turn there too).
+      const result = run([join(p, ".claude/hooks/aidlc-continue-workflow.ts")], { hook_event_name: "Stop", stop_hook_active: false }, { AIDLC_UNATTENDED: "1" });
       return result.stdout.includes('"decision":"block"') ? "pushed on" : "ends";
     };
     expect(hook("session-start", { hook_event_name: "SessionStart", source: "startup" }).status).toBe(0);
@@ -2379,6 +2381,53 @@ describe("t342 a unit-major recovery keeps every Unit's finished work", () => {
     expect(message).not.toContain("comes back to you for approval");
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
+  // #2772: Redo naming the Unit the walk is on, at the step it is on, is that
+  // Unit's Redo, as with no Unit named: its step starts again from a new
+  // attempt, plan included. It used to send the agent to `next --stage
+  // code-generation --unit beta`, which only routes back to where beta
+  // stopped, so beta's old build was picked up (or, once its files were
+  // reviewed, its completion asked for) and nothing was redone.
+  test("Redo naming the Unit in flight redoes its step for it, plan included", () => {
+    for (const named of [["--unit", "beta"], ["--target", "code-generation", "--unit", "beta"]]) {
+      const label = named.join(" ");
+      const p = betaBuilding();
+      startedBuild(p);
+      const alphaFloor = latestMainWorkflowStageRunFloorForProject(p, "code-generation", true, "alpha");
+      const answered = JSON.parse(tool(p, "orchestrate", [
+        "report", "--result", "resumed", "--choice", "redo", ...named,
+      ]).stdout) as { kind: string; message: string };
+      expect(answered.kind, JSON.stringify(answered)).toBe("print");
+      expect(answered.message, label).toMatch(
+        /`[^`]*aidlc-jump\.ts reopen --target code-generation --stages code-generation --units beta --via redo --scope feature`/,
+      );
+      expect(answered.message).toContain(
+        'tell the person in one line: "Redoing Code Generation for unit beta from the start, plan included. ' +
+          'Its new plan comes back to you for approval."',
+      );
+      for (const [, name, rest] of answered.message.matchAll(/`[^`]*aidlc-(\w+)\.ts ([^`]+)`/g)) {
+        if (name === "orchestrate" && rest === "park --person-asked") continue;
+        const ran = tool(p, name, rest.split(" "));
+        expect(ran.status, ran.out).toBe(0);
+      }
+      expect(redoneFromStart(p, label).artifact_reuse).toEqual({ decision: "redo", unit: "beta" });
+      expect(latestMainWorkflowStageRunFloorForProject(p, "code-generation", true, "alpha")).toBe(alphaFloor);
+      expect(jumped(p)).toBe(0);
+      expect(approved(p, "alpha")).toBe(true);
+    }
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
+  // A Redo naming another Unit than the one in flight still reopens that
+  // Unit's step through `next`, which sets the Unit in flight aside.
+  test("Redo naming a Unit other than the one in flight keeps the next --stage --unit move", () => {
+    const p = betaBuilding();
+    startedBuild(p);
+    const answered = JSON.parse(tool(p, "orchestrate", [
+      "report", "--result", "resumed", "--choice", "redo", "--unit", "alpha",
+    ]).stdout) as { kind: string; message: string };
+    expect(answered.kind, JSON.stringify(answered)).toBe("print");
+    expect(answered.message).toContain("Run `next --stage code-generation --unit alpha`");
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
   test("'for every unit' at the step beta is on reopens it for beta too, and beta does it from the start", () => {
     const p = betaBuilding();
     startedBuild(p);
@@ -2572,6 +2621,70 @@ describe("t342 a unit-major recovery keeps every Unit's finished work", () => {
     expect(other, "another Unit's reopen ran on a claim for alpha").not.toBeNull();
     expect(namedCommands(other!)).toContain("bun .aidlc/tools/aidlc-orchestrate.ts next --stage code-generation --unit beta");
     expect(copilotRuns(p, reopen!).refused).toBeNull();
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
+  // `next --stage --every-unit` prints the reopen of every Unit that reached
+  // the step, and `--change` makes a reopen the person's change: each runs as
+  // printed, and one with no such claim is told the `next --stage` that
+  // prints it.
+  function bothBuilt(policy: string): string {
+    const p = policyFixture("classic", `${policy} (set by you)`, "adversarial");
+    COPILOT.install(p);
+    buildReviewed(p, "alpha");
+    approve(p, "alpha");
+    buildReviewed(p, "beta");
+    copilotSays(p, "carry on");
+    expect(copilotNext(p, "next")).toMatchObject({ construction_checkpoint: { unit: "beta" } });
+    return p;
+  }
+  const reopenedAs = (p: string) =>
+    auditBlockField(readAuditShardEvents(p).filter((row) => row.event === "GATE_REJECTED").at(-1)?.block ?? "", "Reopen");
+
+  for (const policy of ["strict", "off"]) {
+    test(`Copilot, Guard Policy ${policy}: the person's redo for every Unit runs the reopen next --stage --every-unit prints`, () => {
+      const p = bothBuilt(policy);
+      copilotSays(p, "Redo Code Generation for every Unit, please.");
+      const reopen = printedReopen(copilotNext(p, "next --stage code-generation --every-unit"));
+      expect(reopen).toContain("--units alpha,beta");
+      expect(copilotRuns(p, reopen!).refused, "the redo for every Unit was refused on Copilot").toBeNull();
+      expect(copilotNext(p, "next")).toMatchObject({ kind: "run-stage", stage: "code-generation", unit: "alpha" });
+    }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+  }
+
+  test("Copilot: the person's change for every Unit runs as their change", () => {
+    const p = bothBuilt("strict");
+    copilotSays(p, "Change Code Generation for every Unit: greet with hello.");
+    const reopen = printedReopen(copilotNext(p, "next --stage code-generation --every-unit --change"));
+    expect(reopen).toContain("--units alpha,beta");
+    expect(reopen).toContain("--via change");
+    expect(copilotRuns(p, reopen!).refused).toBeNull();
+    expect(reopenedAs(p)).toBe("change");
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
+  test("Copilot: one Unit's change at its checkpoint runs as their change", () => {
+    const p = policyFixture("classic", "strict (set by you)", "adversarial");
+    COPILOT.install(p);
+    buildReviewed(p, "alpha");
+    copilotSays(p, "carry on");
+    copilotNext(p, "next");
+    copilotSays(p, "Change Code Generation for alpha: greet with hello.");
+    const reopen = printedReopen(copilotNext(p, "next --stage code-generation --unit alpha --change"));
+    expect(reopen).toContain("--units alpha --scope classic --via change");
+    expect(copilotRuns(p, reopen!).refused).toBeNull();
+    expect(reopenedAs(p)).toBe("change");
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
+  test("Copilot: a reopen of every Unit after next --stage for one is told next --stage --every-unit, which lets it through", () => {
+    const p = bothBuilt("strict");
+    copilotSays(p, "Redo Code Generation for every Unit, please.");
+    const one = printedReopen(copilotNext(p, "next --stage code-generation"));
+    expect(one).toContain("--units beta --scope classic");
+    const refused = copilotRuns(p, one!.replace("--units beta", "--units alpha,beta")).refused;
+    expect(refused, "a reopen of every Unit ran on a claim that printed one").not.toBeNull();
+    expect(namedCommands(refused!)).toContain("bun .aidlc/tools/aidlc-orchestrate.ts next --stage code-generation --every-unit");
+    const every = printedReopen(copilotNext(p, "next --stage code-generation --every-unit"));
+    expect(every).toContain("--units alpha,beta");
+    expect(copilotRuns(p, every!).refused).toBeNull();
   }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 
   // A side-by-side build was prepared (a Bolt opened per Unit) and the person

@@ -100,6 +100,7 @@ import {
   serializeSourceListing,
   sourceListingSha256,
   parseSourceListing,
+  parseCheckboxes,
   personSpokeSinceGate,
   structuredField,
   structuredFieldSpan,
@@ -2618,6 +2619,9 @@ export const FILE_TOOLS_RULE =
   "`printf`, or `python3` writing a file, no `sed -i`, no `mkdir`; the file-write tool creates any " +
   "missing folder). A command the person asks for, or one the plan names (a package install, a build, " +
   "a scaffolder, a migration, a formatter, a code generator, even a `mkdir`), still runs as written. " +
+  "Do not stash, reset, check out over, restore or clean the person's working tree, and do not install " +
+  "what the plan does not name: for a before-and-after comparison, run the check on the unchanged tree " +
+  "before you edit. " +
   "Every file you make on your own, a scratch file, a helper script, a command's output, stays inside the " +
   "project (nothing in /tmp or any folder outside it), and a command's output is read from the tool result, " +
   "never sent to a file; a file the person asks for, or one the plan names, goes where they say. " +
@@ -3109,29 +3113,43 @@ export function codeGenerationExecutionAllowed(
     (current.ok || codeGenerationContinuation(projectDir, target, issued) !== null);
 }
 
+/** Code Generation is the current stage and its gate is open, waiting for the person's answer. */
+export function codeGenerationGateHeld(state: string): boolean {
+  return (getField(state, "Current Stage") ?? "").trim().toLowerCase().replace(/\s+/g, "-") === CODE_GENERATION_STAGE &&
+    parseCheckboxes(state).some(
+      (entry) => entry.slug === CODE_GENERATION_STAGE && entry.state === "awaiting-approval",
+    );
+}
+
 /**
- * The build step a compaction or a state sync set aside, when Guard Policy is
- * off and the person's approval for its target still stands: the step the
- * engine issued last for this work, read from its own record (the set-aside
- * marker keeps its stage, its Unit and the kind it was). Only a build step: a
- * question, a gate, a parallel batch and a step whose rules were still
- * arriving are not. Null otherwise, so every caller keeps its refusal.
+ * The build step the engine issued last for this work, when the fence is
+ * lowered and the person's approval for its target still stands, read from its
+ * own record (the marker keeps its stage, its Unit and the kind it was): one a
+ * compaction or a state sync set aside, under Guard Policy off; or, under
+ * relaxed or off, the one whose own report opened the Code Generation gate,
+ * which moved the state past it and published no step after it (`marker` null:
+ * no step is current). Only a build step: a question, any other gate, a
+ * parallel batch and a step whose rules were still arriving are not. Null
+ * otherwise, so every caller keeps its refusal.
  */
 export function setAsideBuildUnderOff(
   projectDir: string,
   marker?: ActiveDirectiveMarker | null,
 ): Extract<CodeGenerationIssuance, { kind: "run-stage" }> | null {
   try {
-    const current = marker ?? readActiveDirectiveMarker(projectDir, readFileSync(stateFilePath(projectDir), "utf-8"));
+    const state = () => readFileSync(stateFilePath(projectDir), "utf-8");
+    const current = marker === undefined ? readActiveDirectiveMarker(projectDir, state()) : marker;
+    const held = current === null && codeGenerationGateHeld(state());
+    const step = held ? readIssuedDirectiveMarker(projectDir) : current;
     if (
-      current?.version !== 2 || current.stage !== CODE_GENERATION_STAGE || current.kind !== "error" ||
-      current.ask_type !== undefined || current.out_of_date?.kind !== "run-stage"
+      step?.version !== 2 || step.stage !== CODE_GENERATION_STAGE || step.ask_type !== undefined ||
+      (held ? step.kind !== "run-stage" : step.kind !== "error" || step.out_of_date?.kind !== "run-stage")
     ) return null;
-    const issued = codeGenerationIssuance(current, true);
+    const issued = codeGenerationIssuance(step, true);
     if (issued?.kind !== "run-stage") return null;
     const target = { unit: issued.unit?.trim() || null };
     const fence = codeGenerationPlanApprovalFence(projectDir, target);
-    if (fence.decision !== "stand-aside" || fence.policy !== "off") return null;
+    if (fence.decision !== "stand-aside" || !(fence.policy === "off" || (held && fence.policy === "relaxed"))) return null;
     return codeGenerationExecutionAllowed(projectDir, target, undefined, issued) ? issued : null;
   } catch {
     return null;
