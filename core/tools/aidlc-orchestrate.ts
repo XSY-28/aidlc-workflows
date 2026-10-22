@@ -4647,6 +4647,23 @@ function withWorkPicksUpLine<T extends Directive>(
   return directive;
 }
 
+// Whether the place withWorkPicksUpLine names is still where the work picks up
+// after a switch to `newScope`: the Current Stage is still to do, the work's
+// own recorded plan runs it (that record already holds the project-type
+// adjustment: a new project's Reverse Engineering reads SKIP there), and the
+// new scope's grid runs it (the switch rebuilds the plan from that grid, and
+// skips a waiting stage it does not run); off a Unit-by-Unit walk, whose own
+// steps a switch can change (a stage it adds or drops moves a Unit's next step,
+// and the summary confirmation follows the scope).
+function scopeSwitchKeepsPlace(pd: string, scope: string, stateContent: string, newScope: string): boolean {
+  const current = (getField(stateContent, "Current Stage") ?? "").trim();
+  const box = parseCheckboxes(stateContent).find((c) => c.slug === current)?.state;
+  if (box === undefined || box === "completed" || box === "skipped") return false;
+  if (effectivePlanAction(current, scope, stateContent) !== "EXECUTE") return false;
+  if (effectivePlanAction(current, newScope, null) !== "EXECUTE") return false;
+  return !scope || unitMajorWalkBeat(pd, scope, stateContent, current) === null;
+}
+
 // Whether a setting typed in chat ends the turn. It does when the person must
 // act next: the current stage waits at its gate or in revision, the engine's
 // plan question is open, a question the stage logged or wrote has no answer, or
@@ -10040,13 +10057,19 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
       withdrawSettingWords(pd);
       // On finished work the change starts the first stage the new scope adds
       // after the last one (the tool reads the same predicate), so nothing
-      // waits on the person: the agent carries on into it instead of ending
-      // the turn, as a setting over running work does (#2261).
-      const reopensFinishedWork = stageReopenedByScopeChange(stateContent, flags.scope) !== null;
+      // waits on the person and the agent carries on into it (#2261). Over
+      // running work a setting's rule decides (see settingEndsTurn): a live
+      // run ended the turn after a switch made while the stage ran, and the
+      // agent asked the person to say go on.
+      const carriesOn = stageReopenedByScopeChange(stateContent, flags.scope) !== null ||
+        (stillParked === null && !settingEndsTurn(pd, currentStateScope, stateContent));
+      const switched = carriesOn
+        ? printDirective(`Run \`${command}\` to change scope${fill}, then print its output verbatim and re-run next to carry on with the work.`)
+        : turnEndingPrint(`Run \`${command}\` to change scope${fill}, then ${verbatimThenStop}`);
       emit(planChanges ? planChangeDirective(planChanges, command, null, planApprovalAskIsOpen(pd), stillParked, fill) : keptWhilePlanWaits(
-        reopensFinishedWork
-          ? printDirective(`Run \`${command}\` to change scope${fill}, then print its output verbatim and re-run next to carry on with the work.`)
-          : turnEndingPrint(`Run \`${command}\` to change scope${fill}, then ${verbatimThenStop}`),
+        !carriesOn && scopeSwitchKeepsPlace(pd, currentStateScope, stateContent, flags.scope)
+          ? withWorkPicksUpLine(switched, pd, currentStateScope, stateContent)
+          : switched,
         planApprovalAskIsOpen(pd),
       ));
       return;

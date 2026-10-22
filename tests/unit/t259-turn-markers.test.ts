@@ -346,10 +346,14 @@ describe("t259 the engine's last word ended the turn", () => {
           JSON.stringify({ hook_event_name: "Stop", stop_hook_active: false, session_id: "t259-stop" }),
           copilot ? { AIDLC_COPILOT_SESSION_ID: "t259-stop" } : {},
         );
-      for (const [args, said] of [
-        [["--status"], "print its output verbatim, then stop"],
-        [["--scope", "mvp"], "to change scope, then print its output verbatim and stop"],
+      // The scope change is typed at the stage's open gate, as in the live run.
+      const statePath = stateFilePath(proj);
+      const running = readFileSync(statePath, "utf-8");
+      for (const [args, said, feasibility] of [
+        [["--status"], "print its output verbatim, then stop", "- [-] feasibility"],
+        [["--scope", "mvp"], "to change scope, then print its output verbatim and stop", "- [?] feasibility"],
       ] as const) {
+        writeFileSync(statePath, running.replace("- [-] feasibility", feasibility));
         markHumanTurn(proj);
         await Bun.sleep(20);
         const printed = JSON.parse(run(["engine", "orchestrate", "next", ...args]).stdout);
@@ -359,6 +363,7 @@ describe("t259 the engine's last word ended the turn", () => {
         expect(atEnd.status, atEnd.stderr).toBe(0);
         expect(atEnd.stdout, args.join(" ")).not.toContain('"decision":"block"');
       }
+      writeFileSync(statePath, running);
       // A jump's print hands the agent back to `next`, so the turn goes on.
       markHumanTurn(proj);
       await Bun.sleep(20);
@@ -423,6 +428,32 @@ describe("t259 the engine's last word ended the turn", () => {
     const gateEnd = stop();
     expect(gateEnd.status, gateEnd.stderr).toBe(0);
     expect(gateEnd.stdout).not.toContain('"decision":"block"');
+  });
+
+  // A live run: the person switched scope while Requirements Analysis ran,
+  // the turn ended, and the agent asked them to say go on. A switch over a
+  // running stage, with nothing waiting on the person, hands the agent back to
+  // `next` as a setting does; the Stop hook keeps the turn going.
+  test("a scope switch typed while the stage runs hands the agent back to next", async () => {
+    const proj = setupIntegrationProject({ withState: "state-mid-ideation.md", stripEnvScope: true });
+    tempDirs.push(proj);
+    const env: Record<string, string | undefined> = { ...process.env, CLAUDE_PROJECT_DIR: proj };
+    delete env[STOP_HOOK_PROBE_ENV];
+    const run = (args: string[], input?: string) =>
+      spawnSync(process.execPath, [".claude/tools/aidlc.ts", ...args], { cwd: proj, input, encoding: "utf-8", env });
+    markHumanTurn(proj);
+    await Bun.sleep(20);
+    const switched = JSON.parse(run(["engine", "orchestrate", "next", "--scope", "mvp"]).stdout);
+    expect(switched.kind).toBe("print");
+    expect(switched.message).toContain("to change scope, then print its output verbatim and re-run next to carry on with the work.");
+    expect(switched.message).not.toContain("and stop");
+    expect(switched.narration).toBeUndefined();
+    expect(existsSync(turnEndMarkerPath(proj))).toBe(false);
+    const stopped = run(
+      ["engine", "hook", "continue-workflow"],
+      JSON.stringify({ hook_event_name: "Stop", stop_hook_active: false, session_id: "t259-stop" }),
+    );
+    expect(stopped.stdout).toContain('"decision":"block"');
   });
 
   // A plan proposal waiting for the person's approve, edit or reject is a stop

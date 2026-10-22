@@ -1150,11 +1150,15 @@ export const CHANGE_NOTICES_NOTE =
 // Every question the engine asks: whose it is, and what a pick does. A choice's
 // command answers the question; a routing command returns the next step, a
 // record command (`log answer`, `unit resume`) returns none, so `next` follows.
-export function questionNote(invocation: string): string {
-  return "This question is for the person, not for you: show it to them with its choices as given, end your turn, and " +
-    "act only on their reply. When their reply picks one of the choices (its number, its words, or their own words " +
-    "for it), run that choice's command; act on the step it returns, or run `" + invocation + " next` when it " +
-    "returns none. Anything else is their own words: read what they meant.";
+// A question with one choice is said as its numbered question, since a picker
+// such as Claude Code's takes two options or more. The engine makes that call:
+// a skill sentence that named the case was read aloud to the person.
+export function questionNote(invocation: string, oneChoice = false): string {
+  const show = oneChoice ? "say its numbered question to them as given" : "show it to them with its choices as given";
+  return `This question is for the person, not for you: ${show}, end your turn, and act only on their reply. ` +
+    "When their reply picks one of the choices (its number, its words, or their own words for it), run that " +
+    "choice's command; act on the step it returns, or run `" + invocation + " next` when it returns none. " +
+    "Anything else is their own words: read what they meant.";
 }
 
 // The routing question asked while no piece of work is selected: continue and
@@ -1547,19 +1551,19 @@ export function withAgentNotes<T extends object>(
     notes.change_notices_note = CHANGE_NOTICES_NOTE;
   }
   if (d.kind === "ask" && d.agent_work !== true) {
+    if (!Array.isArray(d.choices)) {
+      const choices = askChoices(d, invocation, logInvocation);
+      if (choices !== null) notes.choices = choices;
+    }
+    const choices = (notes.choices ?? d.choices) as AskChoice[] | undefined;
     notes.question_note = d.ask_type === "plan-approval"
       ? planApprovalQuestionNote(invocation, logInvocation)
       : d.ask_type === "scope-confirm"
       ? planOfferQuestionNote(invocation)
       : d.ask_type === "new-work-routing" && Array.isArray(d.available_intents)
       ? routingRecordsQuestionNote(invocation)
-      : questionNote(invocation);
-    if (!Array.isArray(d.choices)) {
-      const choices = askChoices(d, invocation, logInvocation);
-      if (choices !== null) notes.choices = choices;
-    }
+      : questionNote(invocation, choices?.length === 1);
     if (typeof d.numbered_prose_question !== "string") {
-      const choices = (notes.choices ?? d.choices) as AskChoice[] | undefined;
       // A question with no options (a guard that has no way on) is said as it is.
       if (choices !== undefined) notes.numbered_prose_question = choices.length > 0 ? numberedProseQuestion(askPrompt(d), choices) : askPrompt(d);
     }

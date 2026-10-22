@@ -3693,8 +3693,7 @@ function handleReview(args: string[]): void {
             : receipts.stageStale);
         // With Construction checkpoints on, a review of a Unit whose reviewed
         // code changed outside any review re-checks that change: it is the
-        // recovery pass, and the person's approval of the Unit or a new attempt
-        // they start for it since the last re-check opens a fresh one.
+        // recovery pass.
         const checkpointUnit = receipts !== null && flags.unit !== undefined &&
           getField(state, "Construction Checkpoints") === "enabled";
         const unitSourceScopeStale = checkpointUnit && !artifactScopeStale &&
@@ -3708,7 +3707,10 @@ function handleReview(args: string[]): void {
           sourceScopeStale &&
           (receipts?.sourceRecoverySpent === true ||
             receipts?.sourceStaleProgress?.recoverySpent === true);
-        const recoverySpent = !(checkpointUnit && receipts.unitRecheckReopened.has(flags.unit as string)) &&
+        // The person's approval of the Unit or a new attempt they start for it
+        // since its re-check opens a fresh one (unitRecheckReopened says where).
+        const recoverySpent =
+          !(receipts !== null && flags.unit !== undefined && receipts.unitRecheckReopened.has(flags.unit)) &&
           (attempt.recoverySpent || sourceRecoverySpent);
         // A review the person asked for is never refused for want of passes:
         // the conductor says they asked (--person-asked) and the record shows

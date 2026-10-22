@@ -21904,25 +21904,24 @@ export function freshReviewReceipts(
 
   // A Unit's re-check is spent only until the person next approves the Unit
   // at its checkpoint or starts a new attempt for it (their Request Changes
-  // there, or the Unit's step started again): either opens a fresh one. With
-  // checkpoints on, the one place the review request reads it, a Unit with no
+  // at its checkpoint or its team gate, or the Unit's step started again; each
+  // keeps their Feedback): either opens a fresh one. Wherever a Unit's attempts
+  // are its own (team, checkpoints on, or one Unit at a time), a Unit with no
   // re-check of its own has not used one: the source mark above is shared by
   // every Unit.
-  const checkpointsOn = getField(stateContent, "Construction Checkpoints") === "enabled";
+  const unitAttempts = unitScopedLifecycleFloors(stateContent);
   const unitRecheckReopened = new Set<string>();
   for (const unit of new Set([...unitSourceMoved.keys(), ...unitStaleProgress.keys()])) {
     const recheck = events.slice(floorIdx + 1).findLast((row) =>
       row.event === "REVIEW_REQUESTED" && auditBlockField(row.block, "Recovery") === "stale-receipt" &&
       auditBlockField(row.block, "Stage") === stage.slug && auditBlockField(row.block, "Unit") === unit &&
       auditBlockField(row.block, "Reviewer") === reviewer && eventMatchesClaimAttempt(projectDir, row.block, unit));
-    if (recheck === undefined ? !checkpointsOn : !allEvents.some((row) =>
+    if (recheck === undefined ? !unitAttempts : !allEvents.some((row) =>
       auditBlockField(row.block, "Unit") === unit &&
       (row.event === "GATE_APPROVED"
         ? auditBlockField(row.block, "User Input") === "Approve" &&
           ["construction-unit", "walking-skeleton"].includes(auditBlockField(row.block, "Checkpoint") ?? "")
-        : row.event === "GATE_REJECTED" && checkpointsOn &&
-          (auditBlockField(row.block, "User Input") === "Request Changes" ||
-            auditBlockField(row.block, "Reopen") !== null)) &&
+        : row.event === "GATE_REJECTED" && unitAttempts && auditBlockField(row.block, "Feedback") !== null) &&
       gateStagesFromBlock(row.block).includes(stage.slug) &&
       eventMatchesClaimAttempt(projectDir, row.block, unit) && attemptEventDefinitelyBefore(recheck, row))) continue;
     unitRecheckReopened.add(unit);
@@ -43621,6 +43620,64 @@ export function recordGuardStoodAside(
     return false;
   }
 }
+
+export type GuardRefusalEvent =
+  | "PLAN_APPROVAL_BLOCKED"
+  | "STATE_TRANSITION_BLOCKED"
+  | "STAGE_RULES_BLOCKED"
+  | "REVIEW_FREEZE_BLOCKED"
+  | "REVIEWER_SCOPE_BLOCKED";
+
+
+export function recordGuardBlockedRow(
+  projectDir: string,
+  row: {
+    eventType: GuardRefusalEvent;
+    hook: string;
+    reason: string;
+    tool?: string;
+    target?: string;
+    session?: string | null;
+    stage?: string;
+    unit?: string | null;
+    intent?: string | null;
+    space?: string;
+  },
+): boolean {
+  try {
+    if (!existsSync(cloneIdPath(projectDir))) return false;
+    if (!existsSync(auditFilePath(projectDir, row.intent ?? undefined, row.space))) return false;
+    const fields: Record<string, string> = {
+      Guard: row.hook,
+      Reason: row.reason,
+      ...(row.tool ? { Tool: row.tool } : {}),
+      ...(row.target ? { Target: row.target } : {}),
+      ...(row.session ? { Session: row.session } : {}),
+      ...(row.stage ? { Stage: row.stage } : {}),
+      ...(row.unit ? { Unit: row.unit } : {}),
+    };
+    if (!acquireAuditLock(projectDir, 5, 50, row.intent ?? undefined, row.space)) {
+      recordHookDrop(
+        projectDir,
+        row.hook,
+        `audit lock contended; ${row.eventType} row dropped (block still enforced)`,
+      );
+      return false;
+    }
+    const audit = require("./aidlc-audit.ts") as {
+      appendAuditEntryUnlocked: typeof AppendAuditEntryUnlocked;
+    };
+    try {
+      audit.appendAuditEntryUnlocked(row.eventType, fields, projectDir, row.intent ?? undefined, row.space);
+      return true;
+    } finally {
+      releaseAuditLock(projectDir, row.intent ?? undefined, row.space);
+    }
+  } catch {
+    return false;
+  }
+}
+
 
 // Ledger append for the two Change Control rows. Under `relaxed` the
 // CHANGE_ACCEPTED row IS the evidence that stands in for the refusal, and the

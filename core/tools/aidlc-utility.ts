@@ -12019,9 +12019,10 @@ function handleScopeChange(projectDir: string, flags: Record<string, string>): v
           graph.find((s) => s.slug === c.slug)?.phase !== "initialization",
       ).length;
       // What happened and how to go back, then each stage it skipped, the Unit
-      // work it dropped, and each setting whose value changed. Nothing else
-      // runs until the person asks: on finished work the stage started above
-      // is what they asked for, and `next` carries on into it.
+      // work it dropped, and each setting whose value changed. Whether the
+      // work goes on in the same turn is `next`'s call (its scope-change
+      // print); on finished work the stage started above is what they asked
+      // for, and `next` carries on into it.
       outputLines = [
         `Switched to ${newScope} (${SCOPE_GLOSS}): ${summary.shown} stages (${shownDone} done), ` +
           `${gates} approval gates.` +
