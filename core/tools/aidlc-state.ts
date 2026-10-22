@@ -207,6 +207,7 @@ import {
   setCheckbox,
   setField,
   setFieldStrict,
+  requestChangesReportArgs,
   setOrInsertField,
   setPhaseProgress,
   singleStageAttemptIsOpen,
@@ -926,7 +927,7 @@ export function main(argv: string[]): void {
           // #1593: one step written out in full, the engine's own, which names
           // and checks the stage's next move (its report, a pause, or a jump),
           // so nothing is left for the agent to fill in or guess.
-          ownedTransitionStep(subcommand, args.slice(1)) +
+          ownedTransitionStep(pd, subcommand, args.slice(1)) +
           // The way out is named here, so the human is not told to go and find it.
           fenceSwitchSentence(pd, "state-transition"),
       );
@@ -1104,11 +1105,11 @@ export function main(argv: string[]): void {
 // (#1593): written out in full, for the project the refused call named. `next`
 // comes first; a gate answer the person's reply already gave is recorded the
 // way the engine records one (only the choice: the engine keeps their words),
-// with the stage and Unit of the refused call. A pause and a whole-stage skip
-// keep their own routes, so a stop or a skip is never turned into carrying on.
+// with the stage and Unit of the refused call (a Request Changes as the engine
+// renders it: requestChangesReportArgs). A pause and a whole-stage skip keep
+// their own routes, so a stop or a skip is never turned into carrying on.
 const DECISION_REPORTS: Readonly<Record<string, string>> = {
   approve: "--result approved --user-input Approve",
-  reject: '--result rejected --user-input "Request Changes"',
   revise: "--result revised",
   "gate-start": "--result awaiting-approval",
 };
@@ -1120,7 +1121,7 @@ function carriedArgument(value: string): string | null {
   return process.platform === "win32" ? null : quoteCommandArgument(value, "posix");
 }
 
-function ownedTransitionStep(subcommand: string, rest: string[] = []): string {
+function ownedTransitionStep(pd: string, subcommand: string, rest: string[] = []): string {
   // The selector the refused call was given, as this tool parsed it (after a
   // host such as Kiro's Command Prompt rejoined its words).
   const selector = projectDir ? carriedArgument(projectDir) : null;
@@ -1136,17 +1137,32 @@ function ownedTransitionStep(subcommand: string, rest: string[] = []): string {
   if (subcommand === "skip" && !rest.includes("--unit") && isStage) {
     return `If the person asked to skip this stage, run ${step(`next --skip ${stage}`)}; if not, run ${next}`;
   }
-  const report = DECISION_REPORTS[subcommand];
-  if (report !== undefined && isStage) {
-    const at = rest.indexOf("--unit");
-    const unit = at >= 0 && rest[at + 1] ? carriedArgument(rest[at + 1]) : null;
-    if (at < 0 || unit !== null) {
-      // The report first: a person who already answered is not shown the gate
-      // again (the report's own checks still prove they replied).
-      return `If the person's reply already answered this stage's question, record it with ` +
-        `${step(`report --stage ${stage} ${report}${unit ? ` --unit ${unit}` : ""}`)} and run \`next\` again; ` +
-        `if not, run ${next}`;
+  const at = rest.indexOf("--unit");
+  const rawUnit = at >= 0 ? rest[at + 1] : undefined;
+  let report: string | null = null;
+  if (subcommand === "reject" && isStage) {
+    // A team Unit's gate reports at its gate stage; a solo walk reports the
+    // stage alone, since the engine refuses --unit there.
+    let teamGate: ReturnType<typeof teamUnitGateStatus>;
+    try {
+      teamGate = rawUnit ? teamUnitGateStatus(pd, readStateFile(pd), stage, rawUnit) : undefined;
+    } catch {
+      teamGate = undefined;
     }
+    const words = requestChangesReportArgs(stage, rawUnit, teamGate)
+      .map((arg) => (arg === rawUnit ? carriedArgument(arg) : /\s/.test(arg) ? `"${arg}"` : arg));
+    report = words.includes(null) ? null : words.join(" ");
+  } else if (DECISION_REPORTS[subcommand] !== undefined && isStage) {
+    const unit = rawUnit ? carriedArgument(rawUnit) : null;
+    if (at < 0 || unit !== null) {
+      report = `report --stage ${stage} ${DECISION_REPORTS[subcommand]}${unit ? ` --unit ${unit}` : ""}`;
+    }
+  }
+  if (report !== null) {
+    // The report first: a person who already answered is not shown the gate
+    // again (the report's own checks still prove they replied).
+    return `If the person's reply already answered this stage's question, record it with ` +
+      `${step(report)} and run \`next\` again; if not, run ${next}`;
   }
   return `Run ${next}`;
 }

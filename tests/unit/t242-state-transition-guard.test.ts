@@ -2305,6 +2305,11 @@ describe("t242 state-transition ownership guard", () => {
     }
     // The Unit of the refused call travels with it.
     expect(said("approve", "--unit", "u1")).toContain("--result approved --user-input Approve --unit u1 --project-dir");
+    // A Request Changes is the engine's own (requestChangesReportArgs): outside a
+    // team Unit's gate it reports the stage alone, as the engine refuses --unit there.
+    expect(said("reject", "--unit", "u1")).toContain(
+      `report --stage feasibility --result rejected --user-input "Request Changes" --project-dir ${project}\``,
+    );
     // No such stage: next alone.
     expect(refusalText(
       spawnSync(process.execPath, [STATE, "approve", "not-a-stage", "--project-dir", project], {
