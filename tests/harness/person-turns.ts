@@ -38,6 +38,7 @@ type AuditReader = Pick<
   | "DECISION_CLOSING_EVENTS"
   | "findStageBySlug"
   | "ANSWER_SOURCE_ON_INSTRUCTION"
+  | "personsWordsText"
 >;
 let reader: AuditReader | undefined;
 // The engine's own audit reader and question pairing, loaded on first use:
@@ -346,7 +347,7 @@ function namedMessageTurn(
   const chat = speaking === undefined ? null : auditBlockField(speaking.block, "Session");
   if (chat !== null && message.session !== chat) return -1;
   return turns.findLastIndex((turn, which) => which >= born && (turn.cursor.get(key) ?? 0) <= index &&
-    turn.words.trim() === message.text.trim() && !isCommand(turn.words));
+    turn.words.trim() === audit().personsWordsText(message.text).trim() && !isCommand(turn.words));
 }
 
 // The questions open when a turn arrived `at` this point of a shard: each one

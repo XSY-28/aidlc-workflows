@@ -112,7 +112,7 @@ import {
 } from "../tools/aidlc-testing-posture.ts";
 import { notePlanApprovalAskReply, openEngineQuestion } from "../tools/aidlc-plan-approval-ask.ts";
 import { aidlcEntryWords, isAidlcCommandPrompt } from "../tools/aidlc-reply-reader.ts";
-import { MESSAGE_PICKER_MAX_CHARS, MESSAGE_TEXT_MAX_CHARS, saveMessage, type StoredMessage } from "../tools/aidlc-message-store.ts";
+import { MESSAGE_PICKER_MAX_CHARS, MESSAGE_TEXT_MAX_CHARS, type NewMessage, saveMessage } from "../tools/aidlc-message-store.ts";
 
 // The one parse of a typed line, for the message record (aidlc-message-store.ts)
 // and for the turn's Reply mark: flags are syntax, read by the engine's own
@@ -125,7 +125,7 @@ import { MESSAGE_PICKER_MAX_CHARS, MESSAGE_TEXT_MAX_CHARS, saveMessage, type Sto
 // AIDLC and no reply to an open question; any line with words after the entry
 // ("/aidlc approve the plan", "/aidlc --guard-policy off approve the plan") is a
 // reply the agent may record. Nothing here reads what the words mean.
-interface MessageParse extends Pick<StoredMessage, "words" | "settings" | "route"> {
+interface MessageParse extends Pick<NewMessage, "words" | "settings" | "route"> {
   command: boolean;
 }
 
@@ -710,10 +710,10 @@ try {
   const keepMessage = (): string | null => {
     if (!personHere || pickerUnanswered || !(promptSubmitted || pickerQuestion !== undefined)) return null;
     try {
-      const noWords: Pick<StoredMessage, "words" | "settings" | "route"> = {
+      const noWords: Pick<NewMessage, "words" | "settings" | "route"> = {
         words: null, settings: [], route: { scope: null, newIntent: false, skip: [], add: [], projectType: null },
       };
-      const parsed: Pick<StoredMessage, "words" | "settings" | "route"> = typedParse !== null
+      const parsed: Pick<NewMessage, "words" | "settings" | "route"> = typedParse !== null
         ? { words: typedParse.words, settings: typedParse.settings, route: typedParse.route }
         : promptSubmitted
         ? noWords

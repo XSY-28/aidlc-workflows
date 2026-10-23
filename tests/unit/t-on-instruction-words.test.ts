@@ -13,7 +13,7 @@ import { afterAll, describe, expect, test, setDefaultTimeout } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { auditBlockField, readAuditShardEvents } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
+import { auditBlockField, personsWordsText, readAuditShardEvents } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
 import { appendAuditEntry } from "../../dist/claude/.claude/tools/aidlc-audit.ts";
 import { listMessages, saveMessage } from "../../dist/claude/.claude/tools/aidlc-message-store.ts";
 import { cleanupTestProject, createTestProject, seededRecordDir, seedStateFile } from "../harness/fixtures.ts";

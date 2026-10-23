@@ -23,6 +23,7 @@ import {
 import {
   asksForHelp,
   answeredBeforeShownStep,
+  personsWordsText,
   humanRepliedSinceGate,
   repliedSinceStageStart,
   stageStartFloorRefusal,
@@ -1737,7 +1738,7 @@ function answerEnginePlanApproval(
     const proof = id === undefined ? null : proveMessage(pd, id, "answer");
     if (proof !== null && "refusal" in proof && flags.message !== undefined) error(proof.refusal);
     if (proof !== null && "message" in proof && proof.message.words) {
-      opening = { words: proof.message.words, at: proof.message.at };
+      opening = { words: personsWordsText(proof.message.words), at: proof.message.at };
     }
   }
   let result: { message: string; complete: boolean };
@@ -2185,7 +2186,8 @@ function handleAnswer(args: string[]): void {
       // Their words go on the receipt: the message named, or every reply of
       // theirs in this chat that no decision has used yet (personsGateReply).
       const reply = named !== null ? null : personsGateReply(pd, invokingChat(pd), flags.stage);
-      const words = named !== null ? named.words : reply!.words;
+      // Read as text until S2a and S6a land (its STILL_TO_GO line in tests/harness/persons-words-readers.ts).
+      const words = named !== null ? (named.words as unknown as string | null) : reply!.words;
       const messageId = named !== null ? named.id : reply!.messageId;
       if (messageId) fields["Message Id"] = messageId;
       if (reply !== null) Object.assign(fields, windowMessageIds(reply));
@@ -2482,7 +2484,9 @@ function handleAnswer(args: string[]): void {
     // logged after the reply that answers it records on that reply.
     if (named !== null) {
       fields["Message Id"] = named.id;
-      if (named.words && !isNonAnswer(named.words)) fields["Person Reply"] = named.words;
+      // Read as text until S2a and S6a land (its STILL_TO_GO line in tests/harness/persons-words-readers.ts).
+      const namedWords = named.words as unknown as string | null;
+      if (namedWords && !isNonAnswer(namedWords)) fields["Person Reply"] = namedWords;
     } else if (instruction === undefined && !autonomousDecision) {
       const reply = personsGateReply(pd, invokingChat(pd), flags.stage);
       if (reply.words) fields["Person Reply"] = reply.words;

@@ -110,6 +110,7 @@ import {
   personRepliedSinceGateShown,
   personsGateReply,
   windowMessageIds,
+  personsWordsText,
   repliedSinceStageStart,
   stageStartFloorRefusal,
   resolveInvokingSessionId,
@@ -254,7 +255,7 @@ import {
   sourceBoundaryRepairStep,
   sourceWalkReach,
 } from "./aidlc-lib.js";
-import { personTurnStands, proveMessage, readMessage, requestMessageStep, type StoredMessage } from "./aidlc-message-store.ts";
+import { type NewMessage, personTurnStands, proveMessage, readMessage, requestMessageStep, type StoredMessage } from "./aidlc-message-store.ts";
 import { memoryDirFor, STAGE_WIDE_SENSOR_IDS, templateEligibleArtifacts } from "./aidlc-graph.ts";
 import { inspectRequiredArtifactInstances } from "./aidlc-artifact-resolution.ts";
 import { aidlcDispatcherInvocation, aidlcToolInvocation, compiledExecutable, entrySkillInvocation } from "./aidlc-runtime-paths.ts";
@@ -377,8 +378,9 @@ function personsWordsFields(pd: string, slug: string, message?: string): Record<
   try {
     if (message !== undefined) {
       const named = readMessage(pd, message);
+      const words = named?.words ? personsWordsText(named.words) : "";
       return {
-        ...(named?.words && !isNonAnswer(named.words) ? { [PERSONS_WORDS_FIELD]: named.words } : {}),
+        ...(!isNonAnswer(words) ? { [PERSONS_WORDS_FIELD]: words } : {}),
         [PERSONS_MESSAGE_FIELD]: message,
       };
     }
@@ -2450,8 +2452,9 @@ function parkedWords(pd: string, stage: string): Record<string, string> {
       // An approval row that kept no words of theirs (a Plan Approval receipt)
       // stood on that same turn, whose message holds them.
       const turnId = auditBlockField(rows[turnAt].block, PERSONS_MESSAGE_FIELD);
+      const kept = turnId === null ? null : readMessage(pd, turnId);
       const words = auditBlockField(row.block, PERSONS_WORDS_FIELD) ??
-        (turnId === null ? null : readMessage(pd, turnId)?.words ?? null);
+        (kept && kept.words !== null ? personsWordsText(kept.words) : null);
       return fields(words, auditBlockField(row.block, PERSONS_MESSAGE_FIELD) ?? turnId);
     }
     return {};
@@ -7892,7 +7895,8 @@ function handleReject(args: string[]): void {
     }
     try {
       if (message !== undefined) {
-        const named = readMessage(pd, message);
+        // Read as text until S6a lands (its STILL_TO_GO line in tests/harness/persons-words-readers.ts).
+        const named = readMessage(pd, message) as unknown as NewMessage | null;
         personsWords = named?.words && !isNonAnswer(named.words) ? named.words : null;
         personsMessage = message;
       } else {

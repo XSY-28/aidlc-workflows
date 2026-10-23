@@ -95,6 +95,7 @@ import {
   workspaceSourceFingerprint,
   workspaceSourceListing,
   writeActiveDirectiveMarker,
+  personsWordsText,
   writeBaselineSourceSnapshot,
   writeSessionPidEntry,
 } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
@@ -1106,10 +1107,10 @@ describe("the engine asks for Plan Approval", () => {
     writePlan(proj);
     const words = "/aidlc go back to code generation: also accept -S as a short form of --shout";
     reply(proj, words);
-    const opening = listMessages(proj).find((m) => m.session === SESSION && m.text === words);
+    const opening = listMessages(proj).find((m) => m.session === SESSION && personsWordsText(m.text) === words);
     expect(opening).toBeDefined();
     const { id: _id, ...rest } = opening!;
-    saveMessage(proj, { ...rest, text: "also make it blue", words: "also make it blue" });
+    saveMessage(proj, { ...rest, picker: null, text: "also make it blue", words: "also make it blue" });
     expect(next(proj).ask_type).toBe("plan-approval");
     expect(answer(proj, "Request Changes", [], SESSION).message).toContain("has not replied to the plan question");
     expect(answer(proj, "Request Changes", ["--message", opening!.id], SESSION).message).toContain('Recorded "Request Changes"');

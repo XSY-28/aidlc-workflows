@@ -72,6 +72,7 @@ import {
   parseGuardPolicyStateLine,
   commandAtPersonsTerminal,
   splitKiroCommandArgs,
+  personsWordsText,
 } from "./aidlc-lib.ts";
 import { entrySkillInvocation } from "./aidlc-runtime-paths.ts";
 import { chatsSince, latestMessage, latestSpendingTimestamp, listMessages, type StoredMessage } from "./aidlc-message-store.ts";
@@ -454,7 +455,7 @@ export function saidInChat(
     if (lines.some((message) => message.settings.some((setting) => names.includes(setting.key) && setting.value === value) ||
       (key === "project-type" && message.route.projectType === value) ||
       (key === "scope" && message.route.scope === value && onThisWork(message)) ||
-      names.some((name) => setterCommandNames(message.text, name, value)))) {
+      names.some((name) => setterCommandNames(personsWordsText(message.text), name, value)))) {
       return { words: null };
     }
   }

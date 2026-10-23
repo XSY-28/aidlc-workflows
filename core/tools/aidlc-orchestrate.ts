@@ -325,6 +325,7 @@ import {
   noteGuardPolicyRename,
   humanPresenceGuardDisabled,
   isNonAnswer,
+  personsWordsText,
   commandAtPersonsTerminal,
   unattendedHumanPresenceHint,
   personsGateReply,
@@ -8819,7 +8820,7 @@ function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
     // The entry word alone over work in hand picks it back up, as `--resume`
     // does, whichever the agent sent first: the line decides, not the agent.
     if (message.settings.length === 0) {
-      if (stateContent === null || aidlcEntryWords(message.text) !== "" || !turnIsLatestRow(pd, message.id)) return null;
+      if (stateContent === null || aidlcEntryWords(personsWordsText(message.text)) !== "" || !turnIsLatestRow(pd, message.id)) return null;
       flags.resume = true;
       return ["--resume"];
     }
@@ -8830,7 +8831,7 @@ function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
     if (lineHandedOut(pd, engineSessionId, message.id)) return null;
     if (stateContent !== null ? !turnIsLatestRow(pd, message.id) : settingsKeptSince(pd, engineSessionId, message.at)) return null;
   }
-  const typed = aidlcEntryWords(message.text);
+  const typed = aidlcEntryWords(personsWordsText(message.text));
   if (typed === null || typed.length === 0) return null;
   const argv = splitKiroCommandArgs(typed);
   const own = parseNextFlags(argv);

@@ -28,6 +28,7 @@ import {
   auditBlockField,
   getField,
   hooksHealthDir,
+  personsWordsText,
   planApprovalRuntimeFile,
   readAuditShardEvents,
 } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
@@ -242,7 +243,7 @@ describe("the hook records the message whole and applies nothing", () => {
     expect(keptForNextWork(proj)).toBe(false);
     expect(lastTurnMark(proj)).toBe("command");
     const record = listMessages(proj).at(-1)!;
-    expect(record.text).toBe("/aidlc --plan-approval off");
+    expect(personsWordsText(record.text)).toBe("/aidlc --plan-approval off");
     expect(record.words).toBeNull();
     expect(record.settings).toEqual([{ key: "plan-approval", value: "off" }]);
     expect("applied" in record).toBe(false);

@@ -41,6 +41,7 @@ import {
   hooksHealthDir,
   MESSAGE_FILL,
   MESSAGE_SLOT,
+  personsWordsText,
   readAuditShardEvents,
   writeSessionPidEntry,
 } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
@@ -670,7 +671,7 @@ describe("the person's own words reach the record from every harness they drive"
       expect(fired.status, `${harness}: ${fired.stdout}${fired.stderr}`).toBe(0);
       const records = listMessages(proj);
       expect(records.length, `${harness}: ${JSON.stringify(records)}`).toBe(1);
-      expect(records[0].words, harness).toBe("add the export");
+      expect(records[0].words && personsWordsText(records[0].words), harness).toBe("add the export");
       expect(records[0].settings, harness).toEqual([{ key: "plan-approval", value: "off" }]);
       // So the creation the agent runs for them, naming their message, carries the flag as theirs.
       const made = utility(proj, [
@@ -709,7 +710,7 @@ describe("the Kiro CLI forwarding latch lets the agent correct the line", () => 
     expect(intercept.status, `${intercept.stdout}${intercept.stderr}`).toBe(0);
     const records = listMessages(proj);
     expect(records.length, JSON.stringify(records)).toBe(1);
-    expect(records[0].text).toBe(typed);
+    expect(personsWordsText(records[0].text)).toBe(typed);
     const first = next(proj, ["--plan-aprroval", "off", "add", "the", "export"]);
     expect(first.d.kind, first.out).toBe("print");
     expect(String(first.d.message)).toContain("--plan-aprroval off");
@@ -742,7 +743,7 @@ describe("a reply carrying a flag-shaped word of their own stays their reply", (
     ], { cwd: proj, env: env(proj), encoding: "utf-8", timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS) });
     expect(answered.status, `${answered.stdout}${answered.stderr}`).toBe(0);
     expect(next(proj).d.plan_approval?.status).toBe("approved");
-    expect(listMessages(proj).map((message) => message.text))
+    expect(listMessages(proj).map((message) => personsWordsText(message.text)))
       .toContain("/aidlc approve, but add a --verbose flag");
   });
 
@@ -811,8 +812,8 @@ describe("a misspelt setting after the person's words is not swallowed by the wo
     const proj = emptyProject();
     say(proj, "/aidlc --plan-aprroval off -- add the export");
     const [record] = listMessages(proj);
-    expect(record.words, JSON.stringify(record)).toBe("--plan-aprroval off add the export");
-    expect(record.text).toBe("/aidlc --plan-aprroval off -- add the export");
+    expect(record.words && personsWordsText(record.words), JSON.stringify(record)).toBe("--plan-aprroval off add the export");
+    expect(personsWordsText(record.text)).toBe("/aidlc --plan-aprroval off -- add the export");
   });
 
   test("a flag they are asking to have built stays their words, through the delimiter", () => {

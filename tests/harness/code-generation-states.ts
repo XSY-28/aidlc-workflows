@@ -37,6 +37,7 @@ import {
   readAuditShardEvents,
   stateDigest,
   workspaceSourceListing,
+  personsWordsText,
   writeActiveDirectiveMarker,
   writeBaselineSourceSnapshot,
 } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
@@ -213,7 +214,7 @@ export function latestHumanTurnWords(proj: string): string | null {
   if (!last) return null;
   const id = /\*\*Message Id\*\*: ([0-9a-f]{8})/.exec(last.block)?.[1];
   const stored = id ? readMessage(proj, id) : null;
-  return stored?.text ?? latestPersonTurn(proj)?.words ?? null;
+  return (stored ? personsWordsText(stored.text) : undefined) ?? latestPersonTurn(proj)?.words ?? null;
 }
 
 /** Every engine command a text names in backticks, in the tree's own spelling. */

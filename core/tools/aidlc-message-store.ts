@@ -11,6 +11,7 @@ import {
   isReplyTurn,
   isRequestTurn,
   MESSAGE_SPENDING_EVENTS,
+  type PersonsWords,
   promptHookRanRecently,
   readAuditShardEvents,
   readRegularFileNoFollowOrThrow,
@@ -21,7 +22,7 @@ import {
   writeRecordFileNoFollow,
 } from "./aidlc-lib.ts";
 
-export { MESSAGE_SPENDING_EVENTS };
+export { MESSAGE_SPENDING_EVENTS, type PersonsWords };
 
 // One record per message the person sends, written once by the human-turn hook
 // as the message arrives. It records two things and reads no meaning into either:
@@ -58,19 +59,26 @@ export interface StoredMessage {
   at: string;
   source: "prompt" | "picker" | "terminal";
   /** As the host delivered it, cut at MESSAGE_TEXT_MAX_CHARS (`cut` says so). An empty text is a prompt whose words the host did not pass on. */
-  text: string;
+  text: PersonsWords;
   /**
    * What a question box carried back: one entry per question it asked, in the order shown, `reply` null where the
    * person left a question blank. A pick the box reported for a question it did not list follows them.
    */
-  picker: Array<{ question: string; reply: string | null }> | null;
+  picker: Array<{ question: string; reply: PersonsWords | null }> | null;
   /** The person's own words: the text after the entry word and after any flags. Null for a command with no words. */
-  words: string | null;
+  words: PersonsWords | null;
   /** The settings typed as flags, as the config setter names them ("depth" "minimal", "guard.review-freeze" "off"). */
   settings: Array<{ key: string; value: string }>;
   route: MessageRoute;
   cut?: true;
 }
+
+/** A message as the hook hands it to the store: the same fields, with the person's words still text. */
+export type NewMessage = Omit<StoredMessage, "id" | "text" | "picker" | "words"> & {
+  text: string;
+  picker: Array<{ question: string; reply: string | null }> | null;
+  words: string | null;
+};
 
 export const MESSAGE_TEXT_MAX_CHARS = 8000;
 /** A question box's question or reply is kept to this many characters. */
@@ -194,8 +202,9 @@ export function listMessages(projectDir: string): StoredMessage[] {
  * Store one message and return it with a fresh id. Older records are pruned
  * after the write, so a store failure never costs the message just received.
  */
-export function saveMessage(projectDir: string, message: Omit<StoredMessage, "id">): StoredMessage {
-  const stored: StoredMessage = { ...message, id: mintMessageId(projectDir) };
+export function saveMessage(projectDir: string, message: NewMessage): StoredMessage {
+  // Kept as it came; read back, the words are PersonsWords.
+  const stored = { ...message, id: mintMessageId(projectDir) } as unknown as StoredMessage;
   const serialized = `${JSON.stringify(stored)}\n`;
   if (Buffer.byteLength(serialized, "utf-8") > MESSAGE_MAX_BYTES) {
     throw new Error("message record over the size the reader accepts");

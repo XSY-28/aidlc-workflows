@@ -1389,7 +1389,8 @@ export function play(state: State, seed: number, steps: Step[], opts: { twin?: b
   run.rows = readRows(proj);
   run.finalState = stateText();
   const kept = store().listMessages(proj)
-    .map((m) => ({ id: m.id, session: m.session, source: m.source, text: m.text, words: m.words, cut: m.cut === true }));
+    .map((m) => ({ id: m.id, session: m.session, source: m.source, text: lib().personsWordsText(m.text),
+      words: m.words === null ? null : lib().personsWordsText(m.words), cut: m.cut === true }));
   run.messages = kept.filter((m) => !messagesBefore.has(m.id));
   run.earlier = kept.filter((m) => messagesBefore.has(m.id));
   run.files = recordFiles(proj);

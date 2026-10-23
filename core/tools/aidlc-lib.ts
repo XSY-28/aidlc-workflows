@@ -5758,7 +5758,7 @@ export function requireProtectedResponse(
           "end the turn, and record the choice they make.",
       );
     }
-    const words = proof.message.words ?? "";
+    const words = proof.message.words === null ? "" : personsWordsText(proof.message.words);
     markProtectedQuestionReplied(projectDir, question);
     writeProtectedResponse(projectDir, {
       version: 1, session, challengeId: question.challengeId,
@@ -29372,6 +29372,25 @@ export function turnMarkersShowConversational(
   }
 }
 
+// --- The person's words as the records hand them out -------------------------
+//
+// The message store (aidlc-message-store.ts) and the gate-words record below
+// keep what the person said and hand it out as PersonsWords: an opaque value
+// with no string methods, so engine code that compares, searches or branches
+// on their words does not typecheck. The agent reads their words; the engine
+// records them. personsWordsText is the one way back to text, for the places
+// tests/harness/persons-words-readers.ts allows (the writers of the record's
+// rows, mostly), and tests/unit/t-persons-words-pin.test.ts checks that no other
+// place calls it or casts the brand away. At run time the value is the text
+// itself.
+declare const PERSONS_WORDS: unique symbol;
+export interface PersonsWords {
+  readonly [PERSONS_WORDS]: true;
+}
+export function personsWordsText(words: PersonsWords): string {
+  return words as unknown as string;
+}
+
 // --- The person's own words at a stage gate ----------------------------------
 //
 // Request Changes records what the person typed, not the conductor's rewording
@@ -29415,7 +29434,7 @@ interface GateWordsRecord {
   shard: string;
   // The largest offset of a message that was not kept (over a bound), or 0.
   dropped: number;
-  messages: { offset: number; text: string }[];
+  messages: { offset: number; text: PersonsWords }[];
 }
 
 // The stage-lifecycle rows that decide whether a gate is currently presented:
@@ -29496,7 +29515,7 @@ export function recordGateWords(projectDir: string, session: string, text: strin
     ? prior
     : { version: 1, session, shard, dropped: 0, messages: [] };
   if (words.length > GATE_WORDS_MAX_CHARS) record.dropped = offset;
-  else record.messages.push({ offset, text: words });
+  else record.messages.push({ offset, text: words as unknown as PersonsWords });
   while (record.messages.length > GATE_WORDS_MAX_MESSAGES) {
     record.dropped = Math.max(record.dropped, record.messages.shift()?.offset ?? 0);
   }
@@ -29642,6 +29661,7 @@ export function gateWordsSinceUnitReview(
   const ceiling = until === null ? Number.POSITIVE_INFINITY : Buffer.byteLength(content.slice(0, until), "utf-8");
   if (record.dropped > floor) return null;
   const taken = record.messages
+    .map((message) => ({ offset: message.offset, text: personsWordsText(message.text) }))
     .filter((message) => message.offset > floor && message.offset <= ceiling && !isNonAnswer(message.text));
   if (taken.length === 0) return null;
   const bytes = (at: number): number => Buffer.byteLength(content.slice(0, at), "utf-8");
@@ -29852,7 +29872,8 @@ export function personsGateReply(projectDir: string, session: string | null, sta
       const message = readMessage(projectDir, id);
       if (message === null || message.cut === true) whole = false;
       replies.push({ id, at: message?.at ?? row.timestamp });
-      if (message?.words && !isNonAnswer(message.words)) said.push(message.words);
+      const text = message?.words ? personsWordsText(message.words) : "";
+      if (!isNonAnswer(text)) said.push(text);
     }
     return {
       words: tied && whole && said.length > 0 ? said.join("\n") : null,
@@ -29979,7 +30000,9 @@ export function keptRepliesSinceStageStart(
     if (id === null) continue;
     const message = readMessage(projectDir, id);
     if (message === null || message.cut === true) return null;
-    if (message.words !== null && message.words.trim() !== "") replies.push(message.words);
+    // Read as text until S2a lands (its STILL_TO_GO line in tests/harness/persons-words-readers.ts).
+    const words = message.words as unknown as string | null;
+    if (words !== null && words.trim() !== "") replies.push(words);
   }
   return replies.length > 0 ? { replies, questions, answers } : null;
 }
@@ -30030,7 +30053,8 @@ export function latestPersonTurn(
     const kept = record?.shard === projectRelativePath(projectDir, shardPath)
       ? record.messages.find((message) => message.offset > from && message.offset <= to)
       : undefined;
-    return { at, words: kept?.text ?? pickedLabels(picked) };
+    // Read as text until S2a lands (its STILL_TO_GO line in tests/harness/persons-words-readers.ts).
+    return { at, words: (kept?.text as unknown as string | undefined) ?? pickedLabels(picked) };
   } catch {
     return null;
   }
