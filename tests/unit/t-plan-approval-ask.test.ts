@@ -982,7 +982,8 @@ describe("the engine asks for Plan Approval", () => {
   // No host hands the hook dismissal text (measured on Claude Code and Codex,
   // 2026-10-12): a reply that is only "cancel" is the person's word. Kept, the
   // agent reads it and records the choice it read; dropped, the engine said they
-  // had not replied and the agent asked the same question again.
+  // had not replied and the agent asked the same question again. It names no
+  // change, so the revision asks what should change.
   test("a reply that is only 'cancel' is kept, and the agent's reading of it is recorded with their word", () => {
     const proj = project();
     askFor(proj);
@@ -990,15 +991,16 @@ describe("the engine asks for Plan Approval", () => {
     const recorded = answer(proj, "Request Changes");
     expect(recorded.code, recorded.message).toBe(0);
     expect(recorded.message).toContain('Recorded "Request Changes"');
-    expect(auditText(proj)).toContain("**User Input**: cancel");
-    expect(next(proj).plan_approval).toEqual({ status: "revise", feedback: "cancel" });
+    expect(auditText(proj)).toContain("**Person Reply**: cancel");
+    expect(auditText(proj)).not.toContain("**User Input**: cancel");
+    expect(next(proj).plan_approval).toEqual({ status: "revise" });
   });
 
   test("Request Changes in the person's words reaches the revision, and a revised plan is asked about again", () => {
     const proj = project();
     askFor(proj);
     reply(proj, "rename slugify to toSlug");
-    expect(answer(proj, "Request Changes").message).toContain('Recorded "Request Changes"');
+    expect(answer(proj, "Request Changes: rename slugify to toSlug").message).toContain('Recorded "Request Changes"');
     const revise = next(proj);
     expect(revise.kind).toBe("run-stage");
     expect(revise.plan_approval).toEqual({ status: "revise", feedback: "rename slugify to toSlug" });
@@ -1078,7 +1080,7 @@ describe("the engine asks for Plan Approval", () => {
     expect(next(proj).ask_type).toBe("plan-approval");
     expect(answer(proj, "Request Changes", [], SESSION).message).toContain("has not replied to the plan question");
     expect(answer(proj, "Request Changes", ["--message", opening!.id], SESSION).message).toContain('Recorded "Request Changes"');
-    expect(auditText(proj)).toContain("**User Input**: go back to code generation: also accept -S as a short form of --shout");
+    expect(auditText(proj)).toContain("**Person Reply**: go back to code generation: also accept -S as a short form of --shout");
   });
 
   // The agent may word the picker its own way: the pick counts by the choices
@@ -1266,9 +1268,10 @@ describe("the engine asks for Plan Approval", () => {
 
   // The person edits the plan files, then hands the plan back in their own words.
   // Their reply is kept; the agent reads which answer it is. The refusal and the
-  // edit-mode question name the answer to record, so nobody goes round: the
-  // answer, the write and next, and the plan is the agent's, with their words.
-  test("edit mode: the person hands the plan back; the refusal names the answer to record, and their words are the change", () => {
+  // edit-mode question name the answer to record, with a place for what they
+  // asked of the plan, so nobody goes round: the answer, the write and next,
+  // and the plan is the agent's, with what they asked.
+  test("edit mode: the person hands the plan back; the refusal names the answer to record, with what they asked of the plan", () => {
     const proj = project();
     askFor(proj);
     replyAndRecord(proj, "I'll edit the files", "I'll edit the files");
@@ -1282,15 +1285,16 @@ describe("the engine asks for Plan Approval", () => {
     reply(proj, "you finish it");
     const handedBack = guardWrite(proj, planPath);
     expect(handedBack.code).toBe(2);
-    expect(handedBack.stderr).toContain('answer --stage code-generation --checkpoint plan-approval --details "Request Changes"');
+    expect(handedBack.stderr).toContain(
+      "answer --stage code-generation --checkpoint plan-approval --details 'Request Changes: <what they asked of the plan>'");
     expect(handedBack.stderr).toContain('--details "Approve Plan"');
     const asked = next(proj);
     expect(asked.plan_approval.editing).toBe(true);
-    expect(String(asked.plan_approval.note)).toContain('--details "Request Changes"');
-    const recorded = answer(proj, "Request Changes");
+    expect(String(asked.plan_approval.note)).toContain("--details 'Request Changes: <what they asked of the plan>'");
+    const recorded = answer(proj, "Request Changes: finish the plan");
     expect(recorded.code, recorded.message).toBe(0);
     expect(guardWrite(proj, planPath).code).toBe(0);
-    expect(next(proj).plan_approval).toEqual({ status: "revise", feedback: "you finish it" });
+    expect(next(proj).plan_approval).toEqual({ status: "revise", feedback: "finish the plan" });
   });
 
   test("edit mode: the agent cannot touch the files, and done approves them as the person left them", () => {
@@ -1784,7 +1788,7 @@ describe("when the stage rules arrive in parts", () => {
     const proj = withRulesInParts(project());
     askFor(proj);
     reply(proj, "rename slugify to toSlug");
-    expect(answer(proj, "Request Changes").message).toContain('Recorded "Request Changes"');
+    expect(answer(proj, "Request Changes: rename slugify to toSlug").message).toContain('Recorded "Request Changes"');
     const revise = nextThroughParts(proj);
     expect(revise.parts).toBeGreaterThan(1);
     expect(revise.directive.kind, JSON.stringify(revise.directive)).toBe("run-stage");
@@ -2129,7 +2133,7 @@ describe("after approval, whatever the engine said last", () => {
     const proj = project();
     askFor(proj);
     reply(proj, "rename slugify to toSlug");
-    expect(answer(proj, "Request Changes").code).toBe(0);
+    expect(answer(proj, "Request Changes: rename slugify to toSlug").code).toBe(0);
     interrupt(proj, "the chat compacts");
     const revise = next(proj);
     expect(revise.kind, JSON.stringify(revise)).toBe("run-stage");
@@ -2400,13 +2404,13 @@ describe("one question for several ready Units", () => {
   test("a change naming one Unit: the agent sends only that Unit back and approves the rest", () => {
     const { pd } = groupedProject();
     reply(pd, "change beta: use a lookup table");
-    expect(answer(pd, "Request Changes", ["--units", "beta"]).message).toContain("for alpha too");
+    expect(answer(pd, "Request Changes: use a lookup table", ["--units", "beta"]).message).toContain("for alpha too");
     expect(answer(pd, "Approve Plan", ["--units", "alpha"]).message).toContain('Recorded "Approve Plan" for alpha');
     expect(evaluateCodeGenerationApproval(pd, { unit: "alpha" }).ok).toBe(true);
     expect(evaluateCodeGenerationApproval(pd, { unit: "beta" }).ok).toBe(false);
     expect(swarmState(pd).plan_approval).toEqual({
       status: "plan",
-      units: [{ unit: "beta", status: "revise", feedback: "change beta: use a lookup table" }],
+      units: [{ unit: "beta", status: "revise", feedback: "use a lookup table" }],
     });
   });
 
@@ -2600,14 +2604,14 @@ describe("'review the plan' next to other questions and for groups", () => {
       });
       publishPlanApprovalAsk(pd, routed as Parameters<typeof publishPlanApprovalAsk>[1]);
       reply(pd, "change beta: use a lookup table");
-      expect(answer(pd, "Request Changes", ["--units", "beta"]).code).toBe(0);
+      expect(answer(pd, "Request Changes: use a lookup table", ["--units", "beta"]).code).toBe(0);
       expect(answer(pd, "Approve Plan", ["--units", group.filter((unit) => unit !== "beta").join(",")]).code).toBe(0);
       const swarm = (units: string[]) => {
         writeActiveDirectiveMarker(pd, { kind: "invoke-swarm", stage: "code-generation", units, state_sha256: state() });
         return routeCodeGenerationPlanApproval(pd, { kind: "invoke-swarm", stage: "code-generation", units }) as unknown as Emitted;
       };
       expect(swarm(group).plan_approval.units).toEqual([
-        { unit: "beta", status: "revise", feedback: "change beta: use a lookup table" },
+        { unit: "beta", status: "revise", feedback: "use a lookup table" },
       ]);
       // The revised plan is shown before it is built, though plan approval is off.
       const dir = codeGenerationRecordDir(pd, "beta");
@@ -3887,5 +3891,50 @@ describe("Code Generation receipt recovery through the Plan Approval hook", () =
     const blocked = guardBash(proj, "bun .claude/tools/aidlc-state.ts unit complete --stage code-generation --unit unit-a");
     expect(blocked.code, blocked.stderr).toBe(2);
     expect(unitCompletedReceipts(proj, "code-generation").has("unit-a")).toBe(false);
+  });
+});
+
+// A typed "2" picks Request Changes and says nothing about what to change (on
+// Codex the plan was once revised from "2"): the record keeps their "2" as
+// their words, names no change, and the revision step has none to hand, so the
+// agent asks what should change, once. A change they did say is the agent's
+// reading, passed after the choice, and reaches the revision with no question.
+describe("what to change is what the person said, as the agent read it", () => {
+  const requestChangesRow = (proj: string): string =>
+    auditText(proj).split("\n---\n").find((block) =>
+      block.includes("**Details**: Request Changes") && block.includes("**Checkpoint**: plan-approval")) ?? "";
+
+  test('a typed "2" records Request Changes with no change named, and the revision asks what should change', () => {
+    const proj = project();
+    askFor(proj);
+    reply(proj, "2");
+    const recorded = answer(proj, "Request Changes");
+    expect(recorded.code, recorded.message).toBe(0);
+    expect(requestChangesRow(proj)).toContain("**Person Reply**: 2");
+    expect(requestChangesRow(proj)).not.toContain("**User Input**");
+    expect(next(proj).plan_approval).toEqual({ status: "revise" });
+  });
+
+  test("a change they asked for, passed after the choice, reaches the revision with their words beside it", () => {
+    const proj = project();
+    askFor(proj);
+    reply(proj, "please add a test for the empty cart");
+    const recorded = answer(proj, "Request Changes: add a test for the empty cart");
+    expect(recorded.code, recorded.message).toBe(0);
+    expect(requestChangesRow(proj)).toContain("**User Input**: add a test for the empty cart");
+    expect(requestChangesRow(proj)).toContain("**Person Reply**: please add a test for the empty cart");
+    expect(next(proj).plan_approval).toEqual({ status: "revise", feedback: "add a test for the empty cart" });
+  });
+
+  test("the stage tells the agent to pass what to change, and to ask when the reply only picked the choice", () => {
+    const text = readFileSync(join(AIDLC_SRC, "aidlc-common", "stages", "construction", "code-generation.md"), "utf-8")
+      .replace(/\s+/g, " ");
+    expect(text).toContain("pass what to change after the choice (`--details 'Request Changes: <what they asked>'`");
+    expect(text).toContain("when their reply only picked Request Changes, ask what should change before you record it");
+    expect(text).not.toContain("a change request uses them as what to change");
+    // Several plans asked about at once: the change that names a Unit goes with it.
+    const grouped = readFileSync(join(AIDLC_SRC, "aidlc-common", "protocols", "stage-protocol-construction.md"), "utf-8")
+      .replace(/\s+/g, " ");
+    expect(grouped).toContain("record `Request Changes: use Stripe` for that Unit");
   });
 });

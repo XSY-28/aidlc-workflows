@@ -480,19 +480,21 @@ describe("the guard judges only the build: records and engine commands pass, the
       shape.install(state.proj);
       const refused = await shape.call(state.proj, state.session, { tool: "Write", path: planPath });
       expect(refused.code, `[${shape.name}] the plan file passed while the person's edit mode is open`).toBe(2);
-      const handBack = namedCommands(refused.said).find((command) => command.includes('--details "Request Changes"'));
+      const handBack = namedCommands(refused.said).find((command) => command.includes("--details 'Request Changes:"))
+        ?.replace("<what they asked of the plan>", "finish the plan");
       expect(handBack, `[${shape.name}] the refusal names no answer: ${refused.said}`).toBeDefined();
       const admitted = await shape.call(state.proj, state.session, { tool: "Bash", command: respell(handBack as string, ".claude") });
       expect(admitted.code, `[${shape.name}] ${handBack} -> ${admitted.said}`).toBe(0);
     }
-    // The answer, the write, next: the plan is the agent's, with their words, and no second edit-mode question.
-    const recorded = runNamed(state.proj, 'bun .claude/tools/aidlc-log.ts answer --stage code-generation --checkpoint plan-approval --details "Request Changes"');
+    // The answer, the write, next: the plan is the agent's, with what they asked as the agent read it, and no
+    // second edit-mode question.
+    const recorded = runNamed(state.proj, "bun .claude/tools/aidlc-log.ts answer --stage code-generation --checkpoint plan-approval --details 'Request Changes: finish the plan'");
     expect(recorded.status, recorded.stdout + recorded.stderr).toBe(0);
     const write = await claude.call(state.proj, state.session, { tool: "Write", path: planPath });
     expect(write.code, write.said).toBe(0);
     const step = next(state.proj);
     expect(step.kind, JSON.stringify(step)).toBe("run-stage");
-    expect(step.plan_approval, JSON.stringify(step)).toEqual({ status: "revise", feedback: "you finish it" });
+    expect(step.plan_approval, JSON.stringify(step)).toEqual({ status: "revise", feedback: "finish the plan" });
   });
 
   test("S6: while the person edits the plan files, the agent's write to them is refused with that sentence", async () => {

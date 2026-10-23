@@ -187,6 +187,7 @@
     "t-plan-answer-in-file.test.ts": 87.9,
     "t-plan-approval-ask.test.ts": 1065.4,
     "t-plan-approval-autonomy.test.ts": 38,
+    "t-plan-approval-legacy-recovery-floor.test.ts": 0.5,
     "t-plan-approval-recovery-paths.test.ts": 84.9,
     "t-plan-approval-refusal-way-out.test.ts": 115.3,
     "t-plan-approval-stock-parts.test.ts": 20.2,

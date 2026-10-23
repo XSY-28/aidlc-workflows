@@ -19,7 +19,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendAuditEntry } from "../../dist/claude/.claude/tools/aidlc-audit.ts";
 import { auditBlockField, readAuditShardEvents } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
-import { readMessage } from "../../dist/claude/.claude/tools/aidlc-message-store.ts";
+import { readMessage, saveMessage } from "../../dist/claude/.claude/tools/aidlc-message-store.ts";
 import {
   AIDLC_SRC, cleanupTestProject, createTestProject, seedAidlcMemory, seededRecordDir, seededStateFile, seedStateFile,
 } from "../harness/fixtures.ts";
@@ -240,6 +240,30 @@ describe("t-summary-shown-before-logged: a summary answered before its question 
       expect(refusal(refused.out)).toContain(`on message ${request.id}: it came before this stage started`);
       expect(refusal(refused.out)).toContain("show the summary and end your turn");
       expect(events(proj, "SUMMARY_CONFIRMATION_RECORDED")).toHaveLength(0);
+    });
+
+    // A reply typed while another engine question was on screen (the routing
+    // question) is still theirs when the agent names it: it came after the
+    // stage started, so the floor lets it confirm the summary.
+    test(`a confirmation sent while another question was open records once the agent names it (Guard Policy ${policy})`, () => {
+      const { proj, questions } = project(policy);
+      says(proj, "the greeting shows a blank title, fix it");
+      appendAuditEntry("STAGE_STARTED", { Stage: STAGE }, proj);
+      questionsLeftToTheAgent(proj);
+      expect(askSummary(proj, questions).status).toBe(0);
+      const held = saveMessage(proj, {
+        session: SESSION, at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), source: "prompt", text: "looks correct",
+        picker: null, words: "looks correct", settings: [],
+        route: { scope: null, newIntent: false, skip: [], add: [], projectType: null },
+      });
+      appendAuditEntry("HUMAN_TURN", { Session: SESSION, "Message Id": held.id, "Open Question": "new-work-routing" }, proj);
+      const recorded = answerSummary(proj, questions, "Looks correct", "Looks correct", held.id);
+      expect(recorded.status, recorded.out).toBe(0);
+      expect(recorded.out).not.toContain("came before this stage started");
+      const receipts = events(proj, "SUMMARY_CONFIRMATION_RECORDED");
+      expect(receipts).toHaveLength(1);
+      expect(auditBlockField(receipts[0].block, "Message Id")).toBe(held.id);
+      expect(auditBlockField(receipts[0].block, "Person Reply")).toBe("looks correct");
     });
 
     // The refusal's other way on is the person's next reply: the question stays
