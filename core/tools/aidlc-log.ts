@@ -1601,8 +1601,12 @@ function pendingConstructionPolicyDecision(pd: string, stage: string, field: str
 // them, for the receipt.
 function protectedPersonsWords(pd: string, session: string | undefined): Record<string, string> {
   if (!session) return {};
-  const words = readProtectedResponse(pd, session)?.words;
-  return words ? { "Person Reply": words } : {};
+  const response = readProtectedResponse(pd, session);
+  const id = response?.replies?.at(-1)?.messageId;
+  return {
+    ...(response?.words ? { "Person Reply": response.words } : {}),
+    ...(response?.words && id ? { "Message Id": id } : {}),
+  };
 }
 
 // The engine's Plan Approval question, loaded only on its answer path.

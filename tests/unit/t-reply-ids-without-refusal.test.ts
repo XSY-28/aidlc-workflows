@@ -181,7 +181,7 @@ describe("t-reply-ids-without-refusal: a checkpoint's row and a routing row name
     }
   }
 
-  test("words sent to separate new work: the routing row names the message they came in", async () => {
+  test("words sent to separate new work: the routing row names the reply it stands on", async () => {
     const proj = project();
     await buildQuestion(proj, "stage-question");
     await say(proj, "/aidlc also handle an empty list", "claude");
@@ -192,10 +192,12 @@ describe("t-reply-ids-without-refusal: a checkpoint's row and a routing row name
     const routing = await next(proj, (ask as string).split(" "));
     expect(routing.directive?.ask_type, routing.out).toBe("new-work-routing");
     await say(proj, "2", "claude");
+    const reply = latestId(proj);
     const command = String((routing.directive as Record<string, unknown> | null)?.new_intent_command ?? "");
     await next(proj, command.replace(/^.* next /, "").split(" "));
     const routed = rows(proj, "REQUEST_ROUTED");
     expect(routed).toHaveLength(1);
-    expect(auditBlockField(routed[0].block, "Message Id")).toBe(request);
+    expect(auditBlockField(routed[0].block, "Message Id")).toBe(reply);
+    expect(reply).not.toBe(request);
   });
 });

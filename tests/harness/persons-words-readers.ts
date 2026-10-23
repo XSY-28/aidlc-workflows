@@ -1035,8 +1035,12 @@ export interface FuzzRow {
   why: string;
 }
 export const FUZZ_STILL_TO_GO: readonly FuzzRow[] = [
+  // S2b's ids made these rows name their message, which shows how the protected response keeps the words.
+  { group: "I2 GATE_APPROVED Person Reply is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the protected response keeps the replies the hook kept under the question, joined and cut to its last 8000 characters, which is not always a window of the chat ending at the message the row now names" },
+  { group: "I2 GATE_REJECTED Person Reply is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the protected response keeps the replies the hook kept under the question, joined and cut to its last 8000 characters, which is not always a window of the chat ending at the message the row now names" },
+  { group: "I2 VERIFICATION_COMMAND_RECORDED Person Reply is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the protected response keeps the replies the hook kept under the question, joined and cut to its last 8000 characters, which is not always a window of the chat ending at the message the row now names" },
+  { group: "I2 SUMMARY_CONFIRMATION_RECORDED Person Reply is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "met in shard mode only (its replay passes): the window's words leave out the turns the window does not count, so they are not always one run of the chat's messages ending at the named one" },
+  { group: "I2 GATE_REJECTED Feedback is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "a checkpoint reject's Feedback is its reason: the agent's --reason, or the person's words on one line (changeRequestWords)" },
   { group: "I2 QUESTION_ANSWERED names no message", slice: "S2c", row: "DESIGN.md item 7 (reading-lead, 2026-10-23)", why: "an answer logged in a chat with no reply of its own since the last decision names no message: the window is this chat's, and a named id from another chat of the same work is refused" },
-  { group: "I2 QUESTION_ANSWERED names no message", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the code plan and protected questions' own answers name no message" },
-  { group: "I2 VERIFICATION_COMMAND_RECORDED names no message", slice: "S2a", row: "R24", why: "the verification answer takes Person Reply from the protected response and names no message" },
   { group: "I5 the person's words copied into QUESTION_ANSWERED.User Input", slice: "PA-fixes", row: "F3", why: "recordPlanApprovalAnswer's fallback puts their words in a Request Changes' User Input; PA-fixes makes User Input the agent's change text and Person Reply their words" },
 ];

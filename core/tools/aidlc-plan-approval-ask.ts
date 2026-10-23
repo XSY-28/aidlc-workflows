@@ -1246,6 +1246,8 @@ function approveTarget(
   unit: string | null,
   session: string,
   words?: string,
+  // The message record of the latest reply the words hold.
+  messageId?: string,
 ): TargetApproval {
   const dir = codeGenerationRecordDir(projectDir, unit);
   const planPath = join(dir, PLAN_FILE);
@@ -1383,6 +1385,7 @@ function approveTarget(
     Session: session,
     "Asked By": "engine",
     ...(words ? { "Person Reply": words } : {}),
+    ...(words && messageId ? { "Message Id": messageId } : {}),
     ...(unit !== null ? { Unit: unit, ...claimAttemptFields(projectDir, unit) } : {}),
   }, projectDir);
   clearPlanApprovalReviewRequest(projectDir, authority.targetId, authority.intentId);
@@ -1402,6 +1405,7 @@ function requestChangesFor(
   session: string,
   feedback: string | undefined,
   words?: string,
+  messageId?: string,
 ): PlanApprovalAskResult {
   const approval = evaluateCodeGenerationApproval(projectDir, { unit });
   const dir = codeGenerationRecordDir(projectDir, unit);
@@ -1435,6 +1439,7 @@ function requestChangesFor(
     "Asked By": "engine",
     ...(feedback ? { "User Input": feedback } : {}),
     ...(words && words !== feedback ? { "Person Reply": words } : {}),
+    ...(words && messageId ? { "Message Id": messageId } : {}),
     ...(unit !== null ? { Unit: unit } : {}),
   }, projectDir);
   return {
@@ -1622,7 +1627,7 @@ function correctReadRequestChanges(
   const words = record.replies?.map((reply) => reply.text).join("\n") || undefined;
   const results = record.results.filter((result) => !targets.includes(result.unit));
   for (const unit of targets) {
-    const outcome = approveTarget(projectDir, record, unit, session, words);
+    const outcome = approveTarget(projectDir, record, unit, session, words, record.replies?.at(-1)?.messageId);
     if (!outcome.ok) throw new Error(outcome.notice);
     results.push({ ...outcome.result, read: true, turns });
   }
@@ -1892,6 +1897,7 @@ export function recordPlanApprovalAnswer(
     }
     // Their words, whole: what to change when they asked for changes.
     const words = replies.map((reply) => reply.text).join("\n");
+    const messageId = replies[replies.length - 1].messageId;
     const who = session || replies[replies.length - 1].session;
     const units = record.targets.map((target) => target.unit);
     const answered = new Set((record.results ?? []).map((result) => result.unit));
@@ -1924,10 +1930,11 @@ export function recordPlanApprovalAnswer(
       if (answer.choice === "request-changes") {
         results.push(requestChangesFor(
           projectDir, record, unit, who, answer.feedback?.trim() || (answer.exactPick ? undefined : words || undefined), words,
+          messageId,
         ));
         continue;
       }
-      const outcome = approveTarget(projectDir, record, unit, who, words);
+      const outcome = approveTarget(projectDir, record, unit, who, words, messageId);
       if (outcome.ok) {
         results.push(outcome.result);
         approved.push(unit);

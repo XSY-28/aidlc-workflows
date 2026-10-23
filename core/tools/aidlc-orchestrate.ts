@@ -3748,13 +3748,20 @@ function planQuestionAnsweredByWordsDirective(): PrintDirective {
 // no reply to the question the work in progress has open (a checkpoint, a
 // gate, the stage's questions, the code plan question): they are taken back
 // from it once, and the row that says so keeps any decision on it from
-// standing on them. The row names the message the words came in.
+// standing on them. The row names the reply the route stands on: this chat's
+// latest since the last decision.
 function withdrawRoutedWords(projectDir: string, question: StoredQuestion): void {
   if (isReadOnlyEngineProbe()) return;
   try {
-    const routed = readAuditShardEvents(projectDir).some((row) =>
+    const rows = readAuditShardEvents(projectDir);
+    const routed = rows.some((row) =>
       row.event === "REQUEST_ROUTED" && auditBlockField(row.block, "Request") === question.id);
     if (routed) return;
+    const spent = rows.findLastIndex((row) => MESSAGE_SPENDING_EVENTS.has(row.event));
+    const reply = rows.slice(spent + 1).findLast((row) => row.event === "HUMAN_TURN" &&
+      (!engineSessionId || auditBlockField(row.block, "Session") === engineSessionId) &&
+      auditBlockField(row.block, "Message Id") !== null);
+    const replyId = reply === undefined ? null : auditBlockField(reply.block, "Message Id");
     // Taken back by the message they came in; a question kept before messages
     // were named takes back nothing.
     if (question.messageId !== undefined) {
@@ -3764,7 +3771,7 @@ function withdrawRoutedWords(projectDir: string, question: StoredQuestion): void
     appendAuditEntry("REQUEST_ROUTED", {
       Request: question.id,
       ...(engineSessionId ? { Session: engineSessionId } : {}),
-      ...(question.messageId !== undefined ? { "Message Id": question.messageId } : {}),
+      ...(replyId !== null ? { "Message Id": replyId } : {}),
     }, projectDir);
   } catch (e) {
     recordHookDrop(projectDir, "routed-words", errorMessage(e));
