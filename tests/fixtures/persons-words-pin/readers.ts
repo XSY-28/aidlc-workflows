@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  auditBlockField, gateWordsSinceUnitReview, latestPersonTurn, personsGateReply, readProtectedResponse, sessionsDir,
+  auditBlockField, gateWordsSinceUnitReview, personsGateReply, readProtectedResponse, sessionsDir,
 } from "../../../core/tools/aidlc-lib.ts";
 import { listMessages, type StoredMessage } from "../../../core/tools/aidlc-message-store.ts";
 
@@ -49,9 +49,9 @@ export function reviewWordsApprove(projectDir: string, session: string, unit: st
   return gateWordsSinceUnitReview(projectDir, session, unit, ["code-generation"])?.some((reply) => reply.words === "Approve") === true;
 }
 
-/** latestPersonTurn's words, in a switch. */
+/** A field the engine hands the words out in (personsGateReply().words), in a switch. */
 export function latestTurnChoice(projectDir: string): string {
-  switch (latestPersonTurn(projectDir)?.words) {
+  switch (personsGateReply(projectDir, null, "requirements-analysis").words) {
     case "1": return "Approve";
     default: return "none";
   }

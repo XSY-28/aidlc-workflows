@@ -1587,8 +1587,12 @@ export function checkRun(run: Run): Failure[] {
       // A row's field is one line: the audit writer writes each line break in it as \n (renderAuditBlock).
       const oneLine = (text: string) => text.replace(/\r\n?|\n|\u2028|\u2029/g, "\\n");
       const windowOf = (value: string) => at >= 0 && chatWords.slice(0, at + 1).some((_, from) => oneLine(chatWords.slice(from, at + 1).join("\n")) === value);
-      // The summary receipt's Feedback is the agent's text after the choice ("Request changes: <what>"), like Reason.
-      for (const name of row.event === "SUMMARY_CONFIRMATION_RECORDED" ? ["Person Reply"] : ["Person Reply", "Feedback"]) {
+      // The summary receipt's Feedback is the agent's text after the choice ("Request changes: <what>"), like Reason,
+      // and so is a Unit or batch checkpoint reject's (its reason: the agent's --reason, or the person's words on one
+      // line); their words are its Person Reply.
+      const feedbackIsReason = row.event === "SUMMARY_CONFIRMATION_RECORDED" ||
+        (row.event === "GATE_REJECTED" && field(row, "Checkpoint") !== null);
+      for (const name of feedbackIsReason ? ["Person Reply"] : ["Person Reply", "Feedback"]) {
         const value = field(row, name);
         if (value === null) continue;
         const shown = message ?? before;

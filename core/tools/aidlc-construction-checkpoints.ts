@@ -40,7 +40,10 @@ import {
   consumeProtectedQuestion,
   withdrawProtectedQuestions,
   changeRequestWords,
+  personsGateReply,
+  protectedResponseFields,
   readProtectedResponse,
+  windowMessageIds,
   requireProtectedResponse,
   protectedTargetDigest,
   gateWordsSinceUnitReview,
@@ -55,7 +58,6 @@ import {
   constructionCheckpointsApply,
   isNonAnswer,
   latestMainWorkflowStageRunFloorForProject,
-  latestPersonTurn,
   leftOutLine,
   reviewCheckOffer,
   loadStageGraph,
@@ -1713,19 +1715,23 @@ export function approveConstructionCheckpoint(
     // The person's "approve it as it is", which the verification took, is the
     // approval; nothing more is asked of them.
     const inWords = current.result.review_not_finished?.approved_in_words === true;
-    let words: string | undefined;
-    let messageId: string | undefined;
+    let theirs: Record<string, string> = {};
     if (humanRequired && inWords) {
       // Already approved from their words: an approve run again records nothing more.
       if (current.result.approved) return current.result;
-      words = latestPersonTurn(projectDir)?.words ?? undefined;
+      // Their words as a stage gate's row keeps them: every unspent reply of
+      // theirs in this chat since the stage started, with the messages it came in.
+      const reply = personsGateReply(projectDir, session || null, current.result.stages.at(-1)!);
+      theirs = {
+        ...(reply.words ? { "Person Reply": reply.words } : {}),
+        ...(reply.messageId ? { "Message Id": reply.messageId } : {}),
+        ...windowMessageIds(reply),
+      };
     } else if (humanRequired) {
       requireProtectedResponse(projectDir, session, {
         kind: "checkpoint-approval", targetDigest: protectedTargetDigest(approvalTarget(current)), choice: "Approve",
       }, namedReply(projectDir, current.result.stages, unit, message));
-      const response = readProtectedResponse(projectDir, session);
-      words = response?.words;
-      messageId = response?.replies?.at(-1)?.messageId;
+      theirs = protectedResponseFields(readProtectedResponse(projectDir, session));
     } else if (current.result.approved) {
       return current.result;
     }
@@ -1752,8 +1758,7 @@ export function approveConstructionCheckpoint(
       "Approved Evidence": rechecked.approvedEvidence,
       ...(humanRequired ? { Session: session } : {}),
       ...(humanRequired ? { "User Input": "Approve" } : { Autonomous: "true" }),
-      ...(words ? { "Person Reply": words } : {}),
-      ...(messageId ? { "Message Id": messageId } : {}),
+      ...theirs,
       ...(notFinished ? { Review: "not finished" } : {}),
       ...findingDispositions?.(
         gate["Gate Stages"].split(", ").filter(Boolean), [unit], humanRequired ? "person" : "nobody",
@@ -1810,9 +1815,7 @@ export function rejectConstructionCheckpoint(
       kind: "checkpoint-approval", targetDigest: protectedTargetDigest(approvalTarget(current)), choice: "Request Changes",
     }, namedReply(projectDir, current.result.stages, unit, message));
     const response = readProtectedResponse(projectDir, session);
-    const words = response?.words;
-    const messageId = response?.replies?.at(-1)?.messageId;
-    const reason = givenReason.trim() || changeRequestWords(words);
+    const reason = givenReason.trim() || changeRequestWords(response?.words);
     const userInput = "Request Changes";
     if (isNonAnswer(reason) || reason.length > 8192 || hasUnsafeSingleLineCharacter(reason)) {
       throw new Error("Request Changes needs what the person asked to change, on one line, in --reason.");
@@ -1825,8 +1828,7 @@ export function rejectConstructionCheckpoint(
       ...gateFields(projectDir, rechecked.result, rechecked.state),
       Session: session,
       "User Input": userInput, Feedback: reason, Reason: reason,
-      ...(words ? { "Person Reply": words } : {}),
-      ...(messageId ? { "Message Id": messageId } : {}),
+      ...protectedResponseFields(response),
     }, projectDir);
     consumeProtectedQuestion(projectDir, session);
     return resolveConstructionCheckpoint(projectDir, unit, kind);

@@ -1,5 +1,5 @@
 // covers: function:switchesOff, function:switchOffLine, function:switchesOffLines, function:switchOffNotices
-// covers: function:recordSwitchChange, function:clearSwitchCommand, function:latestPersonTurn
+// covers: function:recordSwitchChange, function:clearSwitchCommand
 // covers: function:PERSON_CHECK_SWITCHES, function:PERSON_CHECK_SWITCH_LABELS
 // covers: function:killSwitchSource, function:isKillSwitchSource
 //
@@ -29,9 +29,10 @@ import {
 } from "../harness/fixtures.ts";
 import { NATIVE_STARTUP_TIMEOUT_MS, remainingOperationTimeoutMs } from "../harness/test-budget.ts";
 import { flagsDoctorCheck } from "../../dist/claude/.claude/tools/aidlc-config-diagnostics.ts";
+import { listMessages } from "../../dist/claude/.claude/tools/aidlc-message-store.ts";
 import {
   auditBlockField,
-  latestPersonTurn,
+  personsWordsText,
   readAuditShardEvents,
   resolveProjectFlag,
   STOP_HOOK_PROBE_ENV,
@@ -216,7 +217,8 @@ describe("a check switched off for the project is always said, never refused", (
   test("asked for in the chat: off at once, and the person hears their own words", () => {
     const proj = installedProject();
     says(proj, ASKED);
-    expect(latestPersonTurn(proj)?.words).toBe(ASKED);
+    const kept = listMessages(proj).at(-1)?.words ?? null;
+    expect(kept && personsWordsText(kept)).toBe(ASKED);
 
     const recorded = flagsAsked(proj, "--bypass", NAME, "--local", "--yes");
     expect(recorded.status, recorded.stdout + recorded.stderr).toBe(0);

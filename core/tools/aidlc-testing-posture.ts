@@ -126,7 +126,7 @@ import {
   writePlanApprovalLegacyRecoveryResponse,
   noteEngineAskMark,
   humanTurnState,
-  latestPersonTurn,
+  latestReplyAfter,
   personRepliedAfter,
   unattendedHumanPresenceHint,
   writeApprovedPlanCopy,
@@ -4150,10 +4150,10 @@ export function personAskedForPlanApprovalOverride(projectDir: string): boolean 
   return humanTurnState(projectDir, { replies: true }) === "acted";
 }
 
-/** Their words for the record: their latest reply since the offer, when the host passed any. */
-export function planApprovalOverridePersonReply(projectDir: string): string | null {
+/** Their latest reply since the offer, for the record: its message, and its words when the host passed any. */
+export function planApprovalOverridePersonReply(projectDir: string): { messageId: string; words: string | null } | null {
   const offered = engineAskMark(projectDir, PLAN_APPROVAL_OVERRIDE_OFFERED);
-  return offered === null ? null : latestPersonTurn(projectDir, { repliesAfter: offered })?.words ?? null;
+  return offered === null ? null : latestReplyAfter(projectDir, offered);
 }
 
 /** The refusal when no such reply is on record, with the step for an unattended run or a reply not recorded. */

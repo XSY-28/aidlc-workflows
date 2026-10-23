@@ -969,7 +969,10 @@ export const ALLOWED: Record<string, Allowed> = {
   [`${STORE}#messageIsReply`]: { use: "keeps", why: "the presence shape: a message with words or none (words === null)" },
   [`${STORE}#noReplySince`]: { use: "keeps", why: "the presence shape: a line of settings alone is no reply (words === null)" },
   [`${ORCH}#handOutSettingsLine`]: { use: "keeps", why: "the presence shape: a line of settings alone (words === null) is handed to its setter once" },
-  [UNWRAP]: { use: "keeps", why: "the brand's one way back to text, for the places below that read the message store or the gate-words record", from: [`${LIB}#gateWordsSinceUnitReview`, `${LIB}#personsGateReply`, `${LIB}#requireProtectedResponse`, `${LOG}#answerEnginePlanApproval`, `${ORCH}#takePersonsOwnLine`, `${STATE}#parkedWords`, `${STATE}#personsWordsFields`, `${GUARD_SWITCH}#saidInChat`, `${ORCH}#emit`, `${SWITCHES}#recordSwitchChange`, `${STATE}#requireHumanConstructionPolicyChange`, "core/tools/aidlc-utility.ts#handleReclassify", `${STATE}#handleReject`, `${LOG}#handleAnswer`] },
+  [UNWRAP]: { use: "keeps", why: "the brand's one way back to text, for the places below that read the message store or the gate-words record", from: [`${LIB}#gateWordsSinceUnitReview`, `${LIB}#personsGateReply`, `${LIB}#requireProtectedResponse`, `${LOG}#answerEnginePlanApproval`, `${ORCH}#takePersonsOwnLine`, `${STATE}#parkedWords`, `${STATE}#personsWordsFields`, `${GUARD_SWITCH}#saidInChat`, `${ORCH}#emit`, `${SWITCHES}#recordSwitchChange`, `${STATE}#requireHumanConstructionPolicyChange`, "core/tools/aidlc-utility.ts#handleReclassify", `${STATE}#handleReject`, `${LOG}#handleAnswer`, `${LIB}#keptRepliesSinceStageStart`, `${LIB}#latestReplyAfter`] },
+  [`${LIB}#keptRepliesSinceStageStart`]: { use: "keeps", why: "the resume re-show: every reply since the stage started that nothing has used yet, a typed message's words and a box's replies, unpaired (R26: the agent pairs them)" },
+  [`${LIB}#latestReplyAfter`]: { use: "keeps", why: "the audit writer: the plan override receipt's Person Reply, their latest reply since the offer, with its message" },
+  [`${LIB}#protectedResponseFields`]: { use: "keeps", why: "the audit writer: a protected question's decision row, the response's words with every message they came in (Message Ids)" },
   [`${LIB}#readProtectedResponse`]: { use: "decides", why: "the protected response's own read: checks its fields' form (the digest's hex)" },
   [`${LIB}#withdrawProtectedReplyWords`]: { use: "decides", why: "drops a kept reply by its message id (the scan reads a reply's id as its words), and keeps the words of the replies that stay" },
   [`${AUDIT}#appendAuditEntry`]: { use: "keeps", why: "the audit writer", from: [`${LOG}#emitAudit`] },
@@ -985,8 +988,6 @@ export const ALLOWED: Record<string, Allowed> = {
   [`${READER}#formatReceivedReply`]: { use: "keeps", why: "shows a blank reply as received in a refusal", from: [`${STATE}#handleReject`] },
   [`${LIB}#hasUnsafeSingleLineCharacter`]: { use: "keeps", why: "the audit writer's guard against a line break in a one-line field", from: [`${UNIT_CP}#rejectConstructionCheckpoint`, `${SWARM_CP}#rejectSwarmCheckpoint`] },
   [`${UNIT_CP}#approveConstructionCheckpoint`]: { use: "keeps", why: "the audit writer: the checkpoint approval's Person Reply" },
-  [`${SWARM_CP}#approveSwarmCheckpoint`]: { use: "keeps", why: "the audit writer: the batch approval's Person Reply" },
-  [`${LOG}#protectedPersonsWords`]: { use: "keeps", why: "the audit writer: a protected question's Person Reply" },
   [`${LOG}#answerEnginePlanApproval`]: { use: "keeps", why: "the audit writer: the plan answer's Person Reply" },
   [`${LOG}#handleReview`]: { use: "keeps", why: "the audit writer: the review request's Person Reply" },
   [`${LOG}#handleAnswers`]: { use: "keeps", why: "the audit writer: a batch of answers, blank details left out" },
@@ -1003,7 +1004,6 @@ export const ALLOWED: Record<string, Allowed> = {
   [`${SWITCHES}#quoted`]: { use: "keeps", why: "status: quotes those words, cut", from: [`${GUARD_SWITCH}#askedSwitchLine`, `${SWITCHES}#switchOffLine`] },
   [`${SWITCHES}#switchesOffLines`]: { use: "keeps", why: "status: the lines above" },
   [`${SWITCHES}#switchOffNotices`]: { use: "keeps", why: "status: the lines above" },
-  [`${POSTURE}#planApprovalOverridePersonReply`]: { use: "keeps", why: "the audit writer: the plan override receipt's Person Reply" },
   [`${ASK}#correctReadRequestChanges`]: { use: "keeps", why: "the audit writer: the replies kept since a Request Changes are the correction's words" },
   [`${ASK}#rejectionRevision`]: { use: "keeps", why: "the plan's revision keeps the rejection's Feedback" },
   [`${LIB}#freshReviewReceipts`]: { use: "keeps", why: "the presence shape: whether a review row carries Feedback" },
@@ -1150,13 +1150,7 @@ export const AGENT_ARGUMENT_CHECKS: readonly string[] = [
  * Today's readers the reading slices remove (DESIGN.md section 5), each with its slice and row. The slice deletes its
  * lines; a place that stays after it, keeping the words, moves to ALLOWED in the same change.
  */
-export const STILL_TO_GO: Record<string, ToGo> = {
-  // S2a: the agent's own questions: no default by position, no say-back, no pairing.
-  [`${LIB}#latestPersonTurn`]: { use: "decides", slice: "S2a", row: "R24", widenings: 1, why: "the latest turn's words as the default Person Reply, a pick's labels decoded" },
-  [`${LIB}#pickedLabels`]: { use: "decides", slice: "S2a", row: "R24", why: "latestPersonTurn's decode of a row's Picked", from: [`${LIB}#latestPersonTurn`] },
-  [`${LIB}#pickedLabelList`]: { use: "decides", slice: "S2a", row: "R26", why: "the decode of a row's Picked for keptRepliesSinceStageStart and pickedLabels", from: [`${LIB}#keptRepliesSinceStageStart`, `${LIB}#pickedLabels`] },
-  [`${LIB}#keptRepliesSinceStageStart`]: { use: "decides", slice: "S2a", row: "R26", widenings: 1, why: "pairs the kept replies with the logged questions" },
-};
+export const STILL_TO_GO: Record<string, ToGo> = {};
 
 /**
  * The text-blind fuzz's failure groups today's main still has (tests/harness/text-blind-fuzz.ts), each named with the
@@ -1168,11 +1162,4 @@ export interface FuzzRow {
   row: string;
   why: string;
 }
-export const FUZZ_STILL_TO_GO: readonly FuzzRow[] = [
-  // S2b's ids made these rows name their message, which shows how the protected response keeps the words.
-  { group: "I2 GATE_APPROVED Person Reply is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the protected response keeps the replies the hook kept under the question, joined and cut to its last 8000 characters, which is not always a window of the chat ending at the message the row now names" },
-  { group: "I2 GATE_REJECTED Person Reply is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the protected response keeps the replies the hook kept under the question, joined and cut to its last 8000 characters, which is not always a window of the chat ending at the message the row now names" },
-  { group: "I2 VERIFICATION_COMMAND_RECORDED Person Reply is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the protected response keeps the replies the hook kept under the question, joined and cut to its last 8000 characters, which is not always a window of the chat ending at the message the row now names" },
-  { group: "I2 GATE_REJECTED Feedback is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "a checkpoint reject's Feedback is its reason: the agent's --reason, or the person's words on one line (changeRequestWords)" },
-  { group: "I5 the person's words copied into QUESTION_ANSWERED.User Input", slice: "PA-fixes", row: "F3", why: "recordPlanApprovalAnswer's fallback puts their words in a Request Changes' User Input; PA-fixes makes User Input the agent's change text and Person Reply their words" },
-];
+export const FUZZ_STILL_TO_GO: readonly FuzzRow[] = [];

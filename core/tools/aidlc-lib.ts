@@ -12666,6 +12666,26 @@ export function personRepliedAfter(projectDir: string, mark: AuditMark): boolean
   }
 }
 
+// Their latest reply after the mark, as personRepliedAfter counts one, by the
+// message its turn names: that message and its words as the store keeps them,
+// for a decision's row. Null when there is none, or its message is not on record.
+export function latestReplyAfter(projectDir: string, mark: AuditMark): { messageId: string; words: string | null } | null {
+  try {
+    const shardPath = auditFilePath(projectDir);
+    if (projectRelativePath(projectDir, shardPath) !== mark.shard) return null;
+    const after = readAppendOnlyFileNoFollowOrThrow(shardPath, "audit shard").subarray(mark.offset).toString("utf-8");
+    const turn = auditShardBlocks(after).findLast((block) => isReplyTurn({ event: auditBlockField(block, "Event") ?? "", block }));
+    const id = turn === undefined ? null : auditBlockField(turn, "Message Id");
+    if (id === null) return null;
+    const { readMessage } = require("./aidlc-message-store.ts") as typeof import("./aidlc-message-store.ts");
+    const message = readMessage(projectDir, id);
+    if (message === null) return null;
+    return { messageId: id, words: message.words === null ? null : personsWordsText(message.words) };
+  } catch {
+    return null;
+  }
+}
+
 // When the engine first showed the person something they have not answered
 // yet (what the folder is, or that a plan can be built anyway): the audit mark
 // at that showing, in the work's own record, under `name`.
@@ -29890,8 +29910,30 @@ export function personsGateReply(projectDir: string, session: string | null, sta
 // when there are several (Message Ids, comma-separated), beside the latest
 // (Message Id): the row's words and its ids then match. One message, or the
 // one the agent named, is Message Id alone.
-export function windowMessageIds(reply: GateReply): Record<string, string> {
+export function windowMessageIds(reply: { replies: ReadonlyArray<{ id: string }> }): Record<string, string> {
   return reply.replies.length > 1 ? { "Message Ids": reply.replies.map((entry) => entry.id).join(",") } : {};
+}
+
+// A protected question's decision row (a Unit or batch checkpoint, the
+// verification command, a Construction policy): the words the response keeps,
+// every reply under the question joined in order, with the message each came
+// in, as a stage gate's row names its window (windowMessageIds). As there, words
+// that ran past what the response keeps are no longer everything they said:
+// the row names the messages and leaves the words to their records. A reply kept
+// before its message was named leaves the ids out: they would not cover the words.
+export function protectedResponseFields(response: ProtectedResponse | null): Record<string, string> {
+  if (!response?.words) return {};
+  const replies = response.replies ?? [];
+  const ids: Array<{ id: string }> = [];
+  for (const reply of replies) if (reply.messageId !== undefined) ids.push({ id: reply.messageId });
+  const id = replies.at(-1)?.messageId;
+  const joined = replies.reduce((length, reply) => length + reply.words.length, Math.max(0, replies.length - 1));
+  const whole = replies.length === 0 || joined === response.words.length;
+  return {
+    ...(whole ? { "Person Reply": response.words } : {}),
+    ...(id ? { "Message Id": id } : {}),
+    ...(ids.length === replies.length ? windowMessageIds({ replies: ids }) : {}),
+  };
 }
 
 // The step that lets the agent name the message that already answered a
@@ -29945,8 +29987,8 @@ export function answeredBeforeShownStep(
 // the human-turn hook's own record of them (GATE_WORDS_SPENT_BY: a gate shown or
 // decided, the work finished; and a Unit's step skipped at their request, whose
 // words were the skip). It hands back the words of each reply as the message
-// record keeps them, and the labels they picked in a question box (the
-// `Picked` field of their HUMAN_TURN rows). A chat that ended before the agent
+// record keeps them: a typed message's words, and a question box's reply to
+// each question it asked, in the order shown. A chat that ended before the agent
 // wrote or logged them leaves them here for the stage's next run. `questions` and `answers` are
 // the stage's questions and answers on record, each in order and never paired:
 // which reply answers which question is the agent's to read. Nothing here
@@ -29991,93 +30033,16 @@ export function keptRepliesSinceStageStart(
   // (where the work belongs, a switch), is no reply to the stage.
   for (const row of rows.slice(from + 1)) {
     if (!isReplyTurn(row)) continue;
-    const picked = pickedLabelList(auditBlockField(row.block, "Picked"));
-    if (picked.length > 0) {
-      replies.push(...picked);
-      continue;
-    }
     const id = auditBlockField(row.block, "Message Id");
     if (id === null) continue;
     const message = readMessage(projectDir, id);
     if (message === null || message.cut === true) return null;
-    // Read as text until S2a lands (its STILL_TO_GO line in tests/harness/persons-words-readers.ts).
-    const words = message.words as unknown as string | null;
-    if (words !== null && words.trim() !== "") replies.push(words);
+    const said = message.picker !== null
+      ? message.picker.flatMap(({ reply }) => (reply === null ? [] : [personsWordsText(reply)]))
+      : message.words === null ? [] : [personsWordsText(message.words)];
+    replies.push(...said.filter((words) => words.trim() !== ""));
   }
   return replies.length > 0 ? { replies, questions, answers } : null;
-}
-
-// The person's latest chat turn in this clone's ledger for the selected work:
-// when it was, and its words: the ones its chat kept right after it, or, when
-// the hook kept none, the labels it picked in a question box (the row's
-// `Picked` field, in the order shown). Null words for a slash command or an
-// over-long message. Null when no turn is on record. With `repliesAfter`, the
-// latest turn after that mark that replied (more than a command to AIDLC), so
-// a command typed since does not blank the words. It only words a notice or a
-// record, so it never throws.
-export function latestPersonTurn(
-  projectDir: string,
-  options: { repliesAfter?: AuditMark } = {},
-): { at: string; words: string | null } | null {
-  try {
-    const shardPath = auditFilePath(projectDir);
-    const after = options.repliesAfter;
-    if (after !== undefined && projectRelativePath(projectDir, shardPath) !== after.shard) return null;
-    const content = readAppendOnlyFileNoFollowOrThrow(shardPath, "audit shard").toString("utf-8");
-    const separator = /\r?\n---\r?\n/g;
-    let start = 0;
-    let turn: { at: string; session: string | null; picked: string | null; from: number; to: number } | null = null;
-    for (;;) {
-      const match = separator.exec(content);
-      const end = match ? match.index : content.length;
-      const block = content.slice(start, end).replace(/\r\n/g, "\n");
-      if (auditBlockField(block, "Event") === "HUMAN_TURN") {
-        const from = Buffer.byteLength(content.slice(0, start), "utf-8");
-        if (after === undefined || (from >= after.offset && isReplyTurn({ event: "HUMAN_TURN", block }))) {
-          turn = {
-            at: auditBlockField(block, "Timestamp") ?? "",
-            session: auditBlockField(block, "Session"),
-            picked: auditBlockField(block, "Picked"),
-            from,
-            to: Buffer.byteLength(content.slice(0, match ? match.index + match[0].length : end), "utf-8"),
-          };
-        }
-      }
-      if (match === null) break;
-      start = match.index + match[0].length;
-    }
-    if (turn === null) return null;
-    const { at, session, picked, from, to } = turn;
-    const record = session ? readGateWords(projectDir, session) : null;
-    // The hook keeps a turn's words at the shard's size right after its row.
-    const kept = record?.shard === projectRelativePath(projectDir, shardPath)
-      ? record.messages.find((message) => message.offset > from && message.offset <= to)
-      : undefined;
-    // Read as text until S2a lands (its STILL_TO_GO line in tests/harness/persons-words-readers.ts).
-    return { at, words: (kept?.text as unknown as string | undefined) ?? pickedLabels(picked) };
-  } catch {
-    return null;
-  }
-}
-
-// The labels a HUMAN_TURN row's `Picked` field carries, in the order shown.
-function pickedLabelList(raw: string | null): string[] {
-  if (raw === null) return [];
-  let picked: unknown;
-  try {
-    picked = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(picked)) return [];
-  return picked.filter((label): label is string => typeof label === "string" && label.trim().length > 0)
-    .map((label) => label.trim());
-}
-
-// The same labels as one line, or null.
-function pickedLabels(raw: string | null): string | null {
-  const labels = pickedLabelList(raw);
-  return labels.length > 0 ? labels.join(", ") : null;
 }
 
 // The person's words at an Approve / Request Changes question as what to

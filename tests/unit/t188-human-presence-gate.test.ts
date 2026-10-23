@@ -67,13 +67,13 @@ import {
   checkSummaryConfirmationEvidence,
   findStageBySlug,
   hooksHealthDir,
-  latestPersonTurn,
+  personsWordsText,
   readAllAuditShards,
   readAuditShardEvents,
   writeSessionPidEntry,
 } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
 import { appendAuditEntry } from "../../dist/claude/.claude/tools/aidlc-audit.ts";
-import { saveMessage } from "../../dist/claude/.claude/tools/aidlc-message-store.ts";
+import { readMessage, saveMessage } from "../../dist/claude/.claude/tools/aidlc-message-store.ts";
 
 setDefaultTimeout(NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
 
@@ -2303,6 +2303,11 @@ describe("t188: what the person's message asks for outlives the approval given i
 
   const tick = () => Bun.sleepSync(1100);
 
+  // What the question box carried back for the person's latest turn, as the message record keeps it.
+  function boxReplies(): Array<string | null> {
+    return readMessage(proj, latestMessageId())?.picker?.map(({ reply }) => reply && personsWordsText(reply)) ?? [];
+  }
+
   // The id of the message the hook kept for the person's latest turn.
   function latestMessageId(): string {
     const turn = readAuditShardEvents(proj).filter((row) => row.event === "HUMAN_TURN").at(-1);
@@ -2571,8 +2576,8 @@ describe("t188: what the person's message asks for outlives the approval given i
     const stage = field(proj, "Current Stage");
     expect(guardedLog(proj, ["decision", "--stage", stage, "--decision", OFFER, "--options", OFFERED.join(",")]).rc).toBe(0);
     pickInBox([{ question: OFFER, options: OFFERED, choice: OFFERED[0] }]);
-    // The pick is their words: the record quotes it where a typed turn is quoted.
-    expect(latestPersonTurn(proj)?.words).toBe(OFFERED[0]);
+    // The pick is their words: the record keeps it where a typed turn's words are kept.
+    expect(boxReplies()).toEqual([OFFERED[0]]);
     const id = latestMessageId();
     tick();
     const answered = guardedLog(proj, ["answer", "--stage", stage, "--details", OFFERED[0]]);
@@ -2623,6 +2628,6 @@ describe("t188: what the person's message asks for outlives the approval given i
       { question: "Which name?", options: ["A", "B"], choice: "A" },
       { question: "Which colour?", options: ["Red", "Blue"], choice: "Blue" },
     ]);
-    expect(latestPersonTurn(proj)?.words).toBe("A, Blue");
+    expect(boxReplies()).toEqual(["A", "Blue"]);
   });
 });

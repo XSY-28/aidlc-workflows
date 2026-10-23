@@ -55,6 +55,7 @@ import {
   mintProtectedQuestion,
   protectedTargetDigest,
   readProtectedQuestion,
+  protectedResponseFields,
   readProtectedResponse,
   protectedReplyFloor,
   requireProtectedResponse,
@@ -1610,13 +1611,7 @@ function pendingConstructionPolicyDecision(pd: string, stage: string, field: str
 // The person's own words for a protected question, as the human-turn hook kept
 // them, for the receipt.
 function protectedPersonsWords(pd: string, session: string | undefined): Record<string, string> {
-  if (!session) return {};
-  const response = readProtectedResponse(pd, session);
-  const id = response?.replies?.at(-1)?.messageId;
-  return {
-    ...(response?.words ? { "Person Reply": response.words } : {}),
-    ...(response?.words && id ? { "Message Id": id } : {}),
-  };
+  return session ? protectedResponseFields(readProtectedResponse(pd, session)) : {};
 }
 
 // The engine's Plan Approval question, loaded only on its answer path.
@@ -2310,9 +2305,10 @@ function handleAnswer(args: string[]): void {
             "the person must ask for it in an attended chat.",
         );
       }
-      // Their words go on the record: their latest reply since the offer.
+      // Their words go on the record: their latest reply since the offer, and its message.
       const personReply = planApprovalOverridePersonReply(pd);
-      if (personReply) fields["Person Reply"] = personReply;
+      if (personReply?.words) fields["Person Reply"] = personReply.words;
+      if (personReply) fields["Message Id"] = personReply.messageId;
       // Effects, in order: the person's reply is checked again inside the
       // receipt transaction; the normal path is attempted; when it refuses, the
       // PLAN_APPROVAL_OVERRIDDEN row is appended BEFORE the override receipt is
@@ -2333,7 +2329,8 @@ function handleAnswer(args: string[]): void {
               Session: fields.Session,
               Unit: flags.unit ?? "stage-level",
               Fingerprint: planEvidence!.fingerprint,
-              ...(personReply ? { "Person Reply": personReply } : {}),
+              ...(personReply?.words ? { "Person Reply": personReply.words } : {}),
+              ...(personReply ? { "Message Id": personReply.messageId } : {}),
             });
           },
         );
