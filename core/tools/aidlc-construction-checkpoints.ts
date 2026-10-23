@@ -10,7 +10,7 @@ import { closeSync, existsSync, lstatSync, mkdtempSync, openSync, readSync, rmdi
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { appendAuditEntryUnlocked } from "./aidlc-audit.ts";
-import { proveMessage } from "./aidlc-message-store.ts";
+import { proveMessage, readMessage } from "./aidlc-message-store.ts";
 import { aidlcToolInvocation } from "./aidlc-runtime-paths.ts";
 import { APPROVAL_GATE_CHOICES } from "./aidlc-reply-reader.ts";
 import {
@@ -40,10 +40,9 @@ import {
   consumeProtectedQuestion,
   withdrawProtectedQuestions,
   changeRequestWords,
-  personsGateReply,
+  personsWordsText,
   protectedResponseFields,
   readProtectedResponse,
-  windowMessageIds,
   requireProtectedResponse,
   protectedTargetDigest,
   gateWordsSinceUnitReview,
@@ -578,6 +577,8 @@ interface Snapshot {
   /** The stages whose unfinished review the person let the Unit go on
    *  without, which its verification records. */
   waivedStages: string[];
+  /** The message the person said to go on without the review in, as the latest verification recorded it. */
+  waiverMessage: string | null;
 }
 
 interface ApprovedStageEvidence {
@@ -1300,6 +1301,7 @@ function snapshot(
   const unfinishedStages = stages.filter((slug) => notFinished.includes(slug) || endedUnfinished.includes(slug));
   return {
     root, rows, state, verificationCommand: shared.verificationCommand, accepted,
+    waiverMessage: verification ? auditBlockField(verification.block, "Message Id") : null,
     approvedEvidence: JSON.stringify(approvedEvidence),
     overAllowed: rereview?.unfinished !== undefined && unfinishedMayGoOn && overAllowed(),
     waivedStages: notFinished,
@@ -1440,11 +1442,11 @@ export async function verifyConstructionCheckpoint(
 ): Promise<ConstructionCheckpoint> {
   // The person's "approve it as it is": the message the agent names
   // (--message), proved, is what lets the Unit go on without its review.
-  let over = false;
+  let over: string | null = null;
   if (options.overUnfinishedReview === true && options.message !== undefined) {
     const proof = proveMessage(projectDir, options.message, "request", { request: true });
     if ("refusal" in proof) throw new Error(proof.refusal);
-    over = true;
+    over = proof.message.id;
   }
   // A check that formats or regenerates the Unit's files changes what it
   // checked, so it runs once more against the files as they are now.
@@ -1466,10 +1468,11 @@ async function verifyOnce(
   unit: string,
   kind: ConstructionCheckpointKind,
   secondRun: boolean,
-  overUnfinishedReview: boolean,
+  // The message the person said to approve it as it is in, proved; null when they said nothing of it now.
+  overUnfinishedReview: string | null,
   timeoutMs: number,
 ): Promise<{ result: ConstructionCheckpoint; rerun: boolean }> {
-  const personAllows = overUnfinishedReview;
+  const personAllows = overUnfinishedReview !== null;
   const before = locked(projectDir, () => {
     withdrawProtectedQuestions(projectDir, "*");
     const current = snapshot(projectDir, unit, kind, undefined, undefined, personAllows);
@@ -1566,6 +1569,8 @@ async function verifyOnce(
     proof.verified = passed && proof.error === null && proof.evidence_unchanged;
     writeRecordFileNoFollow(before.root, proofRelativePath(unit, kind), `${JSON.stringify(proof, null, 2)}\n`);
     if (after.root !== before.root) throw new Error("Active intent changed during Construction verification.");
+    // The waiver it records stands on the message the person said it in: named now, or carried from the last one.
+    const waiverMessage = overUnfinishedReview ?? before.waiverMessage;
     appendAuditEntryUnlocked("CHECKPOINT_VERIFICATION_RECORDED", {
       Unit: unit,
       Kind: kind,
@@ -1580,6 +1585,7 @@ async function verifyOnce(
       ...(before.waivedStages.length > 0 ? {
         "Review Not Finished": JSON.stringify(Object.fromEntries(before.waivedStages
           .map((stage) => [stage, before.result.run_floors[stage]]))),
+        ...(waiverMessage ? { "Message Id": waiverMessage } : {}),
       } : {}),
       ...claimAttemptFields(projectDir, unit),
     }, projectDir);
@@ -1719,13 +1725,11 @@ export function approveConstructionCheckpoint(
     if (humanRequired && inWords) {
       // Already approved from their words: an approve run again records nothing more.
       if (current.result.approved) return current.result;
-      // Their words as a stage gate's row keeps them: every unspent reply of
-      // theirs in this chat since the stage started, with the messages it came in.
-      const reply = personsGateReply(projectDir, session || null, current.result.stages.at(-1)!);
+      // Their words are the message the verification took their approval from.
+      const named = current.waiverMessage === null ? null : readMessage(projectDir, current.waiverMessage);
       theirs = {
-        ...(reply.words ? { "Person Reply": reply.words } : {}),
-        ...(reply.messageId ? { "Message Id": reply.messageId } : {}),
-        ...windowMessageIds(reply),
+        ...(named?.words ? { "Person Reply": personsWordsText(named.words) } : {}),
+        ...(current.waiverMessage ? { "Message Id": current.waiverMessage } : {}),
       };
     } else if (humanRequired) {
       requireProtectedResponse(projectDir, session, {
