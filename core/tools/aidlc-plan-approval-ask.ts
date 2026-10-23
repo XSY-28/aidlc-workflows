@@ -1897,7 +1897,8 @@ export function recordPlanApprovalAnswer(
     }
     // Their words, whole: what to change when they asked for changes.
     const words = replies.map((reply) => reply.text).join("\n");
-    const messageId = replies[replies.length - 1].messageId;
+    const latest: PlanApprovalAskReply = replies[replies.length - 1];
+    const messageId = latest.messageId;
     const who = session || replies[replies.length - 1].session;
     const units = record.targets.map((target) => target.unit);
     const answered = new Set((record.results ?? []).map((result) => result.unit));
