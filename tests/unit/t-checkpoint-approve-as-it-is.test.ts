@@ -329,6 +329,22 @@ describe("approving a Unit as it is over a review that did not finish", () => {
     }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
   }
 
+  // Their approval is the message the verification took it from, whatever they said after it.
+  test("a later message does not become the words of an approval given as it is", () => {
+    const p = fixture("off");
+    build(p, "alpha");
+    review(p, "alpha", 1);
+    const asItIs = says(p, AS_IT_IS);
+    const verified = checkpoint(p, "alpha", "verify", ["--over-unfinished-review", "--message", asItIs]);
+    expect(verified.json?.verified, verified.out).toBe(true);
+    says(p, "thanks, and carry on with beta after");
+    const approved = checkpoint(p, "alpha", "approve");
+    expect(approved.status, approved.out).toBe(0);
+    const approval = unitApprovals(p, "alpha").at(-1)!;
+    expect(auditBlockField(approval.block, "Person Reply")).toBe(AS_IT_IS);
+    expect(auditBlockField(approval.block, "Message Id")).toBe(asItIs);
+  }, NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
+
   test("Guard Policy off, adversarial review NOT-READY with a pass left: approved as it is, and the walk carries on", () => {
     const p = fixture("off", "adversarial");
     build(p, "alpha");
