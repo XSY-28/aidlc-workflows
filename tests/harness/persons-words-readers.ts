@@ -13,7 +13,8 @@
 //     prompt as the human-turn hook parses it from its payload. A typed field that is handed the words becomes a
 //     source too (`personsGateReply().words`, the protected response's words, the plan ask's replies), and so does
 //     an audit row field the writer puts the words in (Person Reply, Feedback, Reason, Details, Picked), read by
-//     `auditBlockField`, and a field of the same name on a value that came out of JSON.parse.
+//     `auditBlockField`, and a field of the same name on a value that came out of JSON.parse. The questions files'
+//     `[Answer]:` line is a source by the functions that read it out of the file (ANSWER_LINE_READERS).
 //   - Flow: locals, destructuring, array elements, string and array methods, a parameter handed the words, and a
 //     call's result where the callee hands back what it was given (each function's summary, so a helper is a reader
 //     only where it is given the words). Booleans and numbers carry nothing: a comparison's result is the decision,
@@ -27,8 +28,8 @@
 //
 // What it does not see: the adapters' own parsing of their host's input (untyped JSON in harness/*/hooks); the three
 // host-text identities and the legacy nonce match are on ALLOWED whether or not the scan reaches them, so a typed read
-// there is caught the day it appears. The questions file's `[Answer]:` lines are not a source here (S2a's R31 and
-// S3's R32 have their own tests).
+// there is caught the day it appears. The `[Answer]:` line read inline from the file's text (a stage's questions
+// counted, the claim-sources sensor) is on ALLOWED_UNREACHED by name.
 
 import { existsSync, readdirSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
@@ -48,6 +49,8 @@ export interface ToGo extends Allowed {
   slice: Slice;
   /** The design's row (DESIGN.md section 2.2a). */
   row: string;
+  /** The casts out of PersonsWords it reads through until its slice lands (`as unknown as string`), never an unwrap. */
+  widenings?: number;
 }
 
 export interface Found {
@@ -74,6 +77,16 @@ export const RECORD_COPIES: ReadonlyArray<{ file: string; type: string; field: s
   { file: "core/tools/aidlc-lib.ts", type: "ProtectedResponse", field: "words" },
   { file: "core/tools/aidlc-plan-approval-ask.ts", type: "PlanApprovalAskReply", field: "text" },
   { file: "core/tools/aidlc-question-store.ts", type: "StoredQuestion", field: "text" },
+];
+/**
+ * The questions files' `[Answer]:` line, by the functions that read it out of the file. Mostly the agent writes it (the
+ * summary's tag, a choice it records), but the Code Generation plan file asks the person to write their own answer
+ * there, and a stage's questions file may be answered there too. `field`: the line is that field of the result.
+ */
+export const ANSWER_LINE_READERS: ReadonlyArray<{ file: string; fn: string; field?: string }> = [
+  { file: "core/tools/aidlc-lib.ts", fn: "summaryAnswerFromFile" },
+  { file: "core/tools/aidlc-plan-approval-ask.ts", fn: "answerWrittenInFile" },
+  { file: "core/tools/aidlc-testing-posture.ts", fn: "latestPlanApproval", field: "answer" },
 ];
 /**
  * The person's free text as `next`'s flag parse hands it out: the request the agent forwards (`intent`), the words a
@@ -148,11 +161,18 @@ function shippedFiles(root: string): { program: string[]; options: ts.CompilerOp
   return { program, options: { ...main.options, noEmit: true }, scanned };
 }
 
-/**
- * Every place in `files` (default: the shipped engine) where the person's words are used, keyed `file#name`.
- * `files` given: only those are scanned, with the engine they import as the sources' home.
- */
-export function scanPersonsWords(options: { root?: string; files?: string[] } = {}): Map<string, Found> {
+// One program per set of files, so the brand's scan reads the checker the words' scan has already filled.
+const programs = new Map<string, { program: ts.Program; scannedNames: Map<string, string> }>();
+function pinProgram(options: { root?: string; files?: string[] }): { program: ts.Program; scannedNames: Map<string, string> } {
+  const key = JSON.stringify([options.root ?? REPO_ROOT, options.files ?? null]);
+  let built = programs.get(key);
+  if (!built) {
+    built = buildPinProgram(options);
+    programs.set(key, built);
+  }
+  return built;
+}
+function buildPinProgram(options: { root?: string; files?: string[] }): { program: ts.Program; scannedNames: Map<string, string> } {
   const root = options.root ?? REPO_ROOT;
   let programFiles: string[];
   let compilerOptions: ts.CompilerOptions;
@@ -166,7 +186,33 @@ export function scanPersonsWords(options: { root?: string; files?: string[] } = 
     ({ program: programFiles, options: compilerOptions, scanned: shipped } = shippedFiles(root));
     scannedNames = new Map([...shipped].map(([file, name]) => [fileKey(file), name]));
   }
-  const program = ts.createProgram(programFiles, compilerOptions);
+  return { program: ts.createProgram(programFiles, compilerOptions), scannedNames };
+}
+
+/** The outermost named function `n` sits in, as a place names it (`file#name`). */
+function unitName(n: ts.Node): string {
+  let name = "<module>";
+  for (let p: ts.Node | undefined = n.parent; p; p = p.parent) {
+    if (ts.isFunctionDeclaration(p) && p.name) name = p.name.text;
+    else if (ts.isMethodDeclaration(p) && p.name) {
+      const cls = ts.isClassLike(p.parent) && p.parent.name ? `${p.parent.name.text}.` : "";
+      name = `${cls}${p.name.getText()}`;
+    } else if (ts.isConstructorDeclaration(p)) {
+      name = `${ts.isClassLike(p.parent) && p.parent.name ? p.parent.name.text : "class"}.constructor`;
+    } else if ((ts.isArrowFunction(p) || ts.isFunctionExpression(p)) && ts.isVariableDeclaration(p.parent) &&
+      ts.isIdentifier(p.parent.name) && ts.isVariableStatement(p.parent.parent.parent) && ts.isSourceFile(p.parent.parent.parent.parent)) {
+      name = p.parent.name.text;
+    }
+  }
+  return name;
+}
+
+/**
+ * Every place in `files` (default: the shipped engine) where the person's words are used, keyed `file#name`.
+ * `files` given: only those are scanned, with the engine they import as the sources' home.
+ */
+export function scanPersonsWords(options: { root?: string; files?: string[] } = {}): Map<string, Found> {
+  const { program, scannedNames } = pinProgram(options);
   const checker = program.getTypeChecker();
   const scanned = program.getSourceFiles().filter((sf) => scannedNames.has(fileKey(sf.fileName)));
   const scannedSet = new Set(scanned);
@@ -185,6 +231,7 @@ export function scanPersonsWords(options: { root?: string; files?: string[] } = 
   // --- labels: the words (W), or a function's own parameter (P<i>@<fn>) ---
   const symLabels = new Map<ts.Symbol, Set<string>>();
   const sourceName = new Map<ts.Symbol, string>();
+  const answerLineFns = new Map<ts.Node, string>();
   const ret = new Map<ts.Node, Set<string>>();
   const reached = new Map<ts.Node, Set<number>>();
   const fnId = new Map<ts.Node, number>();
@@ -294,6 +341,18 @@ export function scanPersonsWords(options: { root?: string; files?: string[] } = 
   for (const sf of engineFiles) {
     const file = posix(sf.fileName);
     const visit = (n: ts.Node) => {
+      if (ts.isFunctionDeclaration(n) && n.name) {
+        for (const reader of ANSWER_LINE_READERS) {
+          if (reader.fn !== n.name.text || !file.endsWith(`/${reader.file}`)) continue;
+          const why = `the [Answer]: line (${reader.fn})`;
+          if (reader.field === undefined) {
+            ret.set(n, new Set([WORDS]));
+            answerLineFns.set(n, why);
+          } else if (n.type && ts.isTypeLiteralNode(n.type)) {
+            for (const m of n.type.members) if (m.name && ts.isIdentifier(m.name) && m.name.text === reader.field) seed(symOf(m.name), why, false);
+          }
+        }
+      }
       if (ts.isInterfaceDeclaration(n) && n.name.text === "StoredMessage" && file.endsWith("/aidlc-message-store.ts")) {
         for (const m of n.members) {
           if (m.name && ts.isIdentifier(m.name) && ["text", "words", "picker"].includes(m.name.text)) seed(symOf(m.name), `message store ${m.name.text}`);
@@ -644,22 +703,6 @@ export function scanPersonsWords(options: { root?: string; files?: string[] } = 
   }
 
   // --- the places, and how each uses the words ---
-  const unitName = (n: ts.Node): string => {
-    let name = "<module>";
-    for (let p: ts.Node | undefined = n.parent; p; p = p.parent) {
-      if (ts.isFunctionDeclaration(p) && p.name) name = p.name.text;
-      else if (ts.isMethodDeclaration(p) && p.name) {
-        const cls = ts.isClassLike(p.parent) && p.parent.name ? `${p.parent.name.text}.` : "";
-        name = `${cls}${p.name.getText()}`;
-      } else if (ts.isConstructorDeclaration(p)) {
-        name = `${ts.isClassLike(p.parent) && p.parent.name ? p.parent.name.text : "class"}.constructor`;
-      } else if ((ts.isArrowFunction(p) || ts.isFunctionExpression(p)) && ts.isVariableDeclaration(p.parent) &&
-        ts.isIdentifier(p.parent.name) && ts.isVariableStatement(p.parent.parent.parent) && ts.isSourceFile(p.parent.parent.parent.parent)) {
-        name = p.parent.name.text;
-      }
-    }
-    return name;
-  };
   const isNullish = (e: ts.Expression) => e.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(e) && e.text === "undefined") || ts.isVoidExpression(e);
   const isEmptyString = (e: ts.Expression) => (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) && e.text === "";
   const decidesParam = new Map<ts.Node, Set<number>>();
@@ -778,6 +821,7 @@ export function scanPersonsWords(options: { root?: string; files?: string[] } = 
         else if (ts.isCallExpression(n)) {
           const d = callee(n);
           if (d && FIELD_READERS.has(declName(d))) found.sources.add(`audit field ${stringOf(n.arguments[1]) ?? "?"}`);
+          else if (d && answerLineFns.has(d)) found.sources.add(answerLineFns.get(d) as string);
         }
       }
       places.set(key, found);
@@ -802,6 +846,80 @@ export function scanPersonsWords(options: { root?: string; files?: string[] } = 
     visit(sf);
   }
   return places;
+}
+
+// ---------------------------------------------------------------------------
+// The brand
+// ---------------------------------------------------------------------------
+
+/** The one way from PersonsWords back to text (core/tools/aidlc-lib.ts). */
+export const UNWRAP = "core/tools/aidlc-lib.ts#personsWordsText";
+
+/** What a place does across the brand: its calls of the unwrap, and its casts out of PersonsWords and into it. */
+export interface BrandUse {
+  unwraps: number;
+  /** One line each: an `as` whose operand's type holds PersonsWords and whose target's does not. */
+  castsOut: string[];
+  /** One line each: the other way round. */
+  castsIn: string[];
+}
+
+/**
+ * The places in `files` (default: the shipped engine) that call the unwrap or cast across the brand, keyed `file#name`.
+ * A type holds PersonsWords when it is the brand, or a union, a field, an element or a type argument holds it, as the
+ * checker resolves them; `x as unknown as string` is one cast out, its inner half.
+ */
+export function scanPersonsWordsBrand(options: { root?: string; files?: string[] } = {}): Map<string, BrandUse> {
+  const { program, scannedNames } = pinProgram(options);
+  const checker = program.getTypeChecker();
+  const lib = program.getSourceFiles().find((sf) => posix(sf.fileName).endsWith("/core/tools/aidlc-lib.ts"));
+  let brand: ts.Symbol | undefined;
+  let unwrap: ts.Node | undefined;
+  for (const st of lib?.statements ?? []) {
+    if (ts.isInterfaceDeclaration(st) && st.name.text === "PersonsWords") brand = checker.getSymbolAtLocation(st.name);
+    if (ts.isFunctionDeclaration(st) && st.name?.text === UNWRAP.split("#")[1]) unwrap = st;
+  }
+  if (!brand || !unwrap) throw new Error("core/tools/aidlc-lib.ts declares no PersonsWords or no personsWordsText");
+  const held = new Map<ts.Type, boolean>();
+  const holds = (t: ts.Type, depth = 0): boolean => {
+    const known = held.get(t);
+    if (known !== undefined) return known;
+    held.set(t, false);
+    let v = false;
+    if (t.isUnionOrIntersection()) v = t.types.some((x) => holds(x, depth + 1));
+    else if (t.getSymbol() === brand) v = true;
+    else if (depth < 6 && t.flags & ts.TypeFlags.Object) {
+      const args = (t as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference ? checker.getTypeArguments(t as ts.TypeReference) : [];
+      v = args.some((x) => holds(x, depth + 1)) ||
+        checker.getPropertiesOfType(t).some((p) => holds(checker.getTypeOfSymbol(p), depth + 1));
+    }
+    held.set(t, v);
+    return v;
+  };
+  const uses = new Map<string, BrandUse>();
+  for (const sf of program.getSourceFiles()) {
+    const file = scannedNames.get(fileKey(sf.fileName));
+    if (file === undefined) continue;
+    const at = (n: ts.Node) => {
+      const key = `${file}#${unitName(n)}`;
+      const entry = uses.get(key) ?? { unwraps: 0, castsOut: [], castsIn: [] };
+      uses.set(key, entry);
+      return entry;
+    };
+    const line = (n: ts.Node) => `${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}: ${n.getText().replace(/\s+/g, " ").slice(0, 100)}`;
+    const visit = (n: ts.Node) => {
+      if (ts.isCallExpression(n) && checker.getResolvedSignature(n)?.declaration === unwrap) at(n).unwraps++;
+      if ((ts.isAsExpression(n) || ts.isTypeAssertionExpression(n)) && !ts.isConstTypeReference(n.type)) {
+        const from = holds(checker.getTypeAtLocation(n.expression));
+        const to = holds(checker.getTypeFromTypeNode(n.type));
+        if (from && !to) at(n).castsOut.push(line(n));
+        else if (!from && to) at(n).castsIn.push(line(n));
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+  }
+  return uses;
 }
 
 /** The fixture files of the pin's reds. */
@@ -851,6 +969,7 @@ export const ALLOWED: Record<string, Allowed> = {
   [`${STORE}#messageIsReply`]: { use: "keeps", why: "the presence shape: a message with words or none (words === null)" },
   [`${STORE}#noReplySince`]: { use: "keeps", why: "the presence shape: a line of settings alone is no reply (words === null)" },
   [`${ORCH}#handOutSettingsLine`]: { use: "keeps", why: "the presence shape: a line of settings alone (words === null) is handed to its setter once" },
+  [UNWRAP]: { use: "keeps", why: "the brand's one way back to text, for the places below that read the message store or the gate-words record", from: [`${LIB}#gateWordsSinceUnitReview`, `${LIB}#personsGateReply`, `${LIB}#requireProtectedResponse`, `${LOG}#answerEnginePlanApproval`, `${ORCH}#takePersonsOwnLine`, `${STATE}#parkedWords`, `${STATE}#personsWordsFields`] },
   [`${LIB}#readProtectedResponse`]: { use: "decides", why: "the protected response's own read: checks its fields' form (the digest's hex)" },
   [`${LIB}#withdrawProtectedReplyWords`]: { use: "decides", why: "drops a kept reply by its message id (the scan reads a reply's id as its words), and keeps the words of the replies that stay" },
   [`${AUDIT}#appendAuditEntry`]: { use: "keeps", why: "the audit writer", from: [`${LOG}#emitAudit`] },
@@ -932,6 +1051,14 @@ export const ALLOWED: Record<string, Allowed> = {
   "core/tools/aidlc-utility.ts#handleScopeChange": { use: "decides", why: "prints the setter's lines, each ended with a full stop when it has none (the line's last character) for the person's next line" },
   "core/tools/aidlc-utility.ts#handleReclassify": { use: "keeps", why: "the audit writer: the reclassify row's Person Reply, the named message's words" },
   [`${STATE}#handleReject`]: { use: "keeps", why: "the audit writer: a reject's Feedback (their words) and Message Id, the agent's text beside them as Conductor Summary" },
+  // The questions files' `[Answer]:` line (ANSWER_LINE_READERS): its presence, and the agent's own writes checked
+  // against its own arguments (O4's class), never what the person wrote there.
+  [`${LIB}#checkSummaryConfirmationEvidence`]: { use: "decides", why: "O4: the summary's [Answer]: tag is the agent's write (log's summary step has it write the choice label), checked against the engine's own label (SUMMARY_ANSWER_INVALID)" },
+  [`${POSTURE}#planApprovalQuestionEvidence`]: { use: "decides", why: "O4: the plan file's [Answer]: label, written by the agent itself, checked against its own --details (blank before the question); on the engine's plan question the recorder writes the line and never runs this" },
+  [`${POSTURE}#planApprovalAnswerLabel`]: { use: "keeps", why: "cuts the recorder's option letter and quotes off that label", from: [`${POSTURE}#planApprovalQuestionEvidence`] },
+  [`${POSTURE}#questionsFileHasPendingPlanApproval`]: { use: "decides", why: "the presence shape: whether the plan file's [Answer]: line is still blank (or underscores)" },
+  [`${ASK}#onlyTheirAnswerDiffers`]: { use: "keeps", why: "the presence shape: the person's answer in the plan file stays while the same question stands (the engine never erases what they wrote)" },
+  [`${ASK}#requestPlanApprovalReviewNow`]: { use: "keeps", why: "the presence shape: a recorded answer on the plan file's line is cleared when the person asks to review the plan again" },
   // The request the agent forwards to next (its free text) and the question store that keeps it: shown back, quoted
   // into a command, kept; each with its reason.
   "core/tools/aidlc-runtime-paths.ts#quoteCommandArgument": { use: "decides", why: "shell-quotes their words into a command the agent runs", from: [`${ORCH}#routeNext`, `${ORCH}#routingQuestionReplyDirective`] },
@@ -1001,7 +1128,17 @@ export const ALLOWED_UNREACHED: Record<string, Allowed> = {
   "harness/kiro-ide/hooks/aidlc-kiro-adapter.ts#messageOrigin": { use: "decides", why: "host-text identity: the Kiro workflow brief template (P1)" },
   [`${LIB}#kiroTurnOrigin`]: { use: "decides", why: "host-text identity: the Kiro templates (P1)" },
   [`${LIB}#kiroChatRecordOrigin`]: { use: "decides", why: "host-text identity: the Kiro chat record's mark for this prompt (P1)" },
+  // The `[Answer]:` line read inline from a questions file's text, the person's when they answer in the file.
+  [`${ORCH}#questionsCount`]: { use: "decides", why: "the presence shape: how many of a stage's [Answer]: lines hold an answer, for the review line" },
+  [`${ORCH}#answeredQuestionsFile`]: { use: "decides", why: "the presence shape: whether a stage's questions file holds its questions (an [Answer]: tag, filled or blank)" },
+  "core/tools/aidlc-sensor-claim-sources.ts#parseSourceUniverse": { use: "decides", why: "the claim-sources sensor: duplicate [Answer]: entries and which questions are filled (presence and shape); its Assumption Confirmation read is S2a's R31" },
+  "core/tools/aidlc-sensor-claim-sources.ts#answerIsFilled": { use: "decides", why: "the presence shape: an [Answer]: line holds more than blanks or underscores", from: ["core/tools/aidlc-sensor-claim-sources.ts#parseSourceUniverse"] },
 };
+
+/** The places that make a record's words PersonsWords: the two records' writers and their own reads of the file. */
+export const BRAND_WRITERS: readonly string[] = [
+  `${STORE}#saveMessage`, `${STORE}#parseMessage`, `${LIB}#recordGateWords`, `${LIB}#readGateWords`,
+];
 
 /** The agent-argument checks (O4): they read the agent's argv or the file it wrote, never the person's words. */
 export const AGENT_ARGUMENT_CHECKS: readonly string[] = [
@@ -1015,10 +1152,10 @@ export const AGENT_ARGUMENT_CHECKS: readonly string[] = [
  */
 export const STILL_TO_GO: Record<string, ToGo> = {
   // S2a: the agent's own questions: no default by position, no say-back, no pairing.
-  [`${LIB}#latestPersonTurn`]: { use: "decides", slice: "S2a", row: "R24", why: "the latest turn's words as the default Person Reply, a pick's labels decoded" },
+  [`${LIB}#latestPersonTurn`]: { use: "decides", slice: "S2a", row: "R24", widenings: 1, why: "the latest turn's words as the default Person Reply, a pick's labels decoded" },
   [`${LIB}#pickedLabels`]: { use: "decides", slice: "S2a", row: "R24", why: "latestPersonTurn's decode of a row's Picked", from: [`${LIB}#latestPersonTurn`] },
   [`${LIB}#pickedLabelList`]: { use: "decides", slice: "S2a", row: "R26", why: "the decode of a row's Picked for keptRepliesSinceStageStart and pickedLabels", from: [`${LIB}#keptRepliesSinceStageStart`, `${LIB}#pickedLabels`] },
-  [`${LIB}#keptRepliesSinceStageStart`]: { use: "decides", slice: "S2a", row: "R26", why: "pairs the kept replies with the logged questions" },
+  [`${LIB}#keptRepliesSinceStageStart`]: { use: "decides", slice: "S2a", row: "R26", widenings: 1, why: "pairs the kept replies with the logged questions" },
 };
 
 /**

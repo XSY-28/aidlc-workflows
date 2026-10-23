@@ -11,11 +11,13 @@ import { listMessages, type StoredMessage } from "../../../core/tools/aidlc-mess
 
 /** The words compared to a label. */
 export function approvedByWords(message: StoredMessage): boolean {
+  // @ts-expect-error PersonsWords is no string: the brand refuses this read
   return message.words === "Approve";
 }
 
 /** Through a local, after normalising, as the legacy nonce match normalises. */
 export function approvedAfterNormalising(message: StoredMessage): boolean {
+  // @ts-expect-error PersonsWords is no string: the brand refuses this read
   const said = message.text.trim().toLowerCase().replace(/\s*\(recommended\)\s*$/, "");
   return said.startsWith("approve");
 }
@@ -23,6 +25,7 @@ export function approvedAfterNormalising(message: StoredMessage): boolean {
 /** A destructured field, searched. */
 export function saidYes(message: StoredMessage): boolean {
   const { words } = message;
+  // @ts-expect-error PersonsWords is no string: the brand refuses this read
   return words?.includes("yes") === true;
 }
 
@@ -32,6 +35,7 @@ export function looksLikeYes(text: string): boolean {
 }
 export function latestSaidYes(projectDir: string): boolean {
   const latest = listMessages(projectDir).at(-1);
+  // @ts-expect-error PersonsWords is no string: the brand refuses this read
   return latest !== undefined && looksLikeYes(latest.words ?? "");
 }
 
@@ -66,6 +70,7 @@ export function approvalReplyWasApprove(block: string): boolean {
 /** A digest of their text compared to one kept from their text. */
 export function sameReplyAsBefore(message: StoredMessage, kept: StoredMessage): boolean {
   const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+  // @ts-expect-error PersonsWords is no string: the brand refuses this read
   return digest(message.text) === digest(kept.text);
 }
 
