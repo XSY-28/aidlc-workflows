@@ -102,7 +102,6 @@ import {
   firstFrontQuestionSince,
   isQuestionId,
   latestFrontQuestionId,
-  wordsAlreadyRead,
   latestQuestion,
   pruneExpiredQuestions,
   QUESTION_UNAVAILABLE,
@@ -4072,7 +4071,7 @@ function newWorkRoutingAskDirective(
   // The route commands travel as fields, never inside the human-facing text.
   // Its own question: this ask is about work that exists, so its continue and
   // reshape routes act only on the item(s) it names, and ask again otherwise.
-  const stored = saveQuestion(
+  const stored = saveReadingQuestion(
     projectDir, description, proposedScope, "routing", askedAbout, false, derivedFrom, stateSha256,
     routingSettings(carried), approvedRequest,
   );
@@ -8790,10 +8789,10 @@ function takePersonsOwnLine(flags: ParsedFlags, pd: string): string[] | null {
   if (typed === null || typed.length === 0) return null;
   const argv = splitKiroCommandArgs(typed);
   const own = parseNextFlags(argv);
-  // A line `next` already read for this chat (the reading step over work nobody
-  // has selected kept its words as a question) is not read again: the bare
-  // `next` the agent runs after that step asks which work to pick up.
-  if (own.intent !== undefined && wordsAlreadyRead(pd, own.intent, message.at)) return null;
+  // A line `next` already read for this chat (a reading step kept its words as
+  // a question and marked the message) is not read again: the bare `next` the
+  // agent runs after that step goes on from it.
+  if (own.intent !== undefined && lineHandedOut(pd, engineSessionId, message.id)) return null;
   for (const key of Object.keys(flags)) delete (flags as unknown as Record<string, unknown>)[key];
   Object.assign(flags, own);
   return argv;
@@ -8834,6 +8833,20 @@ function markLineHandedOut(pd: string, session: string, messageId: string): void
   } catch (e) {
     recordHookDrop(pd, "line-handed-out", errorMessage(e));
   }
+}
+
+// A reading step keeps the words it was handed as a routing question, and the
+// person's latest message in this chat is marked as read by it, by id, so the
+// bare `next` the agent runs after the step does not take that line again
+// (takePersonsOwnLine) whichever way the words reached `next`.
+function saveReadingQuestion(...args: Parameters<typeof saveQuestion>): ReturnType<typeof saveQuestion> {
+  const question = saveQuestion(...args);
+  const pd = args[0];
+  if (engineSessionId !== undefined && !isReadOnlyEngineProbe()) {
+    const message = latestMessage(pd, engineSessionId);
+    if (message !== null && message.source === "prompt") markLineHandedOut(pd, engineSessionId, message.id);
+  }
+  return question;
 }
 
 // The latest row of the chat's record is the person's turn that carries this
@@ -10449,11 +10462,12 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
   // `--request` brings the kept words back here as the request they may be.
   // Read off the parse, not the argv, so the person's own line taken in the
   // agent's place (takePersonsOwnLine) is read the same way; that bare `next`
-  // is not taken a second time (wordsAlreadyRead), so the chain ends.
+  // is not taken a second time (saveReadingQuestion marks the message), so the
+  // chain ends.
   if (!stateContent && onlyProse && flags.intent !== undefined && flags.markedWords !== true && flags.request === undefined) {
     const here = unselectedRecords(pd);
     if (here !== null && here.selectable.length > 0) {
-      const words = saveQuestion(pd, flags.intent, "", "routing", {
+      const words = saveReadingQuestion(pd, flags.intent, "", "routing", {
         space: here.space,
         targets: here.selectable.map(({ intent, selector }) => ({ intent: selector, uuid: intent.uuid ?? "" })),
         pick: true,
@@ -10642,7 +10656,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
     // and nothing is built yet, their words may change that answer.
     const planQuestion = openPlanApprovalQuestion(pd);
     if (planQuestion !== null) {
-      const words = saveQuestion(
+      const words = saveReadingQuestion(
         pd, flags.intent, "", "routing", { space: selection.space, targets: routingTargets() }, false, undefined,
         undefined, routingSettings(carriedRoutingFlags(flags)),
       );
@@ -10656,7 +10670,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
     const open = openStageQuestion(pd, stateContent);
     if (open !== null) {
       // The settings typed with these words ride on with them.
-      const words = saveQuestion(
+      const words = saveReadingQuestion(
         pd, flags.intent, "", "routing", { space: selection.space, targets: routingTargets() }, false, undefined,
         undefined, routingSettings(carriedRoutingFlags(flags)),
       );
@@ -10667,7 +10681,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
     // its answer, read the same way.
     const gateStage = openApprovalGateStage(stateContent);
     if (gateStage !== null) {
-      const words = saveQuestion(
+      const words = saveReadingQuestion(
         pd, flags.intent, "", "routing", { space: selection.space, targets: routingTargets() }, false, undefined,
         undefined, routingSettings(carriedRoutingFlags(flags)),
       );
@@ -10686,7 +10700,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
     // fresh, read the same way; words with a setting typed beside them are
     // asked about with it, as below.
     if (nextArgsAreOnlyWords(args)) {
-      const words = saveQuestion(
+      const words = saveReadingQuestion(
         pd, flags.intent, "", "routing", { space: selection.space, targets: routingTargets() }, false, undefined,
         undefined, routingSettings(carriedRoutingFlags(flags)),
       );
@@ -10716,7 +10730,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
     flags.intent && !flags.scope && !flags.positionalScope && !flags.resume && question === undefined &&
     isTeamUnitOwnership(stateContent) && nextArgsAreOnlyWords(args)
   ) {
-    const words = saveQuestion(
+    const words = saveReadingQuestion(
       pd, flags.intent, "", "routing", { space: selection.space, targets: routingTargets() }, false, undefined,
       undefined, routingSettings(carriedRoutingFlags(flags)),
     );
