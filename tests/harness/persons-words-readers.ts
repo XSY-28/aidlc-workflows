@@ -36,7 +36,7 @@ import * as ts from "typescript";
 import { REPO_ROOT } from "./fixtures.ts";
 
 export type Use = "decides" | "keeps";
-export type Slice = "S2a" | "S2b" | "S3" | "S6" | "S9" | "PA-fixes";
+export type Slice = "S2a" | "S2b" | "S2c" | "S3" | "S6" | "S9" | "PA-fixes";
 
 export interface Allowed {
   use: Use;
@@ -1037,7 +1037,8 @@ export interface FuzzRow {
   why: string;
 }
 export const FUZZ_STILL_TO_GO: readonly FuzzRow[] = [
-  { group: "I2 QUESTION_ANSWERED names no message", slice: "S2a", row: "R24", why: "an answer that names no message: one logged in a second chat with no reply of its own since the last decision (the window is this chat's), and the code plan and protected questions' own answers" },
+  { group: "I2 QUESTION_ANSWERED names no message", slice: "S2c", row: "DESIGN.md item 7 (reading-lead, 2026-10-23)", why: "an answer logged in a chat with no reply of its own since the last decision names no message: the window is this chat's, and a named id from another chat of the same work is refused" },
+  { group: "I2 QUESTION_ANSWERED names no message", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the code plan and protected questions' own answers name no message" },
   { group: "I2 VERIFICATION_COMMAND_RECORDED names no message", slice: "S2a", row: "R24", why: "the verification answer takes Person Reply from the protected response and names no message" },
   { group: "I2 GATE_REJECTED names no message", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "a Unit or batch checkpoint reject with no --message writes the protected response's words and no Message Id" },
   { group: "I2 GATE_APPROVED names no message", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "a Unit or batch checkpoint approval with no --message writes no Message Id" },
