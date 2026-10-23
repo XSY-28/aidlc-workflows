@@ -268,7 +268,6 @@ import {
   inspectContinuationCursor,
   isPerUnitStage,
   isReadOnlyEngineProbe,
-  latestPersonTurn,
   noteProjectTypeAsked,
   constructionStaffingPassedOver,
   noteConstructionStaffingAsked,
@@ -3839,26 +3838,6 @@ function withdrawRoutedWords(projectDir: string, question: StoredQuestion): void
     }, projectDir);
   } catch (e) {
     recordHookDrop(projectDir, "routed-words", errorMessage(e));
-  }
-}
-
-// A setting, a scope change or a plan change the person typed while a
-// question of the work in progress is open is an instruction to the engine,
-// like words sent to new work: the question keeps none of it. The message the
-// engine is acting on is the person's latest, so its words are taken back from
-// the code plan question and the protected checkpoints, and the answer
-// recorded later holds the answer alone. A live run kept "turn the specialist
-// reviewers off for the rest of this work" as the first line of the plan
-// approval's Person Reply, above "looks good, go ahead".
-function withdrawSettingWords(projectDir: string): void {
-  if (isReadOnlyEngineProbe()) return;
-  try {
-    const words = latestPersonTurn(projectDir)?.words;
-    if (!words) return;
-    withdrawProtectedReplyWords(projectDir, words);
-    withdrawPlanApprovalReplies(projectDir, words);
-  } catch (e) {
-    recordHookDrop(projectDir, "setting-words", errorMessage(e));
   }
 }
 
@@ -10362,7 +10341,6 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
       if (unnamed) parts.push(`--message '${MESSAGE_SLOT}'`);
       const command = `${aidlcDispatcherInvocation("scope change")} ${parts.join(" ")}`;
       const fill = unnamed ? messageFill(pd) : "";
-      withdrawSettingWords(pd);
       // On finished work the change starts the first stage the new scope adds
       // after the last one (the tool reads the same predicate), so nothing
       // waits on the person and the agent carries on into it (#2261). Over
@@ -10401,7 +10379,6 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
       withWorkPicksUpLine(print, pd, currentStateScope, stateContent, !turnEndingPrints.has(print));
     const teamKeeps = modifiers.length > 0 && !describedWork && !planChanges ? teamKeepsTyped(flags, pd) : null;
     if (teamKeeps !== null) {
-      withdrawSettingWords(pd);
       const said = `Run nothing. Tell the person in one line: "${teamKeeps}"`;
       emit(keptWhilePlanWaits(
         pickedUpIfTurnEnds(settingPrint(
@@ -10418,7 +10395,6 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
       const unnamed = settingNeedsTheirWords(pd, modifiers);
       const command = configSetCommand(modifiers, unnamed);
       const fill = unnamed ? messageFill(pd) : "";
-      withdrawSettingWords(pd);
       emit(planChanges ? planChangeDirective(planChanges, command, plan, planApprovalAskIsOpen(pd), stillParked, fill) : keptWhilePlanWaits(
         pickedUpIfTurnEnds(
           settingPrint(
@@ -10431,7 +10407,6 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
       return;
     }
     if (planChanges) {
-      withdrawSettingWords(pd);
       emit(planChangeDirective(planChanges, null, plan, planApprovalAskIsOpen(pd), stillParked));
       return;
     }
