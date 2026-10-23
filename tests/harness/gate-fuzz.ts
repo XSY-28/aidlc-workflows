@@ -1545,7 +1545,8 @@ export function checkRun(run: Run): Failure[] {
       // A row's field is one line: the audit writer writes each line break in it as \n (renderAuditBlock).
       const oneLine = (text: string) => text.replace(/\r\n?|\n|\u2028|\u2029/g, "\\n");
       const windowOf = (value: string) => at >= 0 && chatWords.slice(0, at + 1).some((_, from) => oneLine(chatWords.slice(from, at + 1).join("\n")) === value);
-      for (const name of ["Person Reply", "Feedback"]) {
+      // The summary receipt's Feedback is the agent's text after the choice ("Request changes: <what>"), like Reason.
+      for (const name of row.event === "SUMMARY_CONFIRMATION_RECORDED" ? ["Person Reply"] : ["Person Reply", "Feedback"]) {
         const value = field(row, name);
         if (value !== null && message !== null && value !== oneLine(message.words ?? message.text) && !windowOf(value)) {
           failures.push({ invariant: "I2", what: `${row.event} ${name} is not the message's words`, source: "", step: s.i, detail: `${JSON.stringify(clip(value, 120))} vs ${JSON.stringify(clip(message.words ?? message.text, 120))}` });
