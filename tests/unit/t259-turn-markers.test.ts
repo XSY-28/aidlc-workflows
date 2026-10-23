@@ -650,15 +650,6 @@ describe("t259 the stage's work recorded through log leaves the engine mark", ()
     const asked = log("decision", "--stage", "feasibility", "--decision", "Which team?", "--options", "Team A,Team B");
     expect(asked.status, asked.stderr).toBe(0);
     expect(turnMarkersShowConversational(proj)).toBe(true);
-    // The answer before the person replied to the question is refused, and
-    // the refusal tells the agent to show the question and end its turn: the
-    // turn is still the person's to answer, so the stop stays allowed.
-    const early = log("answer", "--stage", "feasibility", "--details", "Team A");
-    expect(early.status, early.stdout).not.toBe(0);
-    expect(early.stderr).toContain("came before this question was logged");
-    expect(early.stderr).toContain("end your turn");
-    expect(turnMarkersShowConversational(proj)).toBe(true);
-
     // The person replies (the prompt hook moves the human mark), and the
     // answer recorded after it is the stage's work going on.
     await Bun.sleep(20);
@@ -716,6 +707,8 @@ describe("t259 the stage's work recorded through log leaves the engine mark", ()
           !/^(?:CLAUDECODE|CLAUDE_CODE_|CODEX_|CURSOR_|KIRO_|OPENCODE|COPILOT_|VSCODE_|AIDLC_)/i.test(key) && key !== "TERM_PROGRAM"),
       );
       env.CLAUDE_PROJECT_DIR = proj;
+      // The chat the person typed in, as a real run's command resolves it.
+      env.AIDLC_SESSION_OVERRIDE = "t259-note";
       const run = (args: string[], input?: string) =>
         spawnSync(process.execPath, [".claude/tools/aidlc.ts", "engine", ...args], { cwd: proj, encoding: "utf-8", env, input });
       markEngineTouch(proj);

@@ -2319,11 +2319,12 @@ function withBuiltPlanReviewRoute(directive: Directive): Directive {
 // instead of asking them again (a chat can end between their reply and the
 // agent writing it down).
 const KEPT_REPLIES_NOTE =
-  "The person already replied to this stage's questions in an earlier chat, and no answer records these replies " +
-  "yet. `answered` lists what is already on record for this stage, in order (the way they chose to answer comes " +
-  "first), and `replies` came after it, in the order they typed them. Read them against the questions file: write " +
-  "each answer they gave on its [Answer]: line and record it with `log answer`, then ask only what is still open. " +
-  "Never ask them again what they already answered.";
+  "The person already replied to this stage's questions, and the questions file still has a blank answer. " +
+  "`replies` is everything they said since the stage started that no decision has used yet, in the order they " +
+  "typed it; `questions` and `answers` are the stage's questions and answers on record, each in order (the way " +
+  "they chose to answer comes first). Which reply answers which question is yours to read, against the questions " +
+  "file: write each answer they gave on its [Answer]: line, record with `log answer` only what `answers` does not " +
+  "hold yet, then ask only what is still open. Never ask them again what they already answered.";
 
 // Whether a questions file in `dir` still has a blank answer.
 function hasBlankAnswer(dir: string): boolean {
@@ -2347,7 +2348,9 @@ function withKeptReplies(directive: Directive): Directive {
       ...(directive.phase === "construction" && directive.unit ? { unit: directive.unit } : {}),
     });
     if (kept === null) return directive;
-    directive.kept_replies = { answered: kept.answered, replies: kept.replies, note: KEPT_REPLIES_NOTE };
+    directive.kept_replies = {
+      questions: kept.questions, answers: kept.answers, replies: kept.replies, note: KEPT_REPLIES_NOTE,
+    };
   } catch (e) {
     recordHookDrop(projectDir, "kept-replies", errorMessage(e));
   }

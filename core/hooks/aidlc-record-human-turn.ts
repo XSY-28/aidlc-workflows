@@ -442,6 +442,29 @@ function pickerReplies(
   }
 }
 
+// The choices each question of a question box offered, keyed by the question
+// as shown, for the record. A question whose choices the hook cannot read is
+// left out.
+function pickerOptions(input: string): Map<string, string[]> {
+  const options = new Map<string, string[]>();
+  try {
+    const payload = JSON.parse(input) as { tool_input?: unknown; toolInput?: unknown };
+    const toolInput = payload.tool_input ?? payload.toolInput;
+    const asked = toolInput !== null && typeof toolInput === "object" &&
+        Array.isArray((toolInput as Record<string, unknown>).questions)
+      ? (toolInput as { questions: unknown[] }).questions
+      : [];
+    for (const entry of asked) {
+      const question = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>).question : null;
+      const labels = extractOptionLabels(entry);
+      if (typeof question === "string" && labels !== null) options.set(question, labels);
+    }
+  } catch {
+    // A payload that does not parse offers nothing to record.
+  }
+  return options;
+}
+
 // Every pick a picker reply reports, in its order: one label per question, or
 // several for a multi-select. AskUserQuestion keys answers by question; Codex's
 // request_user_input nests them under each question's own `answers`.
@@ -541,7 +564,7 @@ try {
   // harness reports it under, so it pairs only with the recorded question.
   let pickerQuestion: PlanApprovalPickerQuestion | undefined;
   let pickerUnanswered = false;
-  // Every pick a picker reply carried, for the record (pickerAnswerNote).
+  // Every pick a picker reply carried, for the record.
   let picked: string[] = [];
   // Who sent this turn. An adapter that read its host's own signals says so in
   // `origin`; Claude Code's transcript is read here; anything unknown is a
@@ -879,12 +902,15 @@ try {
           // after the turn's words, which are kept at the shard's size just
           // after its row.
           if (pickerQuestion !== undefined && !notAReply) {
+            const offered = pickerOptions(input);
             for (const { question, reply } of pickerReplies(input).entries) {
               if (reply === null) continue; // a question left blank carried no pick
+              const options = offered.get(question);
               appendAuditEntryUnlocked("QUESTION_REPLIED", {
                 ...(sessionId ? { Session: sessionId } : {}),
                 Question: question,
                 Reply: reply,
+                ...(options !== undefined ? { Options: JSON.stringify(options) } : {}),
               }, projectDir);
             }
           }
