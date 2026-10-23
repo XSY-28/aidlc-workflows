@@ -122,7 +122,7 @@ import {
   saveRestartRequest,
   takeRestartRequest,
 } from "./aidlc-question-store.ts";
-import { latestMessage, noReplySince } from "./aidlc-message-store.ts";
+import { latestMessage, noReplySince, personTurnStands } from "./aidlc-message-store.ts";
 import { aidlcEntryWords, APPROVAL_GATE_CHOICES, protectedChoices } from "./aidlc-reply-reader.ts";
 import {
   type AskDirective,
@@ -316,7 +316,6 @@ import {
   isNonAnswer,
   commandAtPersonsTerminal,
   unattendedHumanPresenceHint,
-  personSpokeSinceGate,
   personsGateReply,
   planApprovalAskIsOpen,
   planApprovalRuntimeFile,
@@ -5960,9 +5959,7 @@ function routedGuardPolicyNote(flags: ParsedFlags, projectDir: string, question:
 // they typed it.
 function personAskedInThisChat(projectDir: string): boolean {
   if (commandAtPersonsTerminal()) return true;
-  if (loadStateFileIfPresent(projectDir) !== null) {
-    return personSpokeSinceGate(projectDir, { requests: true, outlivesApproval: true });
-  }
+  if (loadStateFileIfPresent(projectDir) !== null) return personTurnStands(projectDir, "request", { requests: true });
   let session: string | null = null;
   try {
     session = resolveInvokingSessionId(projectDir);
