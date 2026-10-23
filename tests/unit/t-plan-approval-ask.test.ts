@@ -1320,11 +1320,11 @@ describe("the engine asks for Plan Approval", () => {
     const handedBack = guardWrite(proj, planPath);
     expect(handedBack.code).toBe(2);
     expect(handedBack.stderr).toContain(
-      'answer --stage code-generation --checkpoint plan-approval --details "Request Changes: <what they asked of the plan>"');
+      "answer --stage code-generation --checkpoint plan-approval --details 'Request Changes: <what they asked of the plan>'");
     expect(handedBack.stderr).toContain('--details "Approve Plan"');
     const asked = next(proj);
     expect(asked.plan_approval.editing).toBe(true);
-    expect(String(asked.plan_approval.note)).toContain('--details "Request Changes: <what they asked of the plan>"');
+    expect(String(asked.plan_approval.note)).toContain("--details 'Request Changes: <what they asked of the plan>'");
     const recorded = answer(proj, "Request Changes: finish the plan");
     expect(recorded.code, recorded.message).toBe(0);
     expect(guardWrite(proj, planPath).code).toBe(0);
@@ -3964,7 +3964,7 @@ describe("what to change is what the person said, as the agent read it", () => {
   test("the stage tells the agent to pass what to change, and to ask when the reply only picked the choice", () => {
     const text = readFileSync(join(AIDLC_SRC, "aidlc-common", "stages", "construction", "code-generation.md"), "utf-8")
       .replace(/\s+/g, " ");
-    expect(text).toContain('pass what to change after the choice (`--details "Request Changes: <what they asked>"`)');
+    expect(text).toContain("pass what to change after the choice (`--details 'Request Changes: <what they asked>'`");
     expect(text).toContain("when their reply only picked Request Changes, ask what should change before you record it");
     expect(text).not.toContain("a change request uses them as what to change");
     // Several plans asked about at once: the change that names a Unit goes with it.

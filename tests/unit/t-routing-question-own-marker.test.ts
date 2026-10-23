@@ -207,7 +207,7 @@ function routingQuestionOverThePlan(proj: string, planQuestionOpen = true): Emit
   expect(print.kind, JSON.stringify(print)).toBe("print");
   // Their words may answer the plan question as a change: the step says where
   // the agent passes it, or the revision asks them again what to change.
-  if (planQuestionOpen) expect(print.message).toContain('--details "Request Changes: <what they asked>"');
+  if (planQuestionOpen) expect(print.message).toContain("--details 'Request Changes: <what they asked>'");
   const request = /`[^`]* next (--request [0-9a-f]{8})`/.exec(print.message ?? "")?.[1];
   expect(request, print.message).toBeDefined();
   const routing = next(proj, (request as string).split(" "));

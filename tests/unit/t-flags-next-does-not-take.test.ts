@@ -790,7 +790,7 @@ describe("a misspelt setting after the person's words is not swallowed by the wo
     expect(d.narration, out).toBeUndefined();
     expect(String(d.message)).toContain("--plan-aprroval off");
     expect(String(d.message)).toContain(ANSWER_COMMAND);
-    expect(String(d.message)).toContain('--details "Request Changes: <what they asked>"');
+    expect(String(d.message)).toContain("--details 'Request Changes: <what they asked>'");
     expect(String(d.message)).toContain("only the person's words");
     expect(String(d.message)).toContain("`--` before their words");
     expect(String(d.message)).toContain("the flag `next` takes");

@@ -421,7 +421,7 @@ the choices are **Approve all**, **Request Changes**, and **I'll edit the files*
 Show every Unit's summary lines under the question and end the turn. Read the
 person's reply and record the choice they made, as for one plan:
 `{{INVOKE}} engine log answer --stage code-generation --checkpoint plan-approval
---details "Approve Plan"` (or `"Request Changes: <what they asked>"`, or
+--details "Approve Plan"` (or `'Request Changes: <what they asked>'`, or
 `"I'll edit the files"`), with `--units "<unit>,<unit>"` to record a choice for
 some Units, then the rest; then run `next`. "Approve all" approves every Unit.
 For a change that names a Unit ("change billing: use Stripe"), record

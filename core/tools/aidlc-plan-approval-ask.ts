@@ -228,7 +228,7 @@ export function planApprovalEditingReplyStep(projectDir: string): string | null 
   if (record?.mode !== "editing" || !record.replies?.length || record.targets.length > 1) return null;
   const answer = (details: string): string =>
     `\`${aidlcToolInvocation("log")} answer --stage code-generation --checkpoint plan-approval --details ${details}\``;
-  return `record their answer: ${answer(`"${record.choices[1]}: <what they asked of the plan>"`)} when they handed ` +
+  return `record their answer: ${answer(`'${record.choices[1]}: <what they asked of the plan>'`)} when they handed ` +
     `the plan back to you, or ${answer(`"${record.choices[0]}"`)} when they finished it. When their reply is ` +
     "neither, answer it and leave the files to them";
 }
