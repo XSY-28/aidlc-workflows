@@ -3517,6 +3517,23 @@ function openApprovalGateStage(stateContent: string): string | null {
   }
 }
 
+// The person's replies in this chat a decision would stand on (personsGateReply),
+// by id and time only: the agent has their words, and names the one its reading
+// came from when it is not all of them. None when the record cannot say.
+function replyIds(projectDir: string, stage: string): Array<{ id: string; at: string }> {
+  try {
+    return personsGateReply(projectDir, resolveInvokingSessionId(projectDir), stage).replies;
+  } catch {
+    return [];
+  }
+}
+
+function replyIdsNote(replies: Array<{ id: string; at: string }>, command: string): string {
+  return replies.length === 0 ? "" : " Their replies since the last decision, oldest first: " +
+    `${replies.map((reply) => `${reply.id} (${reply.at})`).join(", ")}; when their choice is in one of them ` +
+    `and not the others, add \`--message <id>\` to the ${command}.`;
+}
+
 // Words while a stage's approval gate is open: the conductor reads whether
 // they answer it, the same split as openQuestionReplyDirective.
 function openGateReplyDirective(
@@ -3526,12 +3543,7 @@ function openGateReplyDirective(
   replies: Array<{ id: string; at: string }>,
 ): PrintDirective {
   const orchestrate = aidlcToolInvocation("orchestrate");
-  // The person's replies the decision would stand on, by id and time only:
-  // the agent has their words, and names the one its reading came from when it
-  // is not all of them.
-  const named = replies.length === 0 ? "" : " Their replies since the last decision, oldest first: " +
-    `${replies.map((reply) => `${reply.id} (${reply.at})`).join(", ")}; when their choice is in one of them ` +
-    "and not the others, add `--message <id>` to the report.";
+  const named = replyIdsNote(replies, "report");
   return printDirective(
     `Stage "${stage}" is waiting for the person's approval, and their reply may answer it. Read it. If it ` +
       `approves, run \`${orchestrate} report --stage ${shellArg(stage)} --result approved --user-input "Approve"\`; ` +
@@ -3603,21 +3615,33 @@ function openQuestionAnswer(stage: string, block: string): string {
 
 // Prose while the current stage has a question the person has not answered
 // yet (the audit pairing the Stop hook reads) may be its answer, or something
-// else. Reading which is the conductor's job, so it gets a command for each:
-// the question's own answer command, or `next --request` with the person's
-// words, kept as `requestId`, which asks where that work belongs. The
-// question's text stays in the audit, never in this directive.
-function openQuestionReplyDirective(stage: string, block: string, requestId: string): PrintDirective {
+// else. Reading which is the conductor's job, so it gets the question as it
+// was asked, with its choices, which a chat that never saw it asked needs, and
+// a command for each: the question's own answer command, or `next --request`
+// with the person's words, kept as `requestId`, which asks where that work
+// belongs.
+function openQuestionReplyDirective(
+  stage: string,
+  block: string,
+  requestId: string,
+  replies: Array<{ id: string; at: string }>,
+): PrintDirective {
   const orchestrate = aidlcToolInvocation("orchestrate");
   const answer = openQuestionAnswer(stage, block);
+  const decision = auditBlockField(block, "Decision");
+  const choices = questionOptions(block);
+  const asked = decision
+    ? `: ${JSON.stringify(decision)}` +
+      `${choices.length > 0 ? `, with the choices ${choices.map((choice) => JSON.stringify(choice)).join(", ")}` : ""}`
+    : "";
   return printDirective(
-    `Stage "${stage}" has a question you asked that the person has not answered yet. Read their reply. ` +
+    `Stage "${stage}" has a question you asked that the person has not answered yet${asked}. Read their reply. ` +
       `If it answers that question, ${answer}, then carry on with "${stage}" from where you asked and run bare ` +
       `\`${orchestrate} next\` the next time you need the engine. If it asks to skip this stage, run ` +
       `\`${orchestrate} next --skip ${shellArg(stage)}\` and follow what it returns. If it is about something else, such as new work ` +
       `or a change to the plan, run \`${orchestrate} next --request ${requestId}\` and follow what it returns: the ` +
       "engine kept their words and asks them where that work belongs. If you cannot tell which it is, ask the " +
-      "person in one short question and follow their answer.",
+      `person in one short question and follow their answer.${replyIdsNote(replies, "`log answer`")}`,
   );
 }
 
@@ -3669,6 +3693,7 @@ function openPlanQuestionReplyDirective(
   needsWords = false,
   // Every plan has its answer and nothing is built yet: their words may change it.
   answered = false,
+  replies: Array<{ id: string; at: string }> = [],
 ): PrintDirective {
   const orchestrate = aidlcToolInvocation("orchestrate");
   // Settings typed on the same line ("/aidlc --guard-policy off approve the
@@ -3698,7 +3723,7 @@ function openPlanQuestionReplyDirective(
       "follow what it returns. If it is about something else, such as new work or a change to the plan, run " +
       `\`${orchestrate} next --request ${requestId}\` and follow what it returns: the engine kept their words and asks ` +
       "them where that work belongs. If you cannot tell which it is, ask the person in one short question and follow " +
-      "their answer.",
+      `their answer.${replyIdsNote(replies, "`log answer`")}`,
   );
 }
 
@@ -10624,6 +10649,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
       const settings = typedSettingModifiers(flags);
       emit(openPlanQuestionReplyDirective(
         planQuestion.editing, words.id, undo, settings, settingNeedsTheirWords(pd, settings), planQuestion.answered,
+        replyIds(pd, "code-generation"),
       ));
       return;
     }
@@ -10634,7 +10660,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
         pd, flags.intent, "", "routing", { space: selection.space, targets: routingTargets() }, false, undefined,
         undefined, routingSettings(carriedRoutingFlags(flags)),
       );
-      emit(openQuestionReplyDirective(open.stage, open.block, words.id));
+      emit(openQuestionReplyDirective(open.stage, open.block, words.id, replyIds(pd, open.stage)));
       return;
     }
     // Words at an approval gate the person is looking at ("approve") may be
@@ -10652,7 +10678,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
       const gateFolder = gateNode && !(isPerUnit(gateNode) && !usesStageLevelPerUnitArtifacts(gateScope, stateContent))
         ? commonFolder(resolveProduces(gateNode, null, engineRelativeRecordDir(pd), codekbCtxFor(pd)))
         : "";
-      emit(openGateReplyDirective(gateStage, words.id, gateFolder, personsGateReply(pd, resolveInvokingSessionId(pd), gateStage).replies));
+      emit(openGateReplyDirective(gateStage, words.id, gateFolder, replyIds(pd, gateStage)));
       return;
     }
     // Words alone (nothing `next` reads as a flag, scope, verb or noun) may
