@@ -31206,6 +31206,14 @@ export function effectiveUnitGateRhythm(
 // open gate while still catching a stranded marker.
 export const COMPOSE_MARKER_TTL_MS = 24 * 60 * 60 * 1000;
 
+// Whether an in-flight compose proposal waits on the person's approve, edit or
+// reject: its marker is on disk and fresh. A stale orphan is no open question,
+// as the Stop hook reads it. A failed read throws; each caller decides.
+export function composeGateOpen(projectDir: string): boolean {
+  const marker = composeMarkerPath(projectDir);
+  return existsSync(marker) && Date.now() - statSync(marker).mtimeMs <= COMPOSE_MARKER_TTL_MS;
+}
+
 // `<projectDir>/aidlc/.aidlc-subagent-inflight`: the workspace-level background
 // dispatch ledger. Entries are session-scoped and reference-counted so
 // overlapping workers cannot clear or authorize each other. The file remains
@@ -43834,6 +43842,22 @@ export function writeGuardStoodAside(line: string): void {
   process.stdout.write(
     `${runtimeHarnessName() === "claude" ? JSON.stringify({ systemMessage: line }) : line}\n`,
   );
+}
+
+/**
+ * A line for the agent on a PreToolUse call that goes on, where the harness
+ * delivers one: Claude Code reads the hook's additionalContext there (2.1.9 and
+ * later; measured on 2.1.309) and shows the person none of it. The Codex,
+ * Copilot, Cursor, Kiro CLI and opencode adapters drop this hook's output on a
+ * call that goes on, and Kiro IDE does not read PreToolUse stdout, so there it
+ * writes nothing and returns false.
+ */
+export function writeGuardAgentContext(line: string): boolean {
+  if (runtimeHarnessName() !== "claude") return false;
+  process.stdout.write(
+    `${JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: line } })}\n`,
+  );
+  return true;
 }
 
 /**
