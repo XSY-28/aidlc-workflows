@@ -2352,8 +2352,10 @@ engine keeps a copy beside the approval receipt) and prints "Back to the plan yo
 approved." (once the build has started, "Back to the plan you approved. I am
 building it again from that plan.", because the `next` after it builds from that
 plan); the conductor runs it when the person says to go back to the plan
-they approved. It refuses unless a turn of the person's, since their last
-decision, is on record. While a plan they approved has changed, words typed in
+they approved. It refuses unless a turn of the person's in this chat is on
+record with no decision after it, or `--message <id>` names the message they
+asked in (one that also approved, "approve, and go back"); when a message of
+theirs can stand behind it, the refusal names that retry with its id and time. While a plan they approved has changed, words typed in
 any chat or after the entry command make `next` name this restore for each plan
 that changed, for the conductor to run when the words say to go back; no phrase
 is matched. The plan-approval guard lets it through before approval and while a

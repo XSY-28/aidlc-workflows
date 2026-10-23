@@ -12745,11 +12745,14 @@ export function personSaidProjectType(
 }
 
 function projectTypeTurnOnRecord(projectDir: string): boolean {
+  // Their turn with no decision after it: the approval a message gave is no
+  // word on what the folder is.
+  const { personTurnStands } = require("./aidlc-message-store.ts") as typeof import("./aidlc-message-store.ts");
   const asked = engineAskMark(projectDir, PROJECT_TYPE_ASK);
   if (asked === null || projectRelativePath(projectDir, auditFilePath(projectDir)) !== asked.shard) {
-    return personSpokeSinceGate(projectDir, { requests: true });
+    return personTurnStands(projectDir, "plain", { requests: true });
   }
-  if (personSpokeSinceGate(projectDir, { replies: true })) return true;
+  if (personTurnStands(projectDir, "plain", { replies: true })) return true;
   try {
     const after = readAppendOnlyFileNoFollowOrThrow(auditFilePath(projectDir), "audit shard").subarray(asked.offset).toString("utf-8");
     return auditShardBlocks(after).some((block) => isRequestTurn({ event: auditBlockField(block, "Event") ?? "", block }));
@@ -13018,15 +13021,17 @@ export function personSpokeSinceGate(
   }
 }
 
-// The person asked for what the agent runs now: their chat turn, which no
-// decision has used yet, stands behind it, and it is not only a question about
-// a switch. An unattended driver has no person behind it. The hosts and the
-// plan-wait admission that let the agent's command through read this, and so
-// does a change to the plan while Construction carries on by itself; a setter
-// the command runs then proves the message it names (--message).
+// The person asked for what the agent runs now: their chat turn stands behind
+// it by the message proof's request form (personTurnStands), and it is not
+// only a question about a switch. An unattended driver has no person behind
+// it. The hosts and the plan-wait admission that let the agent's command
+// through read this, and so does a change to the plan or the scope while
+// Construction carries on by itself; a setter the command runs then proves
+// the message it names (--message).
 export function personAskedSinceGate(projectDir: string, work: { intent?: string; space?: string } = {}): boolean {
-  return process.env.AIDLC_UNATTENDED !== "1" &&
-    personSpokeSinceGate(projectDir, { requests: true, outlivesApproval: true, ...work });
+  if (process.env.AIDLC_UNATTENDED === "1") return false;
+  const { personTurnStands } = require("./aidlc-message-store.ts") as typeof import("./aidlc-message-store.ts");
+  return personTurnStands(projectDir, "request", { requests: true, ...work });
 }
 
 // The person asked for the lowering the agent's command carries out: they ran

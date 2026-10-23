@@ -128,7 +128,6 @@ import {
   humanTurnMintAllowed,
   hookActivation,
   hookChildEnv,
-  personSpokeSinceGate,
   fenceSwitchSentence,
   decideFence,
   ENGINE_OWNED_STATE_TRANSITIONS,
@@ -255,7 +254,7 @@ import {
   sourceBoundaryRepairStep,
   sourceWalkReach,
 } from "./aidlc-lib.js";
-import { proveMessage, readMessage, requestMessageStep, type StoredMessage } from "./aidlc-message-store.ts";
+import { personTurnStands, proveMessage, readMessage, requestMessageStep, type StoredMessage } from "./aidlc-message-store.ts";
 import { memoryDirFor, STAGE_WIDE_SENSOR_IDS, templateEligibleArtifacts } from "./aidlc-graph.ts";
 import { inspectRequiredArtifactInstances } from "./aidlc-artifact-resolution.ts";
 import { aidlcDispatcherInvocation, aidlcToolInvocation, compiledExecutable, entrySkillInvocation } from "./aidlc-runtime-paths.ts";
@@ -2382,7 +2381,7 @@ export interface ParkResult {
 
 // A park the person asked for, in their own words, is theirs. Who asked is the
 // conductor's reading of those words (--person-asked); the tool proves only that
-// a reply of theirs is on record since the last gate resolution. Their stop wins
+// a turn of theirs in this chat stands behind it (personTurnStands). Their stop wins
 // over the autonomous grant and is recorded as theirs. On a host whose hooks can
 // miss a reply (its hookActivation says so), a stop they asked for in an
 // attended session under the autonomous grant is theirs too, with a note that no
@@ -2403,8 +2402,9 @@ function handlePark(args: string[]): void {
       `\`${aidlcToolInvocation("orchestrate")} next\` and carry on.`;
     exitWithError({ message, auditMessage: message, agentGuidance: "person-decided" });
   }
-  // Their stop outlives the run's own approvals after it (personSpokeSinceGate).
-  const replied = asked && attendedSession && personSpokeSinceGate(pd, { outlivesApproval: true });
+  // Their stop outlives the run's own approvals after it and the one decision
+  // the same message gave (personTurnStands).
+  const replied = asked && attendedSession && personTurnStands(pd, "request");
   const activation = hookActivation();
   const missedReply = asked && attendedSession && !replied &&
     (activation?.missedReply !== undefined || activation?.missesReplies === true) && autonomous();
@@ -2433,7 +2433,7 @@ function parkedWords(pd: string, stage: string): Record<string, string> {
       ? { [PERSONS_WORDS_FIELD]: words, ...(id ? { [PERSONS_MESSAGE_FIELD]: id } : {}) }
       : {};
   try {
-    if (!personSpokeSinceGate(pd, { replies: true, outlivesApproval: true })) return {};
+    if (!personTurnStands(pd, "request", { replies: true })) return {};
     const reply = personsGateReply(pd, resolveInvokingSessionId(pd), stage);
     if (reply.words && !isNonAnswer(reply.words)) return { ...fields(reply.words, reply.messageId), ...windowMessageIds(reply) };
     const rows = sortAttemptEvents(readAuditShardEvents(pd));
