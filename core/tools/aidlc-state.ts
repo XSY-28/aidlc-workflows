@@ -52,7 +52,6 @@ import {
   verificationCommandRecovery,
   constructionPolicyChangeAuthority,
   CONSTRUCTION_POLICY_RECOVERY,
-  latestPersonTurn,
   leftOutLine,
   PERSON_ASKED_SKIP_REASON,
   auditShardName,
@@ -106,7 +105,6 @@ import {
   guardRecoveryFeedbackStatus,
   CONDUCTOR_SUMMARY_FIELD,
   selectedGuardRecoveryRemedyAction,
-  normalizeGuardRecoveryText,
   answeredBeforeShownStep,
   messageRetryStep,
   personRepliedSinceGateShown,
@@ -7907,11 +7905,9 @@ function handleReject(args: string[]): void {
       personsWords = null;
     }
   }
-  const conductorSummary =
-    personsWords !== null && conductorFeedback &&
-      normalizeGuardRecoveryText(conductorFeedback) !== normalizeGuardRecoveryText(personsWords)
-      ? conductorFeedback
-      : undefined;
+  // Beside their words the agent's text is its own, kept whole: nothing
+  // compares the two.
+  const conductorSummary = personsWords !== null && conductorFeedback ? conductorFeedback : undefined;
   if (personsWords !== null) feedback = personsWords;
   if (!feedback) {
     refuseForAgent(

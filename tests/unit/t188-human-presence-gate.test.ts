@@ -2089,8 +2089,8 @@ describe("t188: a late-logged question takes the reply that answered it", () => 
   // the presence check's own rules.
   test("with no chat the engine can name and two chats since the last decision, the answer keeps neither chat's words", () => {
     const slug = field(proj, "Current Stage");
-    const one = reply("A from one chat");
-    const another = reply("A from another", OTHER_CHAT);
+    reply("A from one chat");
+    reply("A from another", OTHER_CHAT);
     expect(log(["decision", "--stage", slug, "--decision", "Q?", "--options", "A,B"]).rc).toBe(0);
     const recorded = log(["answer", "--stage", slug, "--details", "A"]);
     expect(recorded.rc, recorded.out).toBe(0);
