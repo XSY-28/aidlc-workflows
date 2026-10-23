@@ -1261,12 +1261,18 @@ export function showsGateAgain(d: Record<string, unknown>): boolean {
 // The protocol files a step runs by, named from its own stage file, so a chat
 // with no skill loaded reads them (seen live: a Unit's step looped on a review
 // and an autonomy question the agent never knew about).
+// A change the person asks of the code plan goes after the choice, in every
+// step that names the plan question's answer: the recorder never takes it from
+// their words (recordPlanApprovalAnswer).
+export const PLAN_CHANGE_DETAILS =
+  "(a change they ask for is Request Changes, with what to change after it: --details 'Request Changes: <what they asked>')";
+
 // The plan question's answer is recorded as the person's choice, then the
 // step goes on; with no skill loaded nothing else names that command.
 export function planApprovalQuestionNote(invocation: string, logInvocation: string): string {
   return `${questionNote(invocation).replace(/\.$/, "")}. When they answer, record the choice they made with ` +
-    `\`${logInvocation} answer --stage code-generation --checkpoint plan-approval --details '<their choice>'\`, then ` +
-    `run \`${invocation} next\`.`;
+    `\`${logInvocation} answer --stage code-generation --checkpoint plan-approval --details '<their choice>'\` ` +
+    `${PLAN_CHANGE_DETAILS}, then run \`${invocation} next\`.`;
 }
 
 export function protocolNote(stageFile: string, modules: readonly string[]): string | null {

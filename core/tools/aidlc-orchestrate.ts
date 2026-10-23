@@ -145,6 +145,7 @@ import {
   type StageValidityAdvisory,
   bodyRuns,
   numberedProseQuestion,
+  PLAN_CHANGE_DETAILS,
   REPO_PLACEHOLDER,
   showsGateAgain,
   validateDirective,
@@ -3679,7 +3680,7 @@ function openPlanQuestionReplyDirective(
       "verbatim; if the words are new work, the settings ride with them."
     : "";
   const record = `\`${aidlcToolInvocation("log")} answer --stage code-generation --checkpoint plan-approval ` +
-    '--details "<their choice>"`';
+    `--details "<their choice>"\` ${PLAN_CHANGE_DETAILS}`;
   const answer = editing
     ? `The person is editing the code plan files themselves. If their reply says they are done, run bare \`${orchestrate} next\`.${typed}`
     : answered
@@ -3708,7 +3709,7 @@ function planQuestionAnsweredByWordsDirective(): PrintDirective {
     "The person said their words are part of the work in progress, and that work is waiting on their answer to the " +
       "code plan question, so their words are that answer. Read them and record the choice they made with " +
       `\`${aidlcToolInvocation("log")} answer --stage code-generation --checkpoint plan-approval --details "<their choice>"\`` +
-      ' (a change they ask for is "Request Changes": the engine keeps their words as what to change), then run bare ' +
+      ` ${PLAN_CHANGE_DETAILS}, then run bare ` +
       `\`${orchestrate} next\`. If you cannot tell which choice it is, run bare \`${orchestrate} next\`, show the person ` +
       "the question it returns, and end the turn.",
   );
@@ -16671,8 +16672,8 @@ function approveArgs(slug: string, flags: ReportFlags): string[] {
 // same way wherever an agent's command missed that question.
 function planApprovalAnswerStep(): string {
   return "Read the person's reply to the open Plan Approval question and record the choice they made with " +
-    `\`${aidlcToolInvocation("log")} answer --stage code-generation --checkpoint plan-approval --details '<their choice>'\`, ` +
-    `then run \`${aidlcToolInvocation("orchestrate")} next\` with no answer arguments. If they have not replied, wait at that question.`;
+    `\`${aidlcToolInvocation("log")} answer --stage code-generation --checkpoint plan-approval --details '<their choice>'\` ` +
+    `${PLAN_CHANGE_DETAILS}, then run \`${aidlcToolInvocation("orchestrate")} next\` with no answer arguments. If they have not replied, wait at that question.`;
 }
 
 // The agent's step for a word after `intent` or `space` that is neither a verb

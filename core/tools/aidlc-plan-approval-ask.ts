@@ -216,18 +216,19 @@ export function planApprovalAskState(projectDir: string): "unanswered" | "editin
 /**
  * While the person edits the plan files themselves and has replied since they
  * started, the step that records their reply: the plan handed back to the agent
- * (Request Changes, their words kept as the change) or the files finished
- * (Approve Plan). Which it is, the agent reads. Null until they reply, and for
- * a question about several Units, where a reply can be about some of them.
+ * (Request Changes, with what they asked of the plan after it, as the agent
+ * read it) or the files finished (Approve Plan). Which it is, the agent reads.
+ * Null until they reply, and for a question about several Units, where a reply
+ * can be about some of them.
  */
 export function planApprovalEditingReplyStep(projectDir: string): string | null {
   const record = readPlanApprovalAsk(projectDir, intentIdFor(projectDir));
   if (record?.mode !== "editing" || !record.replies?.length || record.targets.length > 1) return null;
-  const answer = (choice: string | undefined): string =>
-    `\`${aidlcToolInvocation("log")} answer --stage code-generation --checkpoint plan-approval --details "${choice}"\``;
-  return `record their answer: ${answer(record.choices[1])} when they handed the plan back to you (their words are ` +
-    `kept as the change), or ${answer(record.choices[0])} when they finished it. When their reply is neither, ` +
-    "answer it and leave the files to them";
+  const answer = (details: string): string =>
+    `\`${aidlcToolInvocation("log")} answer --stage code-generation --checkpoint plan-approval --details ${details}\``;
+  return `record their answer: ${answer(`'${record.choices[1]}: <what they asked of the plan>'`)} when they handed ` +
+    `the plan back to you, or ${answer(`"${record.choices[0]}"`)} when they finished it. When their reply is ` +
+    "neither, answer it and leave the files to them";
 }
 
 function writePlanApprovalAsk(projectDir: string, record: PlanApprovalAskRecord): void {
@@ -1541,7 +1542,7 @@ export interface PlanApprovalAnswer {
   choice: PlanApprovalAnswerChoice;
   /** The Units the choice is for; every Unit the question asks about when absent. */
   units?: string[];
-  /** What to change, when the conductor states it; the person's words otherwise. */
+  /** What to change, as the conductor read it from their words; absent when they said nothing about it. */
   feedback?: string;
   /** A pick in a question box, so their words say nothing about what to change. */
   exactPick?: true;
@@ -1914,9 +1915,10 @@ export function recordPlanApprovalAnswer(
     const failures: string[] = [];
     for (const unit of chosen) {
       if (answer.choice === "request-changes") {
-        results.push(requestChangesFor(
-          projectDir, record, unit, who, answer.feedback?.trim() || (answer.exactPick ? undefined : words || undefined), words,
-        ));
+        // What to change is the agent's reading of their words, passed after the
+        // choice; their words stay whole beside it. With none, the revision
+        // step asks them what should change.
+        results.push(requestChangesFor(projectDir, record, unit, who, answer.feedback?.trim() || undefined, words));
         continue;
       }
       const outcome = approveTarget(projectDir, record, unit, who, words);
@@ -1952,7 +1954,7 @@ export function recordPlanApprovalAnswer(
         ? `Recorded "Approve Plan" for ${labels(approved)}` +
           (edited.length > 0 ? `, with the plan as it stands now (${labels(edited)} changed since it was shown)` : "")
         : "Nothing was approved")
-      : `Recorded "Request Changes" for ${labels(chosen)}, with the person's words as what to change`;
+      : `Recorded "Request Changes" for ${labels(chosen)}`;
     const rest = complete ? " Run next." : ` Record the person's choice for ${labels(units.filter((unit) =>
       !results.some((result) => result.unit === unit)))} too, then run next.`;
     return { complete, message: `${recorded}.${rest}${repairs.length > 0 ? ` ${repairs.join(" ")}` : ""}` };

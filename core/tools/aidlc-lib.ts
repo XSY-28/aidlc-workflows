@@ -9428,6 +9428,16 @@ function ensurePlanApprovalLegacyRecoveryChallenge(
     existing.markerRevision === markerRevision &&
     existing.challengeId === challengeId
   ) {
+    // An older release's question kept no time. It takes one as it is shown
+    // here (from Code Generation's start when this shard has it), so the yes
+    // typed after it answers it (recordPlanApprovalLegacyRecoveryAnswer). No
+    // response stands yet, so the rewrite drops none.
+    if (existing.createdAt === undefined) {
+      writePlanApprovalLegacyRecoveryChallenge(projectDir, {
+        ...existing,
+        createdAt: stageReplyFloorTime(projectDir, "code-generation") ?? isoTimestamp(),
+      });
+    }
     return;
   }
   writePlanApprovalLegacyRecoveryChallenge(projectDir, {
@@ -29768,7 +29778,9 @@ function stageReplyFloor(rows: readonly AuditShardEvent[], stage: string): numbe
 // A decision at a stage gate stands on a reply of the person's after the
 // stage's latest start (stageReplyFloor): the request that started the work
 // came before it and decides nothing about what the stage made from it. With
-// `message`, the turn that kept that message must come after it. A record with
+// `message`, the turn that kept that message must come after it, whichever
+// engine question was on screen when it came: the agent named it, and
+// proveMessage has proved it is theirs and unspent. A record with
 // no start row for the stage here (an older record, or a stage started on
 // another clone) has no floor, and a record that cannot be read refuses
 // nothing: this is the second bound of presence, never a reading of what they
@@ -29778,10 +29790,23 @@ export function repliedSinceStageStart(projectDir: string, stage: string, messag
     const { mine } = ownShardRows(projectDir);
     const floor = stageReplyFloor(mine, stage);
     if (floor < 0) return true;
-    return mine.slice(floor + 1).some((row) =>
-      isReplyTurn(row) && (message === undefined || auditBlockField(row.block, "Message Id") === message));
+    return mine.slice(floor + 1).some((row) => message === undefined
+      ? isReplyTurn(row)
+      : row.event === "HUMAN_TURN" && auditBlockField(row.block, "Message Id") === message);
   } catch {
     return true;
+  }
+}
+
+// When a stage's replies may begin on this clone's shard (stageReplyFloor), as
+// that row's time; null with no start row here, or a record that cannot be read.
+export function stageReplyFloorTime(projectDir: string, stage: string): string | null {
+  try {
+    const { mine } = ownShardRows(projectDir);
+    const floor = stageReplyFloor(mine, stage);
+    return floor < 0 ? null : mine[floor].timestamp;
+  } catch {
+    return null;
   }
 }
 

@@ -57,6 +57,8 @@ import {
   readPlanApprovalLegacyOffer,
   readPlanApprovalLegacyWindow,
   readPlanApprovalLegacyRecoveryChallenge,
+  stageReplyFloorTime,
+  writePlanApprovalLegacyRecoveryChallenge,
   engineAskMark,
   readApprovedPlanCopy,
   readPlanApprovalReceipt,
@@ -3985,8 +3987,12 @@ function writeLegacyRecoveryChoice(projectDir: string, session: string, challeng
 /**
  * The person's yes to the legacy recovery question, as the conductor read it
  * from their reply in any words: the engine writes the response from its own
- * choice, once a reply of theirs came in this chat after the question was asked
- * (a question an older engine asked, with no time kept, takes any reply).
+ * choice, once a reply of theirs came in this chat after the question was asked.
+ * A question an older engine asked kept no time and takes one when this engine
+ * shows it (ensurePlanApprovalLegacyRecoveryChallenge). Not yet shown, the reply
+ * stands after Code Generation started, never on any message the chat ever sent;
+ * with no start on record either, it is timed from now, so their next reply
+ * answers it.
  */
 export function recordPlanApprovalLegacyRecoveryAnswer(
   projectDir: string,
@@ -3995,7 +4001,12 @@ export function recordPlanApprovalLegacyRecoveryAnswer(
   return withAuditLock(projectDir, () => {
     const recovery = readPlanApprovalLegacyRecoveryChallenge(projectDir, session);
     if (recovery === null) return "no-question";
-    if (noReplySince(projectDir, session, recovery.createdAt ?? new Date(0).toISOString())) return "no-reply";
+    let since = recovery.createdAt ?? stageReplyFloorTime(projectDir, "code-generation");
+    if (since === null) {
+      since = isoTimestamp();
+      writePlanApprovalLegacyRecoveryChallenge(projectDir, { ...recovery, createdAt: since });
+    }
+    if (noReplySince(projectDir, session, since)) return "no-reply";
     writeLegacyRecoveryChoice(projectDir, session, recovery.challengeId);
     return "recorded";
   });

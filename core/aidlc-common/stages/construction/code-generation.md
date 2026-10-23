@@ -222,8 +222,10 @@ When both files from Step 2 are written, run `next`:
   --details "Approve Plan"` (or `"Request Changes"`, or `"I'll edit the files"`).
   For a question about several Units, add `--units "<unit>,<unit>"` to record a
   choice for some of them, then record the rest. The person's words are kept
-  with the record, and a change request uses them as what to change; add
-  `--reason` only to say more. When they approved and asked for a change ("approve,
+  with the record. When they asked for changes, pass what to change after the
+  choice (`--details 'Request Changes: <what they asked>'`, single-quoted); when
+  their reply only picked Request Changes, ask what should change before you
+  record it. When they approved and asked for a change ("approve,
   but add a test for the empty cart"), make that change in the plan first (once
   they have replied, its plan and test instructions are open to you; code
   waits), then record "Approve Plan": the approval covers the plan as it stands
