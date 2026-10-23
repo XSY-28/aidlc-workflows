@@ -121,7 +121,7 @@ import {
   saveRestartRequest,
   takeRestartRequest,
 } from "./aidlc-question-store.ts";
-import { latestMessage, noReplySince } from "./aidlc-message-store.ts";
+import { latestMessage, listMessages, noReplySince } from "./aidlc-message-store.ts";
 import { aidlcEntryWords, APPROVAL_GATE_CHOICES, protectedChoices } from "./aidlc-reply-reader.ts";
 import {
   type AskDirective,
@@ -990,8 +990,9 @@ const openQuestionMarkers = new WeakSet<object>();
 // question that work is waiting on, with their words already kept as its
 // reply, is answered by those words (see emit).
 let routingAnsweredAsActiveWork = false;
-// The words that answer was about, for the question the work in progress has open.
-let routingAnsweredWords: string | null = null;
+// The words that answer was about, and the message they came in, for the
+// question the work in progress has open.
+let routingAnswered: { text: string; messageId?: string } | null = null;
 
 function isKeptRequest(args: readonly string[]): boolean {
   const flags = parseNextFlags([...args]);
@@ -2589,9 +2590,10 @@ function emit(requested: Directive): void {
           prepared.transported.ask_type === PLAN_APPROVAL_ASK_TYPE &&
           !prepared.transported.plan_approval.editing
         ) {
-          if (routingAnsweredWords !== null && !isReadOnlyEngineProbe()) {
-            withdrawPlanApprovalReplies(projectDir, routingAnsweredWords);
-            notePlanApprovalAskReply(projectDir, engineSessionId ?? "", routingAnsweredWords);
+          if (routingAnswered !== null && !isReadOnlyEngineProbe()) {
+            const { text, messageId } = routingAnswered;
+            if (messageId !== undefined) withdrawPlanApprovalReplies(projectDir, { messageId });
+            notePlanApprovalAskReply(projectDir, engineSessionId ?? "", text, undefined, messageId);
           }
           if (planApprovalKeptReplyWaits(projectDir)) {
             writePrepared(prepareEmission(planQuestionAnsweredByWordsDirective()));
@@ -3758,8 +3760,12 @@ function withdrawRoutedWords(projectDir: string, question: StoredQuestion): void
     const ids = rows.slice(spent + 1).filter((row) => row.event === "HUMAN_TURN" &&
       (!engineSessionId || auditBlockField(row.block, "Session") === engineSessionId))
       .map((row) => auditBlockField(row.block, "Message Id")).filter((id): id is string => id !== null);
-    withdrawProtectedReplyWords(projectDir, question.text);
-    withdrawPlanApprovalReplies(projectDir, question.text);
+    // Taken back by the message they came in; a question kept before messages
+    // were named takes back nothing.
+    if (question.messageId !== undefined) {
+      withdrawProtectedReplyWords(projectDir, { messageId: question.messageId });
+      withdrawPlanApprovalReplies(projectDir, { messageId: question.messageId });
+    }
     appendAuditEntry("REQUEST_ROUTED", {
       Request: question.id,
       ...(engineSessionId ? { Session: engineSessionId } : {}),
@@ -5715,8 +5721,10 @@ function planProposalDirective(
   derivedFrom?: string,
   finished?: FinishedWorkHere,
 ): PrintDirective {
+  // The words came through `derivedFrom` (routeNext reads them from it), so a
+  // front question with no plan yet is this request asked again.
   const kept = derivedFrom === undefined ? null : readQuestion(pd, derivedFrom);
-  const question = kept !== null && kept.origin === "front" && kept.text === description && !kept.proposedScope
+  const question = kept !== null && kept.origin === "front" && !kept.proposedScope
     ? kept
     : saveQuestion(
       pd, description, "", "front", undefined, flags.newIntent === true, derivedFrom, undefined,
@@ -8842,16 +8850,24 @@ function markLineHandedOut(pd: string, session: string, messageId: string): void
   }
 }
 
-// A reading step keeps the words it was handed as a routing question, and the
-// person's latest message in this chat is marked as read by it, by id, so the
-// bare `next` the agent runs after the step does not take that line again
-// (takePersonsOwnLine) whichever way the words reached `next`.
+// A reading step keeps the words it was handed as a routing question, with the
+// person's latest message in this chat as the one they came in (the latest of
+// any chat when the engine cannot tell which chat runs it), and marks that
+// message as read by it, by id, so the bare `next` the agent runs after the
+// step does not take that line again (takePersonsOwnLine) whichever way the
+// words reached `next`; words sent elsewhere later are taken back by it
+// (withdrawRoutedWords).
 function saveReadingQuestion(...args: Parameters<typeof saveQuestion>): ReturnType<typeof saveQuestion> {
-  const question = saveQuestion(...args);
-  const pd = args[0];
-  if (engineSessionId !== undefined && !isReadOnlyEngineProbe()) {
-    const message = latestMessage(pd, engineSessionId);
-    if (message !== null && message.source === "prompt") markLineHandedOut(pd, engineSessionId, message.id);
+  const [pd, text, scope, origin, askedAbout, newWork, composedFrom, stateSha256, settings, approvedRequest] = args;
+  const latest = engineSessionId === undefined
+    ? listMessages(pd).findLast((message) => message.source === "prompt") ?? null
+    : latestMessage(pd, engineSessionId);
+  const message = latest !== null && latest.source === "prompt" ? latest : null;
+  const question = saveQuestion(
+    pd, text, scope, origin, askedAbout, newWork, composedFrom, stateSha256, settings, approvedRequest, message?.id,
+  );
+  if (engineSessionId !== undefined && message !== null && !isReadOnlyEngineProbe()) {
+    markLineHandedOut(pd, engineSessionId, message.id);
   }
   return question;
 }
@@ -9684,7 +9700,7 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
       flags.intent = undefined;
       flags.request = undefined;
       flags.scope = typedScope;
-      routingAnsweredWords = question.text;
+      routingAnswered = { text: question.text, messageId: question.messageId };
       question = undefined;
       routingAnsweredAsActiveWork = true;
     } else if (!named) {
@@ -19009,7 +19025,7 @@ export function main(argv: string[]): void {
     activeRestartAsked = null;
     restartUnmarkedNotice = false;
     routingAnsweredAsActiveWork = false;
-    routingAnsweredWords = null;
+    routingAnswered = null;
     engineProjectDir = undefined;
     resolvedDirectiveLimit = null;
     engineSessionId = undefined;

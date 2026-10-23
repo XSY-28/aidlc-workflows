@@ -147,6 +147,8 @@ export interface PlanApprovalAskResult {
 export interface PlanApprovalAskReply {
   session: string;
   text: string;
+  /** The person's message it came in, by its record's id. */
+  messageId?: string;
 }
 
 export interface PlanApprovalAskRecord {
@@ -1477,6 +1479,7 @@ export function notePlanApprovalAskReply(
   session: string,
   text: string,
   picker?: PlanApprovalPickerQuestion,
+  messageId?: string,
 ): boolean {
   return withAuditLock(projectDir, () => {
     const open = currentPlanApprovalAsk(projectDir, "all");
@@ -1493,7 +1496,10 @@ export function notePlanApprovalAskReply(
     if (!reply || isNonAnswer(reply)) return true;
     const replies = [
       ...(record.replies ?? []),
-      { session: session || "unidentified-session", text: reply.slice(0, ASK_REPLY_MAX_CHARS) },
+      {
+        session: session || "unidentified-session", text: reply.slice(0, ASK_REPLY_MAX_CHARS),
+        ...(messageId ? { messageId } : {}),
+      },
     ].slice(-ASK_REPLIES_MAX);
     writePlanApprovalAsk(projectDir, { ...record, replies });
     // A grouped change request still needs to know which plan, so the
@@ -1732,15 +1738,17 @@ export function openEngineQuestion(projectDir: string): string | null {
 
 /**
  * The person sent these words to separate new work or a reshape: the code plan
- * question of this piece of work keeps none of them as its reply.
+ * question of this piece of work keeps none of them as its reply. Words sent
+ * on are named by their message; a setting's words by their text.
  */
-export function withdrawPlanApprovalReplies(projectDir: string, text: string): void {
-  const same = (reply: string): boolean => reply.replace(/\s+/g, " ").trim().toLowerCase() ===
-    text.replace(/\s+/g, " ").trim().toLowerCase();
+export function withdrawPlanApprovalReplies(projectDir: string, which: string | { messageId: string }): void {
+  const drop = (reply: PlanApprovalAskReply): boolean => typeof which === "string"
+    ? reply.text.replace(/\s+/g, " ").trim().toLowerCase() === which.replace(/\s+/g, " ").trim().toLowerCase()
+    : reply.messageId === which.messageId;
   withAuditLock(projectDir, () => {
     const record = readPlanApprovalAsk(projectDir, intentIdFor(projectDir));
-    if (record === null || !record.replies?.some((reply) => same(reply.text))) return;
-    writePlanApprovalAsk(projectDir, { ...record, replies: record.replies.filter((reply) => !same(reply.text)) });
+    if (record === null || !record.replies?.some(drop)) return;
+    writePlanApprovalAsk(projectDir, { ...record, replies: record.replies.filter((reply) => !drop(reply)) });
   });
 }
 

@@ -5238,9 +5238,17 @@ export interface ProtectedResponse {
   words?: string;
   /** When the latest reply it holds was kept: a decision recorded after that used it. */
   at?: string;
-  /** The message record of the latest reply it holds, which the decision's row names. */
-  messageId?: string;
+  /** Each message it holds, oldest first, with its message record when the hook named one: the decision's row names the latest. */
+  replies?: ProtectedReply[];
 }
+
+export interface ProtectedReply {
+  messageId?: string;
+  words: string;
+}
+
+/** The fewest messages a protected question keeps, newest last; its words are cut to PROTECTED_RESPONSE_WORDS_MAX_CHARS. */
+export const PROTECTED_RESPONSE_REPLIES_MAX = 16;
 
 /** The longest run of a person's words a protected response keeps. */
 export const PROTECTED_RESPONSE_WORDS_MAX_CHARS = 8000;
@@ -5643,7 +5651,9 @@ export function readProtectedResponse(projectDir: string, session: string): Prot
     (value.choice === undefined || value.choice === "Approve" || value.choice === "Request Changes") &&
     (value.words === undefined || typeof value.words === "string") &&
     (value.at === undefined || typeof value.at === "string") &&
-    (value.messageId === undefined || (typeof value.messageId === "string" && /^[0-9a-f]{8}$/.test(value.messageId))) &&
+    (value.replies === undefined || (Array.isArray(value.replies) && value.replies.every((reply) =>
+      typeof reply?.words === "string" &&
+      (reply.messageId === undefined || (typeof reply.messageId === "string" && /^[0-9a-f]{8}$/.test(reply.messageId)))))) &&
     typeof value.responseSha256 === "string" && /^[a-f0-9]{64}$/.test(value.responseSha256)
     ? value : null;
 }
@@ -5651,9 +5661,12 @@ export function readProtectedResponse(projectDir: string, session: string): Prot
 // The person sent these words to separate new work or a reshape: no protected
 // question (a checkpoint, the verification command) keeps them as its reply.
 // Their other replies stay; a pick read from a reply that is gone goes too.
-export function withdrawProtectedReplyWords(projectDir: string, text: string): void {
-  const same = (line: string): boolean => line.replace(/\s+/g, " ").trim().toLowerCase() ===
-    text.replace(/\s+/g, " ").trim().toLowerCase();
+// Words sent on are named by their message; a setting's words by their text.
+export function withdrawProtectedReplyWords(projectDir: string, which: string | { messageId: string }): void {
+  const same = (line: string): boolean => typeof which === "string" &&
+    line.replace(/\s+/g, " ").trim().toLowerCase() === which.replace(/\s+/g, " ").trim().toLowerCase();
+  const drop = (reply: ProtectedReply): boolean =>
+    typeof which === "string" ? same(reply.words) : reply.messageId === which.messageId;
   let names: string[];
   try {
     names = readdirSync(planApprovalRuntimeDir(projectDir));
@@ -5665,22 +5678,23 @@ export function withdrawProtectedReplyWords(projectDir: string, text: string): v
       "Protected response")?.session;
     const response = typeof session === "string" ? readProtectedResponse(projectDir, session) : null;
     if (response === null || response.words === undefined) continue;
-    const lines = response.words.split("\n");
-    const kept = lines.filter((line) => !same(line));
-    if (kept.length === lines.length) continue;
+    // A response kept before its messages were named holds lines only.
+    const replies = response.replies ?? response.words.split("\n").map((words) => ({ words }));
+    const kept = replies.filter((reply) => !drop(reply));
+    if (kept.length === replies.length) continue;
     if (kept.length === 0) {
       removeRuntimeFile(protectedResponsePath(projectDir, response.session));
       continue;
     }
-    const words = kept.join("\n");
-    const lastKept = kept[kept.length - 1] === lines[lines.length - 1];
+    const words = kept.map((reply) => reply.words).join("\n").slice(-PROTECTED_RESPONSE_WORDS_MAX_CHARS);
+    const lastKept = kept[kept.length - 1] === replies[replies.length - 1];
     writeProtectedResponse(projectDir, {
       version: 1, session: response.session, challengeId: response.challengeId,
       ...(lastKept && response.choice !== undefined ? { choice: response.choice } : {}),
       responseSha256: createHash("sha256").update(words, "utf-8").digest("hex"),
       words,
       ...(response.at === undefined ? {} : { at: response.at }),
-      ...(lastKept && response.messageId !== undefined ? { messageId: response.messageId } : {}),
+      ...(response.replies === undefined ? {} : { replies: kept }),
     });
   }
 }
@@ -5744,7 +5758,7 @@ export function requireProtectedResponse(
       responseSha256: createHash("sha256").update(words, "utf-8").digest("hex"),
       ...(words ? { words } : {}),
       at: proof.message.at,
-      messageId: proof.message.id,
+      replies: [{ messageId: proof.message.id, words }],
     });
     return;
   }
@@ -29625,16 +29639,16 @@ function gatePresentationStart(
 // checkpoint question was asked: after the Unit's newest review request at one
 // of `stages` (and after the answer to any question asked before it), up to the
 // first question asked since (the learnings question, say), whose reply is its
-// own. In order, leaving out non-answers, with the message record of the latest
-// one. Null when this clone's record has no review request for the Unit, a
-// question asked since is still unanswered, nothing was typed then, or a
-// message typed since was not kept.
+// own. In order, leaving out non-answers, each with its message record. Null
+// when this clone's record has no review request for the Unit, a question
+// asked since is still unanswered, nothing was typed then, or a message typed
+// since was not kept.
 export function gateWordsSinceUnitReview(
   projectDir: string,
   session: string,
   unit: string,
   stages: readonly string[],
-): { words: string[]; messageId: string | null } | null {
+): ProtectedReply[] | null {
   const record = readGateWords(projectDir, session);
   if (record === null || record.messages.length === 0) return null;
   const shardPath = auditFilePath(projectDir);
@@ -29685,11 +29699,12 @@ export function gateWordsSinceUnitReview(
   if (record.dropped > floor) return null;
   const taken = record.messages
     .filter((message) => message.offset > floor && message.offset <= ceiling && !isNonAnswer(message.text));
-  const latest = taken.at(-1)?.offset;
-  if (latest === undefined) return null;
+  if (taken.length === 0) return null;
   const bytes = (at: number): number => Buffer.byteLength(content.slice(0, at), "utf-8");
-  const turn = turns.findLast((span) => latest > bytes(span.start) && latest <= bytes(span.end));
-  return { words: taken.map((message) => message.text), messageId: turn?.id ?? null };
+  return taken.map((message) => {
+    const id = turns.findLast((span) => message.offset > bytes(span.start) && message.offset <= bytes(span.end))?.id;
+    return { ...(id === undefined ? {} : { messageId: id }), words: message.text };
+  });
 }
 
 // Whether the person replied to the stage's approval question as it was last

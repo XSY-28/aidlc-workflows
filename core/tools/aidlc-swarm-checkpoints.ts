@@ -432,7 +432,7 @@ export function approveSwarmCheckpoint(
       }, namedReply(pd, units, message));
       const response = readProtectedResponse(pd, session);
       words = response?.words;
-      messageId = response?.messageId;
+      messageId = response?.replies?.at(-1)?.messageId;
     } else if (current.result.approved) {
       return current.result;
     }
@@ -466,7 +466,7 @@ export function rejectSwarmCheckpoint(
     }, namedReply(pd, units, message));
     const response = readProtectedResponse(pd, session);
     const words = response?.words;
-    const messageId = response?.messageId;
+    const messageId = response?.replies?.at(-1)?.messageId;
     const reason = givenReason.trim() || changeRequestWords(words);
     const userInput = "Request Changes";
     if (isNonAnswer(reason) || reason.length > 8192 || hasUnsafeSingleLineCharacter(reason)) {

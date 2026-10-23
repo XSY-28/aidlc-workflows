@@ -889,7 +889,7 @@ try {
           // of them or reads meaning into it: the conductor reads it and records
           // the choice on the question it answers.
           if (replyText !== "" && !notAReply) {
-            notePlanApprovalAskReply(projectDir, sessionId, replyText, pickerQuestion);
+            notePlanApprovalAskReply(projectDir, sessionId, replyText, pickerQuestion, messageId || undefined);
           }
           if (sessionId && replyText && !notAReply && openQuestion === null) {
             const plan = existsSync(join(projectDir, planApprovalChallengeRelativePath(projectDir, sessionId)));

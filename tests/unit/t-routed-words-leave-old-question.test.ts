@@ -9,8 +9,9 @@
 // work): an approval of the old question went through on words meant for the
 // new work, and a later chat was handed them as the stage's answer. Now the
 // engine takes them back from the old question when the person sends them
-// elsewhere, so that question waits for a reply of its own. Said to be part of
-// the work in progress ("1"), they stay its reply.
+// elsewhere, so that question waits for a reply of its own, by the message
+// they came in (never by matching its text). Said to be part of the work in
+// progress ("1"), they stay its reply.
 import { NATIVE_FIXTURE_SETUP_TIMEOUT_MS, NATIVE_STARTUP_TIMEOUT_MS, remainingOperationTimeoutMs } from "../harness/test-budget.ts";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -171,10 +172,11 @@ function planAnswers(proj: string): string[] {
     .map((row) => `${row.event}: ${auditBlockField(row.block, "Details")}`);
 }
 
-function routingQuestionOverThePlan(proj: string, planQuestionOpen = true): Emitted {
+// `typed` is the person's line; `passed` the words the agent hands `next`, as it read them.
+function routingQuestionOverThePlan(proj: string, planQuestionOpen = true, typed = `/aidlc ${CHANGE}`, passed = CHANGE): Emitted {
   if (planQuestionOpen) expect(next(proj).ask_type).toBe("plan-approval");
-  say(proj, `/aidlc ${CHANGE}`);
-  const print = next(proj, [CHANGE]);
+  say(proj, typed);
+  const print = next(proj, [passed]);
   expect(print.kind, JSON.stringify(print)).toBe("print");
   const request = /`[^`]* next (--request [0-9a-f]{8})`/.exec(print.message ?? "")?.[1];
   expect(request, print.message).toBeDefined();
@@ -316,9 +318,11 @@ function askCheckpoint(proj: string): void {
   expect(ask.code, ask.out).toBe(0);
 }
 
-function routingQuestionOverTheStep(proj: string, session = SESSION): Emitted {
-  const words = "also handle an empty list";
-  say(proj, `/aidlc ${words}`, "claude", session);
+// `typed` is the person's line; `words` what the agent hands `next`, as it read them.
+function routingQuestionOverTheStep(
+  proj: string, session = SESSION, words = "also handle an empty list", typed = `/aidlc ${words}`,
+): Emitted {
+  say(proj, typed, "claude", session);
   const print = next(proj, [words]);
   expect(print.kind, JSON.stringify(print)).toBe("print");
   const request = /`[^`]* next (--request [0-9a-f]{8})`/.exec(print.message ?? "")?.[1];
@@ -411,6 +415,34 @@ describe("words sent to separate new work leave the question the work in progres
     expect(keptReply(proj)).toEqual({ choice: null, words: null });
     expect(engine(proj, ["bolt", "checkpoint", "--action", "approve", "--unit", "alpha", "--kind", "unit", "--user-input", "approve"]).code)
       .not.toBe(0);
+  });
+
+  // Taken back by the message they came in, never by matching its text: the
+  // agent hands `next` the words as it read them.
+  test("a Unit checkpoint gives back words the agent handed on as it read them", () => {
+    const proj = checkpointProject("off");
+    askCheckpoint(proj);
+    const typed = "please also handle an empty list, thanks";
+    const routing = routingQuestionOverTheStep(proj, SESSION, "also handle an empty list", `/aidlc ${typed}`);
+    expect(keptReply(proj)).toEqual({ choice: null, words: typed });
+    say(proj, "2");
+    sendToNewWork(proj, routing);
+    expect(keptReply(proj)).toEqual({ choice: null, words: null });
+  });
+
+  test("the code plan question gives back words the agent handed on as it read them", () => {
+    const proj = project("off");
+    const routing = routingQuestionOverThePlan(proj, true, `/aidlc please ${CHANGE}, thanks`, CHANGE);
+    say(proj, "2");
+    sendToNewWork(proj, routing);
+    expect(next(proj).ask_type).toBe("plan-approval");
+    const refused = spawnSync(BUN, [
+      LOG, "answer", "--stage", "code-generation", "--checkpoint", "plan-approval", "--details", "Approve Plan",
+      "--project-dir", proj,
+    ], { cwd: proj, env: env(proj), encoding: "utf-8", timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS) });
+    expect(refused.status).not.toBe(0);
+    expect(`${refused.stdout}${refused.stderr}`).toContain("has not replied");
+    expect(planAnswers(proj)).toEqual([]);
   });
 
   test("codex: a later chat is not handed them as the stage's answer", () => {

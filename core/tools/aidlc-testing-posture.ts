@@ -136,6 +136,7 @@ import {
   isoTimestamp,
   markProtectedQuestionReplied,
   readProtectedResponse,
+  PROTECTED_RESPONSE_REPLIES_MAX,
   PROTECTED_RESPONSE_WORDS_MAX_CHARS,
   writeWorkspaceSourceSnapshot,
   type GuardRemedyOp,
@@ -4079,8 +4080,11 @@ export function recordProtectedHumanResponse(
     }
     if (!text || isNonAnswer(text)) return { recorded: false };
     const previous = readProtectedResponse(projectDir, session);
-    const earlier = previous?.challengeId === question.challengeId ? previous.words : undefined;
+    const same = previous?.challengeId === question.challengeId;
+    const earlier = same ? previous.words : undefined;
     const words = (earlier ? `${earlier}\n${text}` : text).slice(-PROTECTED_RESPONSE_WORDS_MAX_CHARS);
+    const replies = [...(same ? previous.replies ?? [] : []), { ...(messageId ? { messageId } : {}), words: text }]
+      .slice(-PROTECTED_RESPONSE_REPLIES_MAX);
     // A pick in a question box that asked this question (or, with no question
     // text, the one question open) is the host's own structure and is kept as
     // the choice; a typed reply, in any words, is the conductor's to read.
@@ -4092,7 +4096,7 @@ export function recordProtectedHumanResponse(
       responseSha256: createHash("sha256").update(words, "utf-8").digest("hex"),
       words,
       at: isoTimestamp(),
-      ...(messageId ? { messageId } : {}),
+      replies,
     });
     return { recorded: true };
   });

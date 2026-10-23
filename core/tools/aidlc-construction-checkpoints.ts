@@ -47,6 +47,7 @@ import {
   isoTimestamp,
   markProtectedQuestionReplied,
   mintProtectedQuestion,
+  PROTECTED_RESPONSE_REPLIES_MAX,
   PROTECTED_RESPONSE_WORDS_MAX_CHARS,
   writeProtectedResponse,
   isAutonomousMode,
@@ -1662,14 +1663,14 @@ export function askConstructionCheckpoint(
       ...(offer === null ? {} : { check_offer: offer.offer }),
     };
     if (earlier === null) return result;
-    const words = earlier.words.join("\n").slice(-PROTECTED_RESPONSE_WORDS_MAX_CHARS);
+    const words = earlier.map((reply) => reply.words).join("\n").slice(-PROTECTED_RESPONSE_WORDS_MAX_CHARS);
     markProtectedQuestionReplied(projectDir, question);
     writeProtectedResponse(projectDir, {
       version: 1, session, challengeId: question.challengeId,
       responseSha256: createHash("sha256").update(words, "utf-8").digest("hex"),
       words,
       at: isoTimestamp(),
-      ...(earlier.messageId === null ? {} : { messageId: earlier.messageId }),
+      replies: earlier.slice(-PROTECTED_RESPONSE_REPLIES_MAX),
     });
     return { ...result, earlier_reply: words };
   });
@@ -1718,7 +1719,7 @@ export function approveConstructionCheckpoint(
       }, namedReply(projectDir, current.result.stages, unit, message));
       const response = readProtectedResponse(projectDir, session);
       words = response?.words;
-      messageId = response?.messageId;
+      messageId = response?.replies?.at(-1)?.messageId;
     } else if (current.result.approved) {
       return current.result;
     }
@@ -1804,7 +1805,7 @@ export function rejectConstructionCheckpoint(
     }, namedReply(projectDir, current.result.stages, unit, message));
     const response = readProtectedResponse(projectDir, session);
     const words = response?.words;
-    const messageId = response?.messageId;
+    const messageId = response?.replies?.at(-1)?.messageId;
     const reason = givenReason.trim() || changeRequestWords(words);
     const userInput = "Request Changes";
     if (isNonAnswer(reason) || reason.length > 8192 || hasUnsafeSingleLineCharacter(reason)) {
