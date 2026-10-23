@@ -382,8 +382,9 @@ export function chatsSince(rows: readonly AuditShardEvent[], pd: string, spentAt
 }
 
 // The person's messages in this chat a request can stand on (proveMessage's
-// request form), oldest first: the ids and times a refusal names so the agent
-// can name the one that asked. Never their words: the agent has them. Another
+// request form), newest first, so an agent that takes the first names their
+// latest and not an old approval: the ids and times a refusal names so the
+// agent can name the one that asked. Never their words: the agent has them. Another
 // chat's ids would leave an agent that cannot tell the chats apart to pick one
 // by its time; a message named from there still proves.
 export function requestMessages(pd: string): Array<{ id: string; at: string }> {
@@ -394,7 +395,8 @@ export function requestMessages(pd: string): Array<{ id: string; at: string }> {
     return listMessages(pd)
       .filter((message) => message.session === chat &&
         "message" in messageProof(pd, message.id, "request", { request: true }))
-      .map((message) => ({ id: message.id, at: message.at }));
+      .map((message) => ({ id: message.id, at: message.at }))
+      .reverse();
   } catch {
     return [];
   }
