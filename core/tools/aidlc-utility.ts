@@ -482,6 +482,7 @@ import {
   isScopedReviewCopy,
   KIRO_CONDUCTOR_AGENT_FILE,
   PERSON_ASKED_SKIP_REASON,
+  personsWordsText,
 } from "./aidlc-lib.ts";
 import { GUARD_POLICY_GLOSS, SCOPE_GLOSS } from "./aidlc-guard-fences.ts";
 import { validateStageFrontmatter } from "./aidlc-stage-schema.ts";
@@ -11737,7 +11738,7 @@ function handleReclassify(projectDir: string, flags: Record<string, string>, raw
           "New Project Type": `${declared} (${PROJECT_TYPE_SOURCE_PERSON})`,
           ...(named.message !== undefined
             ? {
-              ...(named.message.words ? { "Person Reply": named.message.words } : {}),
+              ...(named.message.words ? { "Person Reply": personsWordsText(named.message.words) } : {}),
               "Message Id": named.message.id,
             }
             : named.agentText !== undefined ? { [CONDUCTOR_SUMMARY_FIELD]: named.agentText } : {}),

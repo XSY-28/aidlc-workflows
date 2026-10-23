@@ -29,6 +29,7 @@ import {
   commandAtPersonsTerminal,
   sessionsDir,
   writeFileAtomic,
+  personsWordsText,
 } from "./aidlc-lib.ts";
 import { proveMessage, type StoredMessage } from "./aidlc-message-store.ts";
 import { aidlcInvocation, quoteCommandArgument } from "./aidlc-runtime-paths.ts";
@@ -602,7 +603,7 @@ export function recordSwitchChange(
       said = null;
     }
   }
-  const words = said?.words ?? null;
+  const words = said?.words ? personsWordsText(said.words) : null;
   const since = isoTimestamp();
   const changed = new Set<string>([...added, ...removed]);
   const switches = readRecord(projectDir)

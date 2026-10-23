@@ -290,7 +290,7 @@ export function unbackedDecisions(
         if (backing === -1 && closes) backing = namedMessageTurn(projectDir, events, index, turns, born, key);
         const sent = said === undefined ? null : messageStore().readMessage(projectDir, said);
         const quotedBy = sent !== null &&
-          [...turns.map((turn) => turn.words), ...earlier].some((words) => words.trim() === sent.text.trim());
+          [...turns.map((turn) => turn.words), ...earlier].some((words) => words.trim() === audit().personsWordsText(sent.text).trim());
         if (backing === -1 && !quotedBy) problems.push(describe(row, key, turns));
         else if (backing !== -1 && answer) used[backing]++;
       }

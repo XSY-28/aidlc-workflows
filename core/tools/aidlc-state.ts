@@ -255,7 +255,7 @@ import {
   sourceBoundaryRepairStep,
   sourceWalkReach,
 } from "./aidlc-lib.js";
-import { type NewMessage, personTurnStands, proveMessage, readMessage, requestMessageStep, type StoredMessage } from "./aidlc-message-store.ts";
+import { personTurnStands, proveMessage, readMessage, requestMessageStep, type StoredMessage } from "./aidlc-message-store.ts";
 import { memoryDirFor, STAGE_WIDE_SENSOR_IDS, templateEligibleArtifacts } from "./aidlc-graph.ts";
 import { inspectRequiredArtifactInstances } from "./aidlc-artifact-resolution.ts";
 import { aidlcDispatcherInvocation, aidlcToolInvocation, compiledExecutable, entrySkillInvocation } from "./aidlc-runtime-paths.ts";
@@ -1416,7 +1416,7 @@ function requireHumanConstructionPolicyChange(
         "when they ask for it, never to clear a refusal or on your own.") + ` ${CONSTRUCTION_POLICY_RECOVERY}`,
     );
   }
-  return authority === "asked" && named !== undefined ? { words: named.words ?? named.text, message: named.id } : null;
+  return authority === "asked" && named !== undefined ? { words: personsWordsText(named.words ?? named.text), message: named.id } : null;
 }
 
 // set-skeleton-stance <on|off|scope-dependent> — record the conductor's
@@ -7895,9 +7895,9 @@ function handleReject(args: string[]): void {
     }
     try {
       if (message !== undefined) {
-        // Read as text until S6a lands (its STILL_TO_GO line in tests/harness/persons-words-readers.ts).
-        const named = readMessage(pd, message) as unknown as NewMessage | null;
-        personsWords = named?.words && !isNonAnswer(named.words) ? named.words : null;
+        const named = readMessage(pd, message);
+        const words = named?.words ? personsWordsText(named.words) : null;
+        personsWords = words && !isNonAnswer(words) ? words : null;
         personsMessage = message;
       } else {
         const reply = personsGateReply(pd, resolveInvokingSessionId(pd), slug);

@@ -2186,8 +2186,7 @@ function handleAnswer(args: string[]): void {
       // Their words go on the receipt: the message named, or every reply of
       // theirs in this chat that no decision has used yet (personsGateReply).
       const reply = named !== null ? null : personsGateReply(pd, invokingChat(pd), flags.stage);
-      // Read as text until S2a and S6a land (its STILL_TO_GO line in tests/harness/persons-words-readers.ts).
-      const words = named !== null ? (named.words as unknown as string | null) : reply!.words;
+      const words = named !== null ? (named.words === null ? null : personsWordsText(named.words)) : reply!.words;
       const messageId = named !== null ? named.id : reply!.messageId;
       if (messageId) fields["Message Id"] = messageId;
       if (reply !== null) Object.assign(fields, windowMessageIds(reply));
@@ -2484,8 +2483,7 @@ function handleAnswer(args: string[]): void {
     // logged after the reply that answers it records on that reply.
     if (named !== null) {
       fields["Message Id"] = named.id;
-      // Read as text until S2a and S6a land (its STILL_TO_GO line in tests/harness/persons-words-readers.ts).
-      const namedWords = named.words as unknown as string | null;
+      const namedWords = named.words === null ? null : personsWordsText(named.words);
       if (namedWords && !isNonAnswer(namedWords)) fields["Person Reply"] = namedWords;
     } else if (instruction === undefined && !autonomousDecision) {
       const reply = personsGateReply(pd, invokingChat(pd), flags.stage);

@@ -419,7 +419,7 @@ export function saidInChat(
   message?: StoredMessage,
   selection: { intent?: string; space?: string } = {},
 ): SettingProof | null {
-  if (message !== undefined) return { words: message.words ?? message.text, message: message.id };
+  if (message !== undefined) return { words: personsWordsText(message.words ?? message.text), message: message.id };
   let rows: AuditShardEvent[] = [];
   try {
     rows = readAuditShardEvents(projectDir, selection.intent, selection.space);

@@ -2617,7 +2617,7 @@ function emit(requested: Directive): void {
           prepared.transported.ask_type === GUARD_RECOVERY_ASK_TYPE &&
           !isReadOnlyEngineProbe()
         ) {
-          consumeSharedDirectiveAsk(projectDir, routedMessage.words);
+          consumeSharedDirectiveAsk(projectDir, personsWordsText(routedMessage.words));
           const state = loadStateFileIfPresent(projectDir);
           const recovery = state === null ? null : guardRecoveryReplyWaits(projectDir, state);
           if (recovery !== null) {
