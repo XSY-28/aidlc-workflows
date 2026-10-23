@@ -4066,7 +4066,7 @@ function protectedQuestionFromAnotherChat(projectDir: string, session: string): 
 // picker asked this question. Nothing is inferred from the words here.
 export function recordProtectedHumanResponse(
   projectDir: string, session: string, responseText: string, questionText: string | null,
-  picker?: PlanApprovalPickerQuestion,
+  picker?: PlanApprovalPickerQuestion, messageId?: string,
 ): { recorded: boolean } {
   return withAuditLock(projectDir, () => {
     const text = responseText.trim();
@@ -4092,6 +4092,7 @@ export function recordProtectedHumanResponse(
       responseSha256: createHash("sha256").update(words, "utf-8").digest("hex"),
       words,
       at: isoTimestamp(),
+      ...(messageId ? { messageId } : {}),
     });
     return { recorded: true };
   });

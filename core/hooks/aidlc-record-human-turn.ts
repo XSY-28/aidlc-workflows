@@ -893,7 +893,8 @@ try {
           }
           if (sessionId && replyText && !notAReply && openQuestion === null) {
             const plan = existsSync(join(projectDir, planApprovalChallengeRelativePath(projectDir, sessionId)));
-            const kept = recordProtectedHumanResponse(projectDir, sessionId, replyText, questionText, pickerQuestion).recorded;
+            const kept = recordProtectedHumanResponse(projectDir, sessionId, replyText, questionText, pickerQuestion,
+              messageId || undefined).recorded;
             if (plan || !kept) recordPlanApprovalHumanResponse(projectDir, sessionId, replyText, pickerQuestion);
           }
           // What the question box carried back goes on the record, question

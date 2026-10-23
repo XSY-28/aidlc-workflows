@@ -21,7 +21,9 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { join } from "node:path";
 import { auditBlockField, readAuditShardEvents } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
-import { SESSION, STAGE, buildQuestion, env, exec, next, say } from "../harness/aidlc-answers-corpus.ts";
+import {
+  type AnswersItem, SESSION, STAGE, buildQuestion, env, exec, next, recordByAgent, say,
+} from "../harness/aidlc-answers-corpus.ts";
 import { cleanupTestProject, setupIntegrationProject } from "../harness/fixtures.ts";
 import { NATIVE_FIXTURE_SETUP_TIMEOUT_MS } from "../harness/test-budget.ts";
 
@@ -159,5 +161,42 @@ describe("t-reply-ids-without-refusal: the reply steps name ids and times, and t
     const after = await next(proj, [], { session: OTHER_CHAT });
     expect(String(after.directive?.message ?? "")).not.toContain("has a question you asked that the person has not answered yet");
     expect(rows(proj, "REQUEST_ROUTED")).toHaveLength(0);
+  });
+});
+
+describe("t-reply-ids-without-refusal: a checkpoint's row and a routing row name the messages they stand on", () => {
+  for (const question of ["unit-checkpoint", "batch-checkpoint"] as const) {
+    for (const [choice, words] of [["Approve", "approve it"], ["Request Changes", "rename the alpha handler"]] as const) {
+      test(`${question}: ${choice} recorded with no --message names the reply it stands on`, async () => {
+        const proj = project();
+        await buildQuestion(proj, question);
+        await say(proj, words, "claude");
+        const id = latestId(proj);
+        const item = { question, input: words, expected: { end: { parked: false } } } as unknown as AnswersItem;
+        const done = await recordByAgent(proj, item, choice);
+        expect(done?.exec.status, `${done?.exec.stdout}${done?.exec.stderr}`).toBe(0);
+        const row = rows(proj, choice === "Approve" ? "GATE_APPROVED" : "GATE_REJECTED").at(-1)!;
+        expect(auditBlockField(row.block, "Message Id")).toBe(id);
+      });
+    }
+  }
+
+  test("words sent to separate new work: the routing row names the request's message and the reply that sent it", async () => {
+    const proj = project();
+    await buildQuestion(proj, "stage-question");
+    await say(proj, "/aidlc also handle an empty list", "claude");
+    const request = latestId(proj);
+    const read = await next(proj, ["also handle an empty list"]);
+    const ask = /`[^`]* next (--request [0-9a-f]{8})`/.exec(String(read.directive?.message ?? ""))?.[1];
+    expect(ask, read.out).toBeDefined();
+    const routing = await next(proj, (ask as string).split(" "));
+    expect(routing.directive?.ask_type, routing.out).toBe("new-work-routing");
+    await say(proj, "2", "claude");
+    const reply = latestId(proj);
+    const command = String((routing.directive as Record<string, unknown> | null)?.new_intent_command ?? "");
+    await next(proj, command.replace(/^.* next /, "").split(" "));
+    const routed = rows(proj, "REQUEST_ROUTED");
+    expect(routed).toHaveLength(1);
+    expect(auditBlockField(routed[0].block, "Message Ids")).toBe(`${request},${reply}`);
   });
 });

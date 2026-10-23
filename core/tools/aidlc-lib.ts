@@ -5238,6 +5238,8 @@ export interface ProtectedResponse {
   words?: string;
   /** When the latest reply it holds was kept: a decision recorded after that used it. */
   at?: string;
+  /** The message record of the latest reply it holds, which the decision's row names. */
+  messageId?: string;
 }
 
 /** The longest run of a person's words a protected response keeps. */
@@ -5641,6 +5643,7 @@ export function readProtectedResponse(projectDir: string, session: string): Prot
     (value.choice === undefined || value.choice === "Approve" || value.choice === "Request Changes") &&
     (value.words === undefined || typeof value.words === "string") &&
     (value.at === undefined || typeof value.at === "string") &&
+    (value.messageId === undefined || (typeof value.messageId === "string" && /^[0-9a-f]{8}$/.test(value.messageId))) &&
     typeof value.responseSha256 === "string" && /^[a-f0-9]{64}$/.test(value.responseSha256)
     ? value : null;
 }
@@ -5677,6 +5680,7 @@ export function withdrawProtectedReplyWords(projectDir: string, text: string): v
       responseSha256: createHash("sha256").update(words, "utf-8").digest("hex"),
       words,
       ...(response.at === undefined ? {} : { at: response.at }),
+      ...(lastKept && response.messageId !== undefined ? { messageId: response.messageId } : {}),
     });
   }
 }
@@ -5740,6 +5744,7 @@ export function requireProtectedResponse(
       responseSha256: createHash("sha256").update(words, "utf-8").digest("hex"),
       ...(words ? { words } : {}),
       at: proof.message.at,
+      messageId: proof.message.id,
     });
     return;
   }
@@ -29620,15 +29625,16 @@ function gatePresentationStart(
 // checkpoint question was asked: after the Unit's newest review request at one
 // of `stages` (and after the answer to any question asked before it), up to the
 // first question asked since (the learnings question, say), whose reply is its
-// own. In order, leaving out non-answers. Null when this clone's record has no
-// review request for the Unit, a question asked since is still unanswered,
-// nothing was typed then, or a message typed since was not kept.
+// own. In order, leaving out non-answers, with the message record of the latest
+// one. Null when this clone's record has no review request for the Unit, a
+// question asked since is still unanswered, nothing was typed then, or a
+// message typed since was not kept.
 export function gateWordsSinceUnitReview(
   projectDir: string,
   session: string,
   unit: string,
   stages: readonly string[],
-): string[] | null {
+): { words: string[]; messageId: string | null } | null {
   const record = readGateWords(projectDir, session);
   if (record === null || record.messages.length === 0) return null;
   const shardPath = auditFilePath(projectDir);
@@ -29644,10 +29650,14 @@ export function gateWordsSinceUnitReview(
   let from: number | null = null;
   let until: number | null = null;
   let open = false;
+  // Each turn's span: the hook keeps its words at the shard's size right after its row.
+  const turns: Array<{ start: number; end: number; id: string }> = [];
   for (;;) {
     const match = separator.exec(content);
     const block = content.slice(start, match ? match.index : content.length).replace(/\r\n/g, "\n");
     const event = auditBlockField(block, "Event");
+    const turnId = event === "HUMAN_TURN" ? auditBlockField(block, "Message Id") : null;
+    if (turnId !== null) turns.push({ start, end: match ? match.index + match[0].length : content.length, id: turnId });
     const asks = event === "DECISION_RECORDED" || event === "STAGE_AWAITING_APPROVAL" || event === "QUESTION_UNANSWERED";
     const answers = event !== null && !asks && (GATE_WORDS_ANSWERED_BY.has(event) || GATE_WORDS_SPENT_BY.has(event));
     if (
@@ -29673,10 +29683,13 @@ export function gateWordsSinceUnitReview(
   const floor = Buffer.byteLength(content.slice(0, from), "utf-8");
   const ceiling = until === null ? Number.POSITIVE_INFINITY : Buffer.byteLength(content.slice(0, until), "utf-8");
   if (record.dropped > floor) return null;
-  const words = record.messages
-    .filter((message) => message.offset > floor && message.offset <= ceiling && !isNonAnswer(message.text))
-    .map((message) => message.text);
-  return words.length > 0 ? words : null;
+  const taken = record.messages
+    .filter((message) => message.offset > floor && message.offset <= ceiling && !isNonAnswer(message.text));
+  const latest = taken.at(-1)?.offset;
+  if (latest === undefined) return null;
+  const bytes = (at: number): number => Buffer.byteLength(content.slice(0, at), "utf-8");
+  const turn = turns.findLast((span) => latest > bytes(span.start) && latest <= bytes(span.end));
+  return { words: taken.map((message) => message.text), messageId: turn?.id ?? null };
 }
 
 // Whether the person replied to the stage's approval question as it was last

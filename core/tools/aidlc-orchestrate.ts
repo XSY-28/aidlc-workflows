@@ -3745,18 +3745,25 @@ function planQuestionAnsweredByWordsDirective(): PrintDirective {
 // no reply to the question the work in progress has open (a checkpoint, a
 // gate, the stage's questions, the code plan question): they are taken back
 // from it once, and the row that says so keeps any decision on it from
-// standing on them.
+// standing on them. It names the messages it spends: this chat's since the
+// last decision, oldest first.
 function withdrawRoutedWords(projectDir: string, question: StoredQuestion): void {
   if (isReadOnlyEngineProbe()) return;
   try {
-    const routed = readAuditShardEvents(projectDir).some((row) =>
+    const rows = readAuditShardEvents(projectDir);
+    const routed = rows.some((row) =>
       row.event === "REQUEST_ROUTED" && auditBlockField(row.block, "Request") === question.id);
     if (routed) return;
+    const spent = rows.findLastIndex((row) => MESSAGE_SPENDING_EVENTS.has(row.event));
+    const ids = rows.slice(spent + 1).filter((row) => row.event === "HUMAN_TURN" &&
+      (!engineSessionId || auditBlockField(row.block, "Session") === engineSessionId))
+      .map((row) => auditBlockField(row.block, "Message Id")).filter((id): id is string => id !== null);
     withdrawProtectedReplyWords(projectDir, question.text);
     withdrawPlanApprovalReplies(projectDir, question.text);
     appendAuditEntry("REQUEST_ROUTED", {
       Request: question.id,
       ...(engineSessionId ? { Session: engineSessionId } : {}),
+      ...(ids.length > 0 ? { "Message Ids": ids.join(",") } : {}),
     }, projectDir);
   } catch (e) {
     recordHookDrop(projectDir, "routed-words", errorMessage(e));
