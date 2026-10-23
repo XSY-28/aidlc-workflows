@@ -2417,7 +2417,12 @@ function parkedWords(pd: string, stage: string): Record<string, string> {
           auditBlockField(row.block, "Autonomous") !== "true" &&
           auditBlockField(row.block, APPROVED_TOGETHER_WITH_FIELD) === null);
       if (!theirApproval) continue;
-      return fields(auditBlockField(row.block, PERSONS_WORDS_FIELD), auditBlockField(row.block, PERSONS_MESSAGE_FIELD));
+      // An approval row that kept no words of theirs (a Plan Approval receipt)
+      // stood on that same turn, whose message holds them.
+      const turnId = auditBlockField(rows[turnAt].block, PERSONS_MESSAGE_FIELD);
+      const words = auditBlockField(row.block, PERSONS_WORDS_FIELD) ??
+        (turnId === null ? null : readMessage(pd, turnId)?.words ?? null);
+      return fields(words, auditBlockField(row.block, PERSONS_MESSAGE_FIELD) ?? turnId);
     }
     return {};
   } catch {
