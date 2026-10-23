@@ -263,16 +263,14 @@ describe("the agent names their message with --message, and the tool proves it",
     expect(auditBlockField(row.block, "Conductor Summary")).toBe("please turn the sensors off");
   });
 
-  test("a message sent in another chat is refused by the proof, and nothing changes", () => {
+  // A message any chat of this piece of work sent stands, as for an answer.
+  test("a message sent in another chat of this work is theirs, named by the setter", () => {
     const { proj, state } = project();
     const theirs = said(proj, "please turn the sensors off", OTHER);
     said(proj, "looks good");
-    const before = getField(state(), "Sensors");
     const set = configSet(proj, ["sensors", "off", "--message", theirs]);
-    expect(set.status).not.toBe(0);
-    expect(set.out).toContain(`message ${theirs} came through another chat`);
-    expect(set.out).not.toContain("please turn the sensors off");
-    expect(getField(state(), "Sensors")).toBe(before);
+    expect(set.status, set.out).toBe(0);
+    expect(getField(state(), "Sensors")).toBe("off (set by you)");
   });
 
   // A check the agent turns off from the chat always has their message behind

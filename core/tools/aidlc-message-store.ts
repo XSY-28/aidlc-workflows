@@ -522,7 +522,16 @@ function messageProof(
   // work's.
   const named = invokingChat(pd);
   const spoke = named === null ? chatsSince(rows, pd, spentAt) : null;
-  const chat = named ?? (spoke?.size === 1 && !spoke.has("terminal") ? [...spoke][0] : null);
+  let chat = named ?? (spoke?.size === 1 && !spoke.has("terminal") ? [...spoke][0] : null);
+  // A setting asked for in the message a piece of work starts with, before any
+  // row of the work names a message: with no chat named, the one chat whose
+  // messages still stand for a request (the decision such a message backed
+  // itself, the routing that starts the work, leaves it standing) is this one.
+  if (chat === null && options.request === true && spoke?.size === 0) {
+    const standing = new Set(listMessages(pd).filter((m) => onlyItsOwnDecisionAfter(pd, rows, m))
+      .map((m) => m.session ?? "terminal"));
+    if (standing.size === 1 && !standing.has("terminal")) chat = [...standing][0];
+  }
   if (message.session !== chat && !onThisWork(message)) {
     // The retry names this chat's replies on this work that no decision has
     // used, oldest first: the ids and times, never their words.

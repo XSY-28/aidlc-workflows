@@ -3,7 +3,7 @@
 // The agent names the person's message; the engine proves the pointer and never
 // compares words. A choice the person left to the agent (`log answer
 // --on-instruction`) and a setting they asked for (`config set ... --message`)
-// name the message, which the engine proves is theirs, unspent and this chat's,
+// name the message, which the engine proves is theirs, unspent and this work's,
 // and the record keeps their whole words by id, so a misread shows in the record
 // instead of being hunted by a matcher. The old value forms (`--on-instruction
 // '<words>'`, `--person-words '<words>'`) are still taken for one release, as
@@ -14,6 +14,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { appendAuditEntry } from "../../dist/claude/.claude/tools/aidlc-audit.ts";
+import { saveMessage } from "../../dist/claude/.claude/tools/aidlc-message-store.ts";
 import { join } from "node:path";
 import {
   auditBlockField, formatGuardPolicy, getField, readAuditShardEvents, setGuardPolicyLine,
@@ -68,6 +69,15 @@ function said(proj: string, prompt: string, chat = CHAT): string {
   const id = turn === undefined ? null : auditBlockField(turn.block, "Message Id");
   expect(id).not.toBeNull();
   return id as string;
+}
+
+// A message another chat kept while it was not on this piece of work: no turn
+// row of the work names it.
+function keptOffThisWork(proj: string, words: string, chat: string): string {
+  return saveMessage(proj, {
+    session: chat, at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), source: "prompt", text: words, picker: null,
+    words, settings: [], route: { scope: null, newIntent: false, skip: [], add: [], projectType: null },
+  }).id;
 }
 
 function rows(proj: string, event: string) {
@@ -151,14 +161,14 @@ describe.each(POLICIES)("Guard Policy %s: a choice left to the agent names the m
     expect(field(row, "Conductor Summary")).toBe("they said go ahead");
   });
 
-  test("a message from another chat is refused with the message proof's own words, and nothing is recorded", () => {
+  test("another chat's message from off this work is refused with the message proof's own words, and nothing is recorded", () => {
     const proj = project();
-    const theirs = said(proj, "you pick", OTHER);
+    const theirs = keptOffThisWork(proj, "you pick", OTHER);
     said(proj, "looks fine so far");
     ask(proj);
     const r = log(proj, ["answer", "--stage", STAGE, "--details", "Q5: A", "--on-instruction", "--message", theirs]);
     expect(r.status).not.toBe(0);
-    expect(r.out).toContain(`message ${theirs} came through another chat`);
+    expect(r.out).toContain(`message ${theirs} was not sent on this piece of work`);
     expect(r.out).not.toContain("you pick");
     expect(answers(proj)).toHaveLength(0);
   });
@@ -236,14 +246,14 @@ describe.each(POLICIES)("Guard Policy %s: a setting is theirs by the message the
     expect(field(row, "Person Reply")).toBe(words);
   });
 
-  test("another chat's message is refused with the message proof's own words, and nothing changes", () => {
+  test("another chat's message from off this work is refused with the message proof's own words, and nothing changes", () => {
     const { proj, state } = project();
-    const theirs = said(proj, "turn the sensors off", OTHER);
+    const theirs = keptOffThisWork(proj, "turn the sensors off", OTHER);
     said(proj, "looks good");
     const before = getField(state(), "Sensors");
     const set = configSet(proj, ["sensors", "off", "--message", theirs]);
     expect(set.status).not.toBe(0);
-    expect(set.out).toContain(`message ${theirs} came through another chat`);
+    expect(set.out).toContain(`message ${theirs} was not sent on this piece of work`);
     expect(getField(state(), "Sensors")).toBe(before);
   });
 

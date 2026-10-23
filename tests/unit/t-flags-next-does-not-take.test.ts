@@ -561,7 +561,7 @@ describe("creation takes a lowering flag the command passes when the person aske
     expect(theirs).toBeDefined();
     const made = utility(proj, [...CREATE, "--plan-approval", "off", "--message", theirs]);
     expect(made.status, made.out).toBe(1);
-    expect(errorText(made.out)).toContain(`message ${theirs} came through another chat`);
+    expect(errorText(made.out)).toContain(`message ${theirs} was not sent on this piece of work`);
   });
 
   test("an unattended driver is refused even with their message on record", () => {

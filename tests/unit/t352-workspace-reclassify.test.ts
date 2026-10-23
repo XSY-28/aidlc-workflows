@@ -792,7 +792,7 @@ describe("t352 said in the message that started the work", () => {
     );
     const elsewhere = reclassify(proj, ["--message", other], CHAT);
     expect(elsewhere.status).not.toBe(0);
-    expect(said(elsewhere)).toContain(`message ${other} came through another chat`);
+    expect(said(elsewhere)).toContain(`message ${other} was not sent on this piece of work`);
     const missing = reclassify(proj, ["--message", "0badc0de"], CHAT);
     expect(missing.status).not.toBe(0);
     expect(said(missing)).toContain("no message record 0badc0de exists");
