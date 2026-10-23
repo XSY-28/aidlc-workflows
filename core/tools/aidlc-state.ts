@@ -7879,11 +7879,10 @@ function handleReject(args: string[]): void {
     isAutonomousConstructionGate(content, stage, pd);
   // The person's own words. Their replies since the last decision and since
   // the stage started (or the one message the agent named), kept whole by the
-  // human-turn hook, are the feedback, and the conductor's text, when it says
-  // something else, is kept beside them as the Conductor Summary: at a gate and
-  // after a guard-recovery Request Changes alike. Autonomous Construction has
-  // no person at the gate. With no recorded words the conductor's text is the
-  // feedback.
+  // human-turn hook, are the feedback, and the conductor's text is kept beside
+  // them as the Conductor Summary: at a gate and after a guard-recovery Request
+  // Changes alike. Autonomous Construction has no person at the gate. With no
+  // recorded words the conductor's text is the feedback.
   const conductorFeedback = feedback;
   let personsWords: string | null = null;
   let personsMessage: string | null = null;

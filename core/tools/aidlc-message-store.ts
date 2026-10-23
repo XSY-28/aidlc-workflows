@@ -381,13 +381,19 @@ export function chatsSince(rows: readonly AuditShardEvent[], pd: string, spentAt
     .map((m) => m.session ?? "terminal"));
 }
 
-// The person's messages a request can stand on (proveMessage's request form),
-// oldest first: the ids and times a refusal names so the agent can name the one
-// that asked. Never their words: the agent has them.
+// The person's messages in this chat a request can stand on (proveMessage's
+// request form), oldest first: the ids and times a refusal names so the agent
+// can name the one that asked. Never their words: the agent has them. Another
+// chat's ids would leave an agent that cannot tell the chats apart to pick one
+// by its time; a message named from there still proves.
 export function requestMessages(pd: string): Array<{ id: string; at: string }> {
   try {
+    const rows = readAuditShardEvents(pd);
+    const chat = windowChat(pd, rows, latestSpendingTimestamp(rows), true);
+    if (chat === null) return [];
     return listMessages(pd)
-      .filter((message) => "message" in messageProof(pd, message.id, "request", { request: true }))
+      .filter((message) => message.session === chat &&
+        "message" in messageProof(pd, message.id, "request", { request: true }))
       .map((message) => ({ id: message.id, at: message.at }));
   } catch {
     return [];
@@ -411,6 +417,27 @@ function invokingChat(pd: string): string | null {
   } catch {
     return null;
   }
+}
+
+// This chat, as the window reads it: the one the command serves, or with none
+// named the one chat that has spoken on this work since the last decision.
+function windowChat(
+  pd: string, rows: readonly AuditShardEvent[], spentAt: string | null, request = false,
+): string | null {
+  const named = invokingChat(pd);
+  if (named !== null) return named;
+  const spoke = chatsSince(rows, pd, spentAt);
+  if (spoke.size === 1 && !spoke.has("terminal")) return [...spoke][0];
+  // A setting asked for in the message a piece of work starts with, before any
+  // row of the work names a message: with no chat named, the one chat whose
+  // messages still stand for a request (the decision such a message backed
+  // itself, the routing that starts the work, leaves it standing) is this one.
+  if (request && spoke.size === 0) {
+    const standing = new Set(listMessages(pd).filter((m) => onlyItsOwnDecisionAfter(pd, rows, m))
+      .map((m) => m.session ?? "terminal"));
+    if (standing.size === 1 && !standing.has("terminal")) return [...standing][0];
+  }
+  return null;
 }
 
 // Whether the decisions recorded after `message` are the one decision it
@@ -515,23 +542,10 @@ function messageProof(
   const rows = readAuditShardEvents(pd);
   const spentAt = latestSpendingTimestamp(rows);
   const onThisWork = sentOnThisWork(rows);
-  // This chat, as the window reads it: the one the command serves, or with
-  // none named the one chat that has spoken since the last decision. Its own
-  // messages prove as they are (the one a piece of work starts with is kept
-  // before any row of the work can name it); another chat's must be this
-  // work's.
-  const named = invokingChat(pd);
-  const spoke = named === null ? chatsSince(rows, pd, spentAt) : null;
-  let chat = named ?? (spoke?.size === 1 && !spoke.has("terminal") ? [...spoke][0] : null);
-  // A setting asked for in the message a piece of work starts with, before any
-  // row of the work names a message: with no chat named, the one chat whose
-  // messages still stand for a request (the decision such a message backed
-  // itself, the routing that starts the work, leaves it standing) is this one.
-  if (chat === null && options.request === true && spoke?.size === 0) {
-    const standing = new Set(listMessages(pd).filter((m) => onlyItsOwnDecisionAfter(pd, rows, m))
-      .map((m) => m.session ?? "terminal"));
-    if (standing.size === 1 && !standing.has("terminal")) chat = [...standing][0];
-  }
+  // This chat's own messages prove as they are (the one a piece of work starts
+  // with is kept before any row of the work can name it); another chat's must
+  // be this work's.
+  const chat = windowChat(pd, rows, spentAt, options.request === true);
   if (message.session !== chat && !onThisWork(message)) {
     // The retry names this chat's replies on this work that no decision has
     // used, oldest first: the ids and times, never their words.

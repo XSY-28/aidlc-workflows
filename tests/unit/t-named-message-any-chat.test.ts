@@ -33,6 +33,7 @@ setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
 const LOG = join(AIDLC_SRC, "tools", "aidlc-log.ts");
 const ORCHESTRATE = join(AIDLC_SRC, "tools", "aidlc-orchestrate.ts");
 const DISPATCHER = join(AIDLC_SRC, "tools", "aidlc.ts");
+const UTILITY = join(AIDLC_SRC, "tools", "aidlc-utility.ts");
 const CHAT = "01995000-7a11-7000-8000-00000000c1c1";
 const OTHER = "01995000-7a11-7000-8000-00000000c2c2";
 const STAGE = "requirements-analysis";
@@ -207,3 +208,20 @@ for (const policy of POLICIES) {
     });
   });
 }
+
+// A request refused for want of a named message leads with the ids the agent can
+// name: this chat's, worked out as the proof works out the chat. Another chat's
+// ids would invite an agent that cannot see which chat sent them (Copilot,
+// opencode, Cursor hand it no ids of its own) to pick one by its time.
+describe("t-named-message-any-chat: a refused request names this chat's messages only", () => {
+  test("a lowering refused in a second chat names that chat's reply, never the first chat's", () => {
+    // Under strict the review freeze check is on, so turning it off is the person's call.
+    const proj = inception("strict");
+    const first = says(proj, "turn the review freeze check off for this work");
+    const mine = says(proj, "and keep going with the requirements", OTHER);
+    const refused = spawn(proj, [UTILITY, "config-change", "--guard.review-freeze", "off", "--project-dir", proj], OTHER);
+    expect(refused.status, refused.out).not.toBe(0);
+    expect(refused.out).toContain(`If their message ${mine} (sent `);
+    expect(refused.out).not.toContain(first);
+  });
+});
