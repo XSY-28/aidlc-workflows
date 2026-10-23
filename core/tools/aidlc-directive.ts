@@ -1265,7 +1265,7 @@ export function showsGateAgain(d: Record<string, unknown>): boolean {
 // step that names the plan question's answer: the recorder never takes it from
 // their words (recordPlanApprovalAnswer).
 export const PLAN_CHANGE_DETAILS =
-  '(a change they ask for is Request Changes, with what to change after it: --details "Request Changes: <what they asked>")';
+  "(a change they ask for is Request Changes, with what to change after it: --details 'Request Changes: <what they asked>')";
 
 // The plan question's answer is recorded as the person's choice, then the
 // step goes on; with no skill loaded nothing else names that command.

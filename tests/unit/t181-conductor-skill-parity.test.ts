@@ -908,6 +908,7 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
     expect(found).toEqual([]);
   });
 
+  const CMD_SHELL_SKILLS = ["harness/copilot/skills/aidlc/SKILL.md", "harness/opencode/skills/aidlc/SKILL.md"];
   // The person's own words never reach a shell inside double quotes, where a
   // $(...), a backtick, or $NAME they typed would run.
   test("every shipped conductor SKILL and the protocol single-quote the person's words on a command line", () => {
@@ -916,8 +917,9 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
       const body = readFileSync(join(REPO_ROOT, rel), "utf-8");
       if (!/put them in single\s+quotes, never double quotes/.test(body)) missing.push(`${rel}  missing the quoting rule`);
       if (!body.includes("'\\''")) missing.push(`${rel}  missing the '\\'' escape`);
-      // Copilot's terminal can be cmd.exe, which does not group single quotes.
-      if (rel === "harness/copilot/skills/aidlc/SKILL.md" && !body.includes("In cmd.exe, which does not group single quotes, put them in double quotes instead")) {
+      // Copilot's terminal can be cmd.exe, and opencode's shell on Windows is cmd.exe unless its settings name
+      // another: cmd.exe does not group single quotes.
+      if (CMD_SHELL_SKILLS.includes(rel) && !body.includes("In cmd.exe, which does not group single quotes, put them in double quotes instead")) {
         missing.push(`${rel}  missing the cmd.exe double-quote form`);
       }
       // The remedy's op travels in the choice's own command, single-quoted by the engine (shellArg).

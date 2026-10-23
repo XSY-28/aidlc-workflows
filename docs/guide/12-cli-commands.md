@@ -2449,7 +2449,7 @@ them in one question: each Unit's summary and plan path, then **Approve all**,
 **Request Changes**, and **I'll edit the files**. The person answers in their own
 words and the agent records the choice they made with `aidlc engine log answer
 --stage code-generation --checkpoint plan-approval --details "Approve Plan"` (or
-`"Request Changes: <what they asked>"`, or `"I'll edit the files"`), adding `--units
+`'Request Changes: <what they asked>'`, or `"I'll edit the files"`), adding `--units
 "<unit>,<unit>"` for some of the Units and then recording the rest: "approve
 all" approves every Unit, and a change that names a Unit ("change billing: use
 Stripe") sends just that Unit back with those words and approves the rest. A

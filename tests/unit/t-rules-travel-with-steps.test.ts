@@ -291,7 +291,7 @@ describe("t-rules-travel-with-steps: the notes and their checks", () => {
     expect(plan).toContain(
       "record the choice they made with `bun x/aidlc-log.ts answer --stage code-generation --checkpoint plan-approval " +
         "--details '<their choice>'` (a change they ask for is Request Changes, with what to change after it: " +
-        '--details "Request Changes: <what they asked>"), then run `bun x/aidlc-orchestrate.ts next`',
+        "--details 'Request Changes: <what they asked>'), then run `bun x/aidlc-orchestrate.ts next`",
     );
   });
 

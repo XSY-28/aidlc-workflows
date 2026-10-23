@@ -484,17 +484,18 @@ describe("the guard judges only the build: records and engine commands pass, the
         .find((command) => command.includes("--details") && command.includes("Request Changes: <what they asked of the plan>"))
         ?.replace("<what they asked of the plan>", "finish the plan");
       expect(handBack, `[${shape.name}] the refusal names no answer: ${refused.said}`).toBeDefined();
-      const admitted = await shape.call(state.proj, state.session, { tool: "Bash", command: respell(handBack as string, ".claude") });
-      expect(admitted.code, `[${shape.name}] ${handBack} -> ${admitted.said}`).toBe(0);
-      // opencode on Windows runs cmd.exe unless its settings name another shell, and cmd.exe reads a single
-      // quote as a plain character: the hand-back passes there too.
+      // As the agent types it: opencode's shell on Windows is cmd.exe unless its settings name another, and in
+      // cmd.exe the skill puts the person's words in double quotes.
+      const typed = shape.name === "opencode" && process.platform === "win32" ? inCmd(handBack as string) : (handBack as string);
+      const admitted = await shape.call(state.proj, state.session, { tool: "Bash", command: respell(typed, ".claude") });
+      expect(admitted.code, `[${shape.name}] ${typed} -> ${admitted.said}`).toBe(0);
       if (shape.name === "opencode") {
-        expect(await openCodeUnderCmd(state.proj, state.session, respell(handBack as string, ".aidlc"))).toBe("");
+        expect(await openCodeUnderCmd(state.proj, state.session, respell(inCmd(handBack as string), ".aidlc"))).toBe("");
       }
     }
     // The answer, the write, next: the plan is the agent's, with what they asked as the agent read it, and no
     // second edit-mode question.
-    const recorded = runNamed(state.proj, 'bun .claude/tools/aidlc-log.ts answer --stage code-generation --checkpoint plan-approval --details "Request Changes: finish the plan"');
+    const recorded = runNamed(state.proj, "bun .claude/tools/aidlc-log.ts answer --stage code-generation --checkpoint plan-approval --details 'Request Changes: finish the plan'");
     expect(recorded.status, recorded.stdout + recorded.stderr).toBe(0);
     const write = await claude.call(state.proj, state.session, { tool: "Write", path: planPath });
     expect(write.code, write.said).toBe(0);
@@ -516,6 +517,10 @@ describe("the guard judges only the build: records and engine commands pass, the
     expect(notes.code, notes.said).toBe(0);
   });
 });
+
+// A command as the skills say to type it in cmd.exe, which does not group single quotes: the person's words in
+// double quotes instead.
+const inCmd = (command: string): string => command.replace(/'([^']*)'/g, '"$1"');
 
 // The shipped opencode plugin with cmd.exe as its shell: "" when it lets the command run, else its refusal.
 async function openCodeUnderCmd(proj: string, session: string, command: string): Promise<string> {
