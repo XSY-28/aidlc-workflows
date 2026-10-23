@@ -255,7 +255,9 @@ import {
   sourceBoundaryRepairStep,
   sourceWalkReach,
 } from "./aidlc-lib.js";
-import { personTurnStands, proveMessage, readMessage, requestMessageStep, type StoredMessage } from "./aidlc-message-store.ts";
+import {
+  personTurnStands, proveMessage, readMessage, requestMessageStep, standingPersonTurn, type StoredMessage,
+} from "./aidlc-message-store.ts";
 import { memoryDirFor, STAGE_WIDE_SENSOR_IDS, templateEligibleArtifacts } from "./aidlc-graph.ts";
 import { inspectRequiredArtifactInstances } from "./aidlc-artifact-resolution.ts";
 import { aidlcDispatcherInvocation, aidlcToolInvocation, compiledExecutable, entrySkillInvocation } from "./aidlc-runtime-paths.ts";
@@ -2423,10 +2425,11 @@ function handlePark(args: string[]): void {
 // The person's words that stop the work here, and the message that holds them,
 // kept on the park row as the approval row keeps them: every reply of theirs
 // in this chat that no decision has used yet (personsGateReply) when a reply of
-// theirs stands behind this park (the reading handlePark uses), else the words
-// of the approval that same reply gave (after "approve, and stop here" the
-// approval used it, so the row is where they are). None when none were kept (a
-// slash line, a no-text turn), when they are a non-answer, or when no reply of
+// theirs stands behind this park (the reading handlePark uses), else the
+// message of that standing reply (a decision it gave, or the run's own
+// approvals, came after it), else the words of the approval that same reply
+// gave (its message gone with the day). None when none were kept (a slash
+// line, a no-text turn), when they are a non-answer, or when no reply of
 // theirs is behind the park. Nothing here reads meaning into them: the step that resumes
 // at the parked stage hands them to the agent, who does.
 function parkedWords(pd: string, stage: string): Record<string, string> {
@@ -2435,9 +2438,15 @@ function parkedWords(pd: string, stage: string): Record<string, string> {
       ? { [PERSONS_WORDS_FIELD]: words, ...(id ? { [PERSONS_MESSAGE_FIELD]: id } : {}) }
       : {};
   try {
-    if (!personTurnStands(pd, "request", { replies: true })) return {};
+    const standing = standingPersonTurn(pd, "request", { replies: true });
+    if (standing === null) return {};
     const reply = personsGateReply(pd, resolveInvokingSessionId(pd), stage);
     if (reply.words && !isNonAnswer(reply.words)) return { ...fields(reply.words, reply.messageId), ...windowMessageIds(reply) };
+    const standingId = auditBlockField(standing.block, PERSONS_MESSAGE_FIELD);
+    const standingMessage = standingId === null ? null : readMessage(pd, standingId);
+    if (standingMessage !== null && standingMessage.words !== null) {
+      return fields(personsWordsText(standingMessage.words), standingId);
+    }
     const rows = sortAttemptEvents(readAuditShardEvents(pd));
     let turnAt = -1;
     for (let i = 0; i < rows.length; i++) if (rows[i].event === "HUMAN_TURN") turnAt = i;

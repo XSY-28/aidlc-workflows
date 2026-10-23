@@ -611,10 +611,22 @@ export function personTurnStands(
   mode: "request" | "plain",
   options: { replies?: boolean; requests?: boolean; intent?: string; space?: string } = {},
 ): boolean {
+  return standingPersonTurn(pd, mode, options) !== null;
+}
+
+/**
+ * The turn personTurnStands reads, when it stands: its HUMAN_TURN row (whose
+ * Message Id names the message behind what the command does), else null.
+ */
+export function standingPersonTurn(
+  pd: string,
+  mode: "request" | "plain",
+  options: { replies?: boolean; requests?: boolean; intent?: string; space?: string } = {},
+): AuditShardEvent | null {
   try {
     const unreadable: string[] = [];
     const rows = readAuditShardEvents(pd, options.intent, options.space, unreadable);
-    if (unreadable.length > 0) return false;
+    if (unreadable.length > 0) return null;
     const chat = invokingChat(pd);
     let turn: AuditShardEvent | undefined;
     for (const row of rows) {
@@ -624,7 +636,7 @@ export function personTurnStands(
       if (options.replies === true && !isReplyTurn(row)) continue;
       if (turn === undefined || rowAfter(row, turn, row.shardIndex > turn.shardIndex)) turn = row;
     }
-    if (turn === undefined || (options.requests === true && !isRequestTurn(turn))) return false;
+    if (turn === undefined || (options.requests === true && !isRequestTurn(turn))) return null;
     const of = turn;
     // A row of the turn's own second in another shard cannot be ordered
     // against it, so it reads as after: the record cannot say it came first.
@@ -632,10 +644,12 @@ export function personTurnStands(
     if (mode === "plain") {
       // Words sent on to separate new work reply to no question here: what
       // they asked for still stands, unless the turn read is a reply.
-      return !rows.some((row) =>
+      return rows.some((row) =>
         after(row) &&
         ((MESSAGE_SPENDING_EVENTS.has(row.event) && (row.event !== "REQUEST_ROUTED" || options.replies === true)) ||
-          (row.event === "AUTONOMY_MODE_SET" && auditBlockField(row.block, "Mode") === "autonomous")));
+          (row.event === "AUTONOMY_MODE_SET" && auditBlockField(row.block, "Mode") === "autonomous")))
+        ? null
+        : of;
     }
     const id = auditBlockField(of.block, "Message Id");
     const kept = id === null ? null : readMessage(pd, id);
@@ -644,8 +658,8 @@ export function personTurnStands(
       rows,
       kept ?? { id: id ?? "", at: of.timestamp, session: auditBlockField(of.block, "Session") },
       after,
-    );
+    ) ? of : null;
   } catch {
-    return false;
+    return null;
   }
 }
