@@ -30,7 +30,7 @@ import {
   HARNESS_MATRIX,
   harnessByName,
 } from "../harness/harness-matrix.ts";
-import { intentDisplayLabel, loadScopeMapping, MESSAGE_SLOT, readIntentRegistry, toPosix } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
+import { intentDisplayLabel, loadScopeMapping, MESSAGE_SLOT, personsWordsText, readIntentRegistry, toPosix } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
 import { listMessages } from "../../dist/claude/.claude/tools/aidlc-message-store.ts";
 import { mintQuestionId, saveQuestion } from "../../dist/claude/.claude/tools/aidlc-question-store.ts";
 
@@ -206,7 +206,7 @@ function personApproves(p = proj): void {
 function printedCommand(message: string, p = proj): string {
   const command = message.match(/Run `([^`]+)`/)?.[1];
   expect(command, message).toBeDefined();
-  const approved = listMessages(p).findLast((entry) => entry.text === APPROVAL);
+  const approved = listMessages(p).findLast((entry) => personsWordsText(entry.text) === APPROVAL);
   return command!.replace('"<2-3 word kebab essence>"', "pending-work")
     .replace(` --message '${MESSAGE_SLOT}'`, approved === undefined ? "" : ` --message ${approved.id}`);
 }

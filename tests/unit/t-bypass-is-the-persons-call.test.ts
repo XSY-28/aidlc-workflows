@@ -25,7 +25,7 @@ import {
   seedStateFile,
 } from "../harness/fixtures.ts";
 import { NATIVE_STARTUP_TIMEOUT_MS, remainingOperationTimeoutMs } from "../harness/test-budget.ts";
-import { resolveProjectFlag, writeSessionBinding } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
+import { personsWordsText, resolveProjectFlag, writeSessionBinding } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
 import { invalidateSettingsCache, RECORDABLE_PROJECT_BYPASSES } from "../../dist/claude/.claude/tools/aidlc-settings.ts";
 import { latestMessage } from "../../dist/claude/.claude/tools/aidlc-message-store.ts";
 
@@ -99,7 +99,7 @@ function says(proj: string, prompt: string): string {
     JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: SESSION, prompt }));
   expect(r.status, r.out).toBe(0);
   const kept = latestMessage(proj, SESSION);
-  expect(kept?.text).toBe(prompt);
+  expect(kept && personsWordsText(kept.text)).toBe(prompt);
   return kept?.id as string;
 }
 

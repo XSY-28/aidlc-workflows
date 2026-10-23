@@ -43,6 +43,7 @@ import {
   planChangesBetween,
   planWithChanges,
   MESSAGE_SLOT,
+  personsWordsText,
   scopeGuardPolicyDefault,
   splitSlugList,
 } from "../../core/tools/aidlc-lib.ts";
@@ -398,7 +399,7 @@ describe("t351 (2) the validator names the stock scope a custom plan runs on", (
     });
     expect(approved.status, approved.stderr).toBe(0);
     const [message] = listMessages(proj);
-    expect(message?.text).toBe("Approve");
+    expect(message && personsWordsText(message.text)).toBe("Approve");
     const args = [
       "intent-create", "--scope", echoed.base_scope, "--guard-policy", "relaxed", "--arguments", "x", "--label", "relaxed-plan",
       "--message", message.id,
@@ -1309,7 +1310,7 @@ describe("t351 (10) the plan the person approved is the plan created", () => {
         }),
       });
       expect(kept.status, kept.stderr).toBe(0);
-      const message = listMessages(proj).findLast((entry) => entry.text === "Approve");
+      const message = listMessages(proj).findLast((entry) => personsWordsText(entry.text) === "Approve");
       expect(message).toBeDefined();
       args = args.replace(`--message '${MESSAGE_SLOT}'`, `--message ${message!.id}`);
     }
