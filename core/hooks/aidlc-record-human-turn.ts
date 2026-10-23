@@ -565,6 +565,9 @@ try {
   // An adapter whose own prompt hook runs a command the person typed and hands
   // the agent its output (Kiro's) says so; the help is then left to it.
   let relaysTerminalOutput = false;
+  // An adapter whose host may show the person this hook's context line says
+  // so; the message-id line is then left to the steps of `next`.
+  let contextMayReachPerson = false;
   try {
     const parsed = JSON.parse(input) as {
       hook_event_name?: unknown;
@@ -585,8 +588,10 @@ try {
       prompt_id?: unknown;
       transcript_path?: unknown;
       relays_terminal_output?: unknown;
+      context_may_reach_person?: unknown;
     };
     relaysTerminalOutput = parsed.relays_terminal_output === true;
+    contextMayReachPerson = parsed.context_may_reach_person === true;
     if (typeof parsed.session_id === "string") sessionId = validSessionId(parsed.session_id.trim()) ?? "";
     questionText = extractQuestionText(parsed.tool_input ?? parsed.toolInput);
     // A host that wraps the person's turn in its own context (Kiro Crew) hands
@@ -915,7 +920,10 @@ try {
       }
       // While a decision of theirs is open, the agent learns the id of the
       // message it can name with --message, never its words.
-      if (promptSubmitted && messageId && !notAReply && personDecisionPending(projectDir, sessionId)) {
+      if (
+        promptSubmitted && messageId && !notAReply && !contextMayReachPerson &&
+        personDecisionPending(projectDir, sessionId)
+      ) {
         notes.push(`This message of the person's is on record as ${messageId}: a decision you record from it can ` +
           `name it with --message ${messageId}.`);
       }

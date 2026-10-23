@@ -4,8 +4,10 @@
 // The agent learns the id of the person's message without meeting a refusal
 // first, and never from their words. While a decision of theirs is open, the
 // human-turn hook's line to the agent names the message it just kept, on the
-// hosts that hand that line to the agent (Claude Code, Codex, Kiro CLI, Kiro
-// IDE); with nothing open there is no line. The steps `next` prints for a reply
+// hosts that hand that line to the agent alone (Claude Code, Codex, Kiro CLI);
+// Kiro IDE draws a chat card for each command hook, unmeasured for what it
+// shows, so there, as on Copilot, the steps carry the ids. With nothing open
+// there is no line. The steps `next` prints for a reply
 // at an open question name this chat's replies by id and time, oldest first.
 // And the step for a reply at the agent's own open question carries the
 // question as it was asked, with its choices: in a second Claude Code chat
@@ -57,7 +59,7 @@ async function answer(proj: string, details: string, session = SESSION) {
 }
 
 describe("t-reply-ids-without-refusal: the hook's line names the kept message while a decision is open", () => {
-  for (const harness of ["claude", "codex", "kiro", "kiro-ide"] as const) {
+  for (const harness of ["claude", "codex", "kiro"] as const) {
     test(`${harness}: at an open question the line names the message and none of its words`, async () => {
       const proj = project();
       await buildQuestion(proj, "stage-question");
@@ -69,13 +71,15 @@ describe("t-reply-ids-without-refusal: the hook's line names the kept message wh
     });
   }
 
-  test("copilot: its adapter hands the agent none of the hook's lines, so the step names the ids instead", async () => {
-    const proj = project();
-    await buildQuestion(proj, "stage-question");
-    const said = await say(proj, "postgres, it is what we run", "copilot");
-    expect(said.status, said.stderr).toBe(0);
-    expect(said.stdout).not.toContain("on record as");
-  });
+  for (const harness of ["copilot", "kiro-ide"] as const) {
+    test(`${harness}: the person may see what its adapter hands on, so no id line; the step names the ids instead`, async () => {
+      const proj = project();
+      await buildQuestion(proj, "stage-question");
+      const said = await say(proj, "postgres, it is what we run", harness);
+      expect(said.status, said.stderr).toBe(0);
+      expect(said.stdout).not.toContain("on record as");
+    });
+  }
 
   test("at an open gate the line names the message too", async () => {
     const proj = project();
