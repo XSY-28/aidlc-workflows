@@ -910,7 +910,7 @@ export const ALLOWED: Record<string, Allowed> = {
   [`${LIB}#contentSha256`]: { use: "keeps", why: "that digest", from: [`${LIB}#guardRecoveryTextSha256`] },
   // A question box's pick of an engine-handed list, host structure since S3 (#2926): a typed reply is the agent's to read.
   [`${HOOK}#extractResponseText`]: { use: "decides", why: "a question box's payload, host structure: unwraps the box's JSON (a typed prompt is kept as typed since S3)", from: [`${HOOK}#respond`] },
-  [`${LIB}#consumeSharedDirectiveAsk`]: { use: "decides", why: "guard recovery: the box's pick when the box offered the remedies, and the reply's digest the recovery record keeps", from: [`${HOOK}#respond`] },
+  [`${LIB}#consumeSharedDirectiveAsk`]: { use: "decides", why: "guard recovery: the box's pick when the box offered the remedies, and the reply's digest the recovery record keeps (from emit: a routed request's message, kept again as the reply the routing question took from the recovery question)", from: [`${HOOK}#respond`, `${ORCH}#emit`] },
   [`${POSTURE}#recordProtectedHumanResponse`]: { use: "decides", why: "the protected question's response: the box's pick only, and the words kept with presence", from: [`${HOOK}#respond`] },
   [`${READER}#protectedQuestionPick`]: { use: "decides", why: "a question box's pick of the protected question's choices", from: [`${POSTURE}#recordProtectedHumanResponse`] },
   [`${ASK}#notePlanApprovalAskReply`]: { use: "decides", why: "Plan Approval: the box's pick only, and the replies after the ask kept for the record", from: [`${HOOK}#respond`, `${ORCH}#emit`] },

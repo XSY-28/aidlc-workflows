@@ -10831,6 +10831,18 @@ function guardRecoveryTextSha256(text: string): string | null {
   return normalized.length === 0 ? null : contentSha256(normalized);
 }
 
+// The engine's recovery question is the open step for this state: the one
+// check behind keeping the person's reply to it (consumeSharedDirectiveAsk),
+// the conductor's record of their pick (recordGuardRecoveryChoice) and `next`'s
+// reading of words typed at it (guardRecoveryReplyWaits).
+function isOpenGuardRecoveryAsk(
+  marker: ActiveDirectiveMarker | null,
+  stateContent: string,
+): marker is ActiveDirectiveMarker {
+  return marker?.version === 2 && marker.state_sha256 === stateDigest(stateContent) && marker.kind === "ask" &&
+    marker.ask_type === GUARD_RECOVERY_ASK_TYPE && marker.needs_rehydrate === false;
+}
+
 // The person replied to a guard-recovery ask. The hook keeps that they replied,
 // bound to the ask by the digest of their words; the conductor reads the reply
 // and records the remedy they chose (recordGuardRecoveryChoice). When that
@@ -10853,15 +10865,7 @@ export function consumeSharedDirectiveAsk(
       return { marker, result: false, preserve: true };
     }
     const responseSha256 = guardRecoveryTextSha256(humanResponseText);
-    const currentGuardRecovery =
-      marker?.version === 2 &&
-      marker.state_sha256 === stateDigest(stateContent) &&
-      marker.kind === "ask" &&
-      marker.ask_type === GUARD_RECOVERY_ASK_TYPE &&
-      marker.needs_rehydrate === false &&
-      responseSha256 !== null &&
-      !isNonAnswer(humanResponseText);
-    if (!currentGuardRecovery) {
+    if (!isOpenGuardRecoveryAsk(marker, stateContent) || responseSha256 === null || isNonAnswer(humanResponseText)) {
       return { marker, result: false, preserve: true };
     }
     if (marker.guard_recovery_response?.selection_sha256 === responseSha256 && marker.delivery === "consumed") {
@@ -10946,10 +10950,7 @@ export function recordGuardRecoveryChoice(
     } catch {
       throw new Error("The workflow state cannot be read. Run next.");
     }
-    if (
-      marker?.version !== 2 || marker.state_sha256 !== stateDigest(stateContent) ||
-      marker.kind !== "ask" || marker.ask_type !== GUARD_RECOVERY_ASK_TYPE || marker.needs_rehydrate !== false
-    ) {
+    if (!isOpenGuardRecoveryAsk(marker, stateContent)) {
       throw new NoGuardRecoveryAskError();
     }
     const response = marker.guard_recovery_response;
@@ -11001,6 +11002,22 @@ export function recordGuardRecoveryChoice(
       },
     };
   });
+}
+
+/**
+ * The open recovery question holds the person's latest reply and no remedy is
+ * recorded on it yet, so the conductor's record of their pick is the next
+ * step: words passed to `next` now may be that pick. Null otherwise, and while
+ * a question of the stage is open: a picked remedy that asks its own (the
+ * summary to confirm again) owns the replies to it, which the hook keeps here
+ * too.
+ */
+export function guardRecoveryReplyWaits(projectDir: string, stateContent: string): ActiveDirectiveMarker | null {
+  const marker = readActiveDirectiveMarker(projectDir, stateContent);
+  if (!isOpenGuardRecoveryAsk(marker, stateContent) || marker.delivery !== "consumed") return null;
+  const response = marker.guard_recovery_response;
+  if (response === undefined || (response.selected_op ?? null) !== null) return null;
+  return openPendingDecision(projectDir, marker.stage) === null ? marker : null;
 }
 
 export type GuardRecoveryFeedbackStatus =

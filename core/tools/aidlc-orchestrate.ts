@@ -122,7 +122,7 @@ import {
   saveRestartRequest,
   takeRestartRequest,
 } from "./aidlc-question-store.ts";
-import { latestMessage, listMessages, noReplySince } from "./aidlc-message-store.ts";
+import { latestMessage, listMessages, noReplySince, readMessage } from "./aidlc-message-store.ts";
 import { aidlcEntryWords, APPROVAL_GATE_CHOICES, protectedChoices } from "./aidlc-reply-reader.ts";
 import {
   type AskDirective,
@@ -251,6 +251,8 @@ import {
   installedHarnessName,
   recordGuardRefusal,
   currentGuardRecoveryAskMarker,
+  consumeSharedDirectiveAsk,
+  guardRecoveryReplyWaits,
   type ActiveDirectiveGuardRemedy,
   type SummaryConfirmationEvidence,
   gridCostSummary,
@@ -2600,6 +2602,29 @@ function emit(requested: Directive): void {
             return;
           }
         }
+        // The same answer when that work waits on the recovery question: the
+        // routing question it was asked through took the place of the
+        // recovery question's marker, and with it the reply the hook had kept
+        // there, so the message the words came in is kept as that reply again,
+        // as the hook kept it.
+        const routedMessage = routingAnswered?.messageId === undefined
+          ? null
+          : readMessage(projectDir, routingAnswered.messageId);
+        if (
+          routingAnsweredAsActiveWork &&
+          routedMessage?.words &&
+          prepared.transported.kind === "ask" &&
+          prepared.transported.ask_type === GUARD_RECOVERY_ASK_TYPE &&
+          !isReadOnlyEngineProbe()
+        ) {
+          consumeSharedDirectiveAsk(projectDir, routedMessage.words);
+          const state = loadStateFileIfPresent(projectDir);
+          const recovery = state === null ? null : guardRecoveryReplyWaits(projectDir, state);
+          if (recovery !== null) {
+            writePrepared(prepareEmission(recoveryQuestionAnsweredByWordsDirective(recovery)));
+            return;
+          }
+        }
       }
     } catch (e) {
       // A barrier violation is an engine defect, not a workflow problem, and must
@@ -3643,6 +3668,45 @@ function openQuestionReplyDirective(
       `or a change to the plan, run \`${orchestrate} next --request ${requestId}\` and follow what it returns: the ` +
       "engine kept their words and asks them where that work belongs. If you cannot tell which it is, ask the " +
       `person in one short question and follow their answer.${replyIdsNote(replies, "`log answer`")}`,
+  );
+}
+
+// The choices of the engine's recovery question (a guard refused and asked
+// which way to go on), numbered as it showed them, each with the command that
+// records it, so a chat that never saw it asked has all it needs.
+function recoveryQuestionChoices(marker: ActiveDirectiveMarker): string {
+  const choices = (marker.remedies ?? []).map((remedy, at) =>
+    `${at + 1}. ${remedy.label ?? remedy.action} (\`${aidlcToolInvocation("log")} answer --stage ` +
+    `${shellArg(marker.stage)} --checkpoint guard-recovery --details ${shellArg(remedy.op)}\`)`);
+  return `${choices.length === 1 ? "its one choice is" : "its choices are"} ${choices.join(" and ")}`;
+}
+
+// Words while the recovery question holds the person's reply may pick one of
+// its choices: the conductor reads which, the same split as
+// openQuestionReplyDirective.
+function openRecoveryReplyDirective(marker: ActiveDirectiveMarker, requestId: string): PrintDirective {
+  const orchestrate = aidlcToolInvocation("orchestrate");
+  return printDirective(
+    `The recovery question for "${marker.stage}" is open, and ${recoveryQuestionChoices(marker)}. The person's ` +
+      "reply may answer it. Read it. If it picks one of those choices, run that choice's command and follow what it " +
+      `returns. If it asks to skip this stage, run \`${orchestrate} next --skip ${shellArg(marker.stage)}\` and follow ` +
+      "what it returns. If it is about something else, such as new work or a change to the plan, run " +
+      `\`${orchestrate} next --request ${requestId}\` and follow what it returns: the engine kept their words and asks ` +
+      "them where that work belongs. If you cannot tell which it is, ask the person once in plain words, with the " +
+      "question's choices, and follow their answer.",
+  );
+}
+
+// The person said their words are part of the work in progress, and that work
+// waits on the recovery question: the words, kept as their reply to it, are
+// their answer, read by the conductor like any reply to it.
+function recoveryQuestionAnsweredByWordsDirective(marker: ActiveDirectiveMarker): PrintDirective {
+  return printDirective(
+    "The person said their words are part of the work in progress, and that work is waiting on their answer to the " +
+      `recovery question for "${marker.stage}", so their words are that answer; ${recoveryQuestionChoices(marker)}. ` +
+      "Read them, run the command of the choice they pick, and follow what it returns. If you cannot tell which " +
+      "choice it is, ask them once in plain words, with those choices, and end the turn; bare " +
+      `\`${aidlcToolInvocation("orchestrate")} next\` shows the question again.`,
   );
 }
 
@@ -10677,6 +10741,18 @@ function routeNext(agentArgs: string[], projectDir: string | undefined): void {
         undefined, routingSettings(carriedRoutingFlags(flags)),
       );
       emit(openQuestionReplyDirective(open.stage, open.block, words.id, replyIds(pd, open.stage)));
+      return;
+    }
+    // Words at the engine's recovery question, once it holds the person's
+    // reply, may pick one of its choices, read the same way. A refused gate
+    // action asks it, so it comes before the gate.
+    const recovery = guardRecoveryReplyWaits(pd, stateContent);
+    if (recovery !== null) {
+      const words = saveReadingQuestion(
+        pd, flags.intent, "", "routing", { space: selection.space, targets: routingTargets() }, false, undefined,
+        undefined, routingSettings(carriedRoutingFlags(flags)),
+      );
+      emit(openRecoveryReplyDirective(recovery, words.id));
       return;
     }
     // Words at an approval gate the person is looking at ("approve") may be
