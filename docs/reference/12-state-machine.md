@@ -974,11 +974,12 @@ later, and the CLI performs no switch-authority session lookup; hooks run on Win
 supports this path.
 
 After the memory-strict check, `config-change` and `scope-change` carry out an
-explicit lowering when a person's turn is on record since the last gate
-resolution (`personSpokeSinceGate`): the conductor runs them when the person
-asks in their own words or picks a `lower-fence` remedy. Without that turn they
-refuse, unless the change is a no-op or `fenceKeyBypassed` allows the fixture or
-harness-launch presence bypass.
+explicit lowering when the command names the message the person asked in
+(`--message <id>`, proved by `proveMessage`), when they typed it on their own
+line, or when they ran it at their own terminal: the conductor runs them when the
+person asks in their own words or picks a `lower-fence` remedy. Without one they
+refuse, leading with the `--message` retry, unless the change is a no-op or
+`fenceKeyBypassed` allows the fixture or harness-launch presence bypass.
 A fence already off for this work and a policy word already equal to the
 current line with source `you` need no key.
 Direct `intent create --guard-policy relaxed|off` from chat is refused when the

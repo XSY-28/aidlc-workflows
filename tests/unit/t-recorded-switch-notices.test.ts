@@ -1,5 +1,5 @@
 // covers: function:switchesOff, function:switchOffLine, function:switchesOffLines, function:switchOffNotices
-// covers: function:recordSwitchChange, function:clearSwitchCommand, function:latestPersonTurn, function:personSpokeSinceGate
+// covers: function:recordSwitchChange, function:clearSwitchCommand, function:latestPersonTurn
 // covers: function:PERSON_CHECK_SWITCHES, function:PERSON_CHECK_SWITCH_LABELS
 // covers: function:killSwitchSource, function:isKillSwitchSource
 //
