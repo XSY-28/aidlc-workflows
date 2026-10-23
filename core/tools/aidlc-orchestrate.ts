@@ -107,6 +107,7 @@ import {
   QUESTION_UNAVAILABLE,
   startedRequestFor,
   type QuestionAskedAbout,
+  type QuestionOrigin,
   type QuestionSettings,
   questionTargetSelected,
   readComposeEntry,
@@ -3747,19 +3748,13 @@ function planQuestionAnsweredByWordsDirective(): PrintDirective {
 // no reply to the question the work in progress has open (a checkpoint, a
 // gate, the stage's questions, the code plan question): they are taken back
 // from it once, and the row that says so keeps any decision on it from
-// standing on them. It names the messages it spends: this chat's since the
-// last decision, oldest first.
+// standing on them. The row names the message the words came in.
 function withdrawRoutedWords(projectDir: string, question: StoredQuestion): void {
   if (isReadOnlyEngineProbe()) return;
   try {
-    const rows = readAuditShardEvents(projectDir);
-    const routed = rows.some((row) =>
+    const routed = readAuditShardEvents(projectDir).some((row) =>
       row.event === "REQUEST_ROUTED" && auditBlockField(row.block, "Request") === question.id);
     if (routed) return;
-    const spent = rows.findLastIndex((row) => MESSAGE_SPENDING_EVENTS.has(row.event));
-    const ids = rows.slice(spent + 1).filter((row) => row.event === "HUMAN_TURN" &&
-      (!engineSessionId || auditBlockField(row.block, "Session") === engineSessionId))
-      .map((row) => auditBlockField(row.block, "Message Id")).filter((id): id is string => id !== null);
     // Taken back by the message they came in; a question kept before messages
     // were named takes back nothing.
     if (question.messageId !== undefined) {
@@ -3769,7 +3764,7 @@ function withdrawRoutedWords(projectDir: string, question: StoredQuestion): void
     appendAuditEntry("REQUEST_ROUTED", {
       Request: question.id,
       ...(engineSessionId ? { Session: engineSessionId } : {}),
-      ...(ids.length > 0 ? { "Message Ids": ids.join(",") } : {}),
+      ...(question.messageId !== undefined ? { "Message Id": question.messageId } : {}),
     }, projectDir);
   } catch (e) {
     recordHookDrop(projectDir, "routed-words", errorMessage(e));
@@ -8857,8 +8852,10 @@ function markLineHandedOut(pd: string, session: string, messageId: string): void
 // step does not take that line again (takePersonsOwnLine) whichever way the
 // words reached `next`; words sent elsewhere later are taken back by it
 // (withdrawRoutedWords).
-function saveReadingQuestion(...args: Parameters<typeof saveQuestion>): ReturnType<typeof saveQuestion> {
-  const [pd, text, scope, origin, askedAbout, newWork, composedFrom, stateSha256, settings, approvedRequest] = args;
+function saveReadingQuestion(
+  pd: string, text: string, scope: string, origin?: QuestionOrigin, askedAbout?: QuestionAskedAbout, newWork?: boolean,
+  composedFrom?: string, stateSha256?: string, settings?: QuestionSettings, approvedRequest?: string,
+): StoredQuestion {
   const latest = engineSessionId === undefined
     ? listMessages(pd).findLast((message) => message.source === "prompt") ?? null
     : latestMessage(pd, engineSessionId);

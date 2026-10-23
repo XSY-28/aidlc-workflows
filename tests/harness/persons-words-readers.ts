@@ -892,6 +892,13 @@ export const ALLOWED: Record<string, Allowed> = {
   [`${LIB}#plainSummaryAttemptRecorded`]: { use: "keeps", why: "the summary's answer as the agent recorded it (Details), for its recovery" },
   [`${LIB}#isSummaryConfirmationChoice`]: { use: "keeps", why: "as above", from: [`${LIB}#plainSummaryAttemptRecorded`] },
   [`${ORCH}#withKeptReplies`]: { use: "keeps", why: "the resume re-show: hands the agent the replies a stage kept" },
+  // next's request (S2b): kept and quoted, never compared; what was read is the message id.
+  [`${ORCH}#routeNext`]: { use: "decides", why: "next itself: quotes and previews the request (quoteCommandArgument) and whether one is there" },
+  [`${ORCH}#freshWorkRoute`]: { use: "decides", why: "hands the request to the plan proposal step", from: [`${ORCH}#routeNext`] },
+  [`${ORCH}#planProposalDirective`]: { use: "decides", why: "keeps the request as a question and previews it; reuses the question the words came through without comparing them", from: [`${ORCH}#freshWorkRoute`, `${ORCH}#routeNext`] },
+  [`${ORCH}#saveReadingQuestion`]: { use: "keeps", why: "keeps the words as a routing question with the message they came in", from: [`${ORCH}#newWorkRoutingAskDirective`, `${ORCH}#routeNext`] },
+  [`${ORCH}#takePersonsOwnLine`]: { use: "keeps", why: "the /aidlc parse of the person's own line; already read is the message id" },
+  [`${ORCH}#emit`]: { use: "decides", why: "the words the person said belong to the work in progress are kept once as the code plan question's reply (notePlanApprovalAskReply), and leave it by their message id" },
   [`${ORCH}#withParkedReply`]: { use: "keeps", why: "the resume re-show: the words they parked the work with" },
   [`${ORCH}#wordsAtPark`]: { use: "keeps", why: "the resume re-show: reads the park row's Person Reply" },
   [`${READER}#stripRecommendedDecorator`]: { use: "keeps", why: "a cut of the agent's \"(Recommended)\" mark, given words by the places that compare (each listed)", from: [`${LIB}#isSummaryConfirmationChoice`, `${LIB}#offeredChoiceLabel`, `${READER}#exactOptionPick`, `${READER}#isOneOfChoices`, `${POSTURE}#recordPlanApprovalHumanResponse`] },
@@ -912,7 +919,6 @@ export const ALLOWED: Record<string, Allowed> = {
   [`${SWARM_CP}#rejectSwarmCheckpoint`]: { use: "keeps", why: "the audit writer: the batch reject's Feedback and Reason" },
   [`${LIB}#changeRequestWords`]: { use: "keeps", why: "the reject's lines joined as the change to make", from: [`${UNIT_CP}#rejectConstructionCheckpoint`, `${SWARM_CP}#rejectSwarmCheckpoint`] },
   [`${LIB}#requireProtectedResponse`]: { use: "keeps", why: "the audit writer: a named message's words become the protected response's" },
-  [`${ASK}#recordPlanApprovalAnswer`]: { use: "keeps", why: "the audit writer: the plan answer keeps the replies' words" },
   // The request the agent forwards to next (its free text) and the question store that keeps it: shown back, quoted
   // into a command, kept; each with its reason.
   "core/tools/aidlc-runtime-paths.ts#quoteCommandArgument": { use: "decides", why: "shell-quotes their words into a command the agent runs", from: [`${ORCH}#routeNext`, `${ORCH}#routingQuestionReplyDirective`] },
@@ -923,7 +929,7 @@ export const ALLOWED: Record<string, Allowed> = {
   [`${LIB}#authoritativeProjectDescription`]: { use: "decides", why: "a shape read: splits a pasted <document> block, exact markers, from the directions around it", from: [`${ORCH}#authoritativeRequest`, `${ORCH}#documentSplitSentence`, `${ORCH}#namedDocumentNote`, `${ORCH}#pastedDocumentNote`] },
   [`${LIB}#writeBufferAtomic`]: { use: "keeps", why: "bytes to a file", from: [`${LIB}#writeRecordFileNoFollow`] },
   "core/tools/aidlc-question-store.ts#parseQuestion": { use: "keeps", why: "the question store's own read: checks a record's shape" },
-  "core/tools/aidlc-question-store.ts#saveQuestion": { use: "keeps", why: "the question store's writer: keeps the request as the question's text", from: [`${ORCH}#composeOfferAskDirective`, `${ORCH}#createPrintDirective`, `${ORCH}#newWorkRoutingAskDirective`, `${ORCH}#planProposalDirective`, `${ORCH}#routeNext`, `${ORCH}#scopeConfirmAskDirective`] },
+  "core/tools/aidlc-question-store.ts#saveQuestion": { use: "keeps", why: "the question store's writer: keeps the request as the question's text", from: [`${ORCH}#composeOfferAskDirective`, `${ORCH}#createPrintDirective`, `${ORCH}#planProposalDirective`, `${ORCH}#routeNext`, `${ORCH}#saveReadingQuestion`, `${ORCH}#scopeConfirmAskDirective`] },
   "core/tools/aidlc-utility.ts#handleIntentCreate": { use: "keeps", why: "creates the work with the request's words (the question's text)" },
   [`${ORCH}#isKeptRequest`]: { use: "keeps", why: "the presence shape: whether next carries a request" },
   [`${ORCH}#noteRestartRequest`]: { use: "keeps", why: "keeps a new chat's request for the step that asks about it" },
@@ -1003,14 +1009,6 @@ export const STILL_TO_GO: Record<string, ToGo> = {
   [`${LIB}#pickedLabels`]: { use: "decides", slice: "S2a", row: "R24", why: "latestPersonTurn's decode of a row's Picked", from: [`${LIB}#latestPersonTurn`] },
   [`${LIB}#pickedLabelList`]: { use: "decides", slice: "S2a", row: "R26", why: "the decode of a row's Picked for keptRepliesSinceStageStart and pickedLabels", from: [`${LIB}#keptRepliesSinceStageStart`, `${LIB}#pickedLabels`] },
   [`${LIB}#keptRepliesSinceStageStart`]: { use: "decides", slice: "S2a", row: "R26", why: "pairs the kept replies with the logged questions" },
-  // S2b: the ids.
-  [`${ORCH}#takePersonsOwnLine`]: { use: "decides", slice: "S2b", row: "R7 (reading-lead: S2b)", why: "\"already read\" compares the person's words with the words a reading step kept; S2b compares the message id; the line itself stays the /aidlc parse (then ALLOWED)" },
-  "core/tools/aidlc-question-store.ts#wordsAlreadyRead": { use: "decides", slice: "S2b", row: "R7 (reading-lead: S2b)", why: "as above", from: [`${ORCH}#takePersonsOwnLine`] },
-  [`${ORCH}#emit`]: { use: "decides", slice: "S2b", row: "R7 (reading-lead, 2026-10-23)", why: "a routed request's words withdrawn from the plan ask's replies by text, and handed to notePlanApprovalAskReply" },
-  [`${ORCH}#withdrawRoutedWords`]: { use: "decides", slice: "S2b", row: "R7 (reading-lead, 2026-10-23)", why: "drops kept reply lines equal to a routed request's words (the routing question's text); S2b names the message" },
-  [`${ORCH}#planProposalDirective`]: { use: "decides", slice: "S2b", row: "R7 (reading-lead, 2026-10-23)", why: "reuses a kept question whose text equals the request; S2b compares the message id" },
-  [`${ORCH}#freshWorkRoute`]: { use: "decides", slice: "S2b", row: "R7 (reading-lead, 2026-10-23)", why: "as above", from: [`${ORCH}#routeNext`] },
-  [`${ORCH}#routeNext`]: { use: "decides", slice: "S2b", row: "R7 (reading-lead, 2026-10-23)", why: "next itself: through planProposalDirective; otherwise it quotes and previews their request (then ALLOWED)" },
   // S6: quotes become pointers; the setters name their message.
   [`${STORE}#personsSaidWords`]: { use: "decides", slice: "S6", row: "R27", why: "gathers everything they said for a quote to be found in" },
   [`${STORE}#holdsQuote`]: { use: "decides", slice: "S6", row: "R27", why: "finds the agent's quote inside their words", from: [`${LOG}#handleAnswer`] },
@@ -1022,8 +1020,8 @@ export const STILL_TO_GO: Record<string, ToGo> = {
   [`${LIB}#guardRecoveryFeedbackStatus`]: { use: "decides", slice: "S6", row: "R29", why: "the reject's --feedback matched to the recovery reply's digest", from: [`${STATE}#handleReject`] },
   [`${STATE}#handleReject`]: { use: "decides", slice: "S6", row: "R29", why: "the guard-recovery digest match; its duplicate check (Conductor Summary left off when it equals their words) stays, then ALLOWED as the writer" },
   [`${ORCH}#withdrawSettingWords`]: { use: "decides", slice: "S6", row: "R28 (reading-lead: S6a)", why: "drops kept reply lines equal to the latest turn's words; S6 withdraws by the message id" },
-  [`${LIB}#withdrawProtectedReplyWords`]: { use: "decides", slice: "S6", row: "R28 (reading-lead: S6a)", why: "as above, for the protected response", from: [`${ORCH}#withdrawRoutedWords`, `${ORCH}#withdrawSettingWords`] },
-  [`${ASK}#withdrawPlanApprovalReplies`]: { use: "decides", slice: "S6", row: "R28 (reading-lead: S6a)", why: "as above, for the plan ask's replies", from: [`${ORCH}#emit`, `${ORCH}#withdrawRoutedWords`, `${ORCH}#withdrawSettingWords`] },
+  [`${LIB}#withdrawProtectedReplyWords`]: { use: "decides", slice: "S6", row: "R28 (reading-lead: S6a)", why: "as above, for the protected response", from: [`${ORCH}#withdrawSettingWords`] },
+  [`${ASK}#withdrawPlanApprovalReplies`]: { use: "decides", slice: "S6", row: "R28 (reading-lead: S6a)", why: "as above, for the plan ask's replies", from: [`${ORCH}#withdrawSettingWords`] },
 };
 
 /**
@@ -1040,8 +1038,5 @@ export const FUZZ_STILL_TO_GO: readonly FuzzRow[] = [
   { group: "I2 QUESTION_ANSWERED names no message", slice: "S2c", row: "DESIGN.md item 7 (reading-lead, 2026-10-23)", why: "an answer logged in a chat with no reply of its own since the last decision names no message: the window is this chat's, and a named id from another chat of the same work is refused" },
   { group: "I2 QUESTION_ANSWERED names no message", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the code plan and protected questions' own answers name no message" },
   { group: "I2 VERIFICATION_COMMAND_RECORDED names no message", slice: "S2a", row: "R24", why: "the verification answer takes Person Reply from the protected response and names no message" },
-  { group: "I2 GATE_REJECTED names no message", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "a Unit or batch checkpoint reject with no --message writes the protected response's words and no Message Id" },
-  { group: "I2 GATE_APPROVED names no message", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "a Unit or batch checkpoint approval with no --message writes no Message Id" },
-  { group: "I2 REQUEST_ROUTED names no message", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "a routing pick records no Message Id" },
   { group: "I5 the person's words copied into QUESTION_ANSWERED.User Input", slice: "PA-fixes", row: "F3", why: "recordPlanApprovalAnswer's fallback puts their words in a Request Changes' User Input; PA-fixes makes User Input the agent's change text and Person Reply their words" },
 ];
