@@ -5658,15 +5658,12 @@ export function readProtectedResponse(projectDir: string, session: string): Prot
     ? value : null;
 }
 
-// The person sent these words to separate new work or a reshape: no protected
-// question (a checkpoint, the verification command) keeps them as its reply.
-// Their other replies stay; a pick read from a reply that is gone goes too.
-// Words sent on are named by their message; a setting's words by their text.
-export function withdrawProtectedReplyWords(projectDir: string, which: string | { messageId: string }): void {
-  const same = (line: string): boolean => typeof which === "string" &&
-    line.replace(/\s+/g, " ").trim().toLowerCase() === which.replace(/\s+/g, " ").trim().toLowerCase();
-  const drop = (reply: ProtectedReply): boolean =>
-    typeof which === "string" ? same(reply.words) : reply.messageId === which.messageId;
+// The person sent the words of this message to separate new work or a
+// reshape: no protected question (a checkpoint, the verification command)
+// keeps them as its reply. Their other replies stay; a pick read from a reply
+// that is gone goes too.
+export function withdrawProtectedReplyWords(projectDir: string, which: { messageId: string }): void {
+  const drop = (reply: ProtectedReply): boolean => reply.messageId === which.messageId;
   let names: string[];
   try {
     names = readdirSync(planApprovalRuntimeDir(projectDir));
@@ -29904,6 +29901,14 @@ export function personsGateReply(projectDir: string, session: string | null, sta
   } catch {
     return none;
   }
+}
+
+// A decision's row names every message its window stands on, oldest first,
+// when there are several (Message Ids, comma-separated), beside the latest
+// (Message Id): the row's words and its ids then match. One message, or the
+// one the agent named, is Message Id alone.
+export function windowMessageIds(reply: GateReply): Record<string, string> {
+  return reply.replies.length > 1 ? { "Message Ids": reply.replies.map((entry) => entry.id).join(",") } : {};
 }
 
 // The step that lets the agent name the message that already answered a

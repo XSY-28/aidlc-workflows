@@ -852,6 +852,7 @@ export const ALLOWED: Record<string, Allowed> = {
   [`${STORE}#noReplySince`]: { use: "keeps", why: "the presence shape: a line of settings alone is no reply (words === null)" },
   [`${ORCH}#handOutSettingsLine`]: { use: "keeps", why: "the presence shape: a line of settings alone (words === null) is handed to its setter once" },
   [`${LIB}#readProtectedResponse`]: { use: "decides", why: "the protected response's own read: checks its fields' form (the digest's hex)" },
+  [`${LIB}#withdrawProtectedReplyWords`]: { use: "decides", why: "drops a kept reply by its message id (the scan reads a reply's id as its words), and keeps the words of the replies that stay" },
   [`${AUDIT}#appendAuditEntry`]: { use: "keeps", why: "the audit writer", from: [`${LOG}#emitAudit`] },
   [`${AUDIT}#appendAuditEntryUnlocked`]: { use: "keeps", why: "the audit writer", from: [`${AUDIT}#appendAuditEntry`, `${LOG}#emitAudit`] },
   [`${AUDIT}#tapAuditMetric`]: { use: "keeps", why: "the audit writer: the row's metric", from: [`${AUDIT}#appendAuditEntryUnlocked`] },
@@ -1019,9 +1020,6 @@ export const STILL_TO_GO: Record<string, ToGo> = {
   [`${GUARD_SWITCH}#saidInChat`]: { use: "keeps", slice: "S6", row: "R28", why: "the setters' reading of whether a setting is theirs; S6 names the message" },
   [`${LIB}#guardRecoveryFeedbackStatus`]: { use: "decides", slice: "S6", row: "R29", why: "the reject's --feedback matched to the recovery reply's digest", from: [`${STATE}#handleReject`] },
   [`${STATE}#handleReject`]: { use: "decides", slice: "S6", row: "R29", why: "the guard-recovery digest match; its duplicate check (Conductor Summary left off when it equals their words) stays, then ALLOWED as the writer" },
-  [`${ORCH}#withdrawSettingWords`]: { use: "decides", slice: "S6", row: "R28 (reading-lead: S6a)", why: "drops kept reply lines equal to the latest turn's words; S6 withdraws by the message id" },
-  [`${LIB}#withdrawProtectedReplyWords`]: { use: "decides", slice: "S6", row: "R28 (reading-lead: S6a)", why: "as above, for the protected response", from: [`${ORCH}#withdrawSettingWords`] },
-  [`${ASK}#withdrawPlanApprovalReplies`]: { use: "decides", slice: "S6", row: "R28 (reading-lead: S6a)", why: "as above, for the plan ask's replies", from: [`${ORCH}#withdrawSettingWords`] },
 };
 
 /**
@@ -1039,8 +1037,6 @@ export const FUZZ_STILL_TO_GO: readonly FuzzRow[] = [
   { group: "I2 GATE_APPROVED Person Reply is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the protected response keeps the replies the hook kept under the question, joined and cut to its last 8000 characters, which is not always a window of the chat ending at the message the row now names" },
   { group: "I2 GATE_REJECTED Person Reply is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the protected response keeps the replies the hook kept under the question, joined and cut to its last 8000 characters, which is not always a window of the chat ending at the message the row now names" },
   { group: "I2 VERIFICATION_COMMAND_RECORDED Person Reply is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "the protected response keeps the replies the hook kept under the question, joined and cut to its last 8000 characters, which is not always a window of the chat ending at the message the row now names" },
-  { group: "I2 SUMMARY_CONFIRMATION_RECORDED Person Reply is not the message's words", slice: "S2c", row: "Message Ids on the summary receipt (reading-lead, 2026-10-23)", why: "met in shard mode only (its replay passes): the summary window leaves out the turns it does not count, so Person Reply can be a subsequence of the chat's messages ending at the named one" },
   { group: "I2 GATE_REJECTED Feedback is not the message's words", slice: "S2b", row: "the ids (reading-lead, 2026-10-23)", why: "a checkpoint reject's Feedback is its reason: the agent's --reason, or the person's words on one line (changeRequestWords)" },
-  { group: "I2 QUESTION_ANSWERED names no message", slice: "S2c", row: "DESIGN.md item 7 (reading-lead, 2026-10-23)", why: "an answer logged in a chat with no reply of its own since the last decision names no message: the window is this chat's, and a named id from another chat of the same work is refused" },
   { group: "I5 the person's words copied into QUESTION_ANSWERED.User Input", slice: "PA-fixes", row: "F3", why: "recordPlanApprovalAnswer's fallback puts their words in a Request Changes' User Input; PA-fixes makes User Input the agent's change text and Person Reply their words" },
 ];

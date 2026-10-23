@@ -1742,14 +1742,12 @@ export function openEngineQuestion(projectDir: string): string | null {
 }
 
 /**
- * The person sent these words to separate new work or a reshape: the code plan
- * question of this piece of work keeps none of them as its reply. Words sent
- * on are named by their message; a setting's words by their text.
+ * The person sent the words of this message to separate new work or a
+ * reshape: the code plan question of this piece of work keeps none of them as
+ * its reply.
  */
-export function withdrawPlanApprovalReplies(projectDir: string, which: string | { messageId: string }): void {
-  const drop = (reply: PlanApprovalAskReply): boolean => typeof which === "string"
-    ? reply.text.replace(/\s+/g, " ").trim().toLowerCase() === which.replace(/\s+/g, " ").trim().toLowerCase()
-    : reply.messageId === which.messageId;
+export function withdrawPlanApprovalReplies(projectDir: string, which: { messageId: string }): void {
+  const drop = (reply: PlanApprovalAskReply): boolean => reply.messageId === which.messageId;
   withAuditLock(projectDir, () => {
     const record = readPlanApprovalAsk(projectDir, intentIdFor(projectDir));
     if (record === null || !record.replies?.some(drop)) return;

@@ -146,6 +146,7 @@ import {
   backgroundAgentOutSince,
   isRequestTurn,
   personsGateReply,
+  windowMessageIds,
   personSpokeSinceReviewRequest,
   ANSWER_SOURCE_ON_INSTRUCTION,
   unitSkippedUnits,
@@ -2178,6 +2179,7 @@ function handleAnswer(args: string[]): void {
       const words = named !== null ? named.words : reply!.words;
       const messageId = named !== null ? named.id : reply!.messageId;
       if (messageId) fields["Message Id"] = messageId;
+      if (reply !== null) Object.assign(fields, windowMessageIds(reply));
       if (words && !isNonAnswer(words)) fields["Person Reply"] = words;
       // The confirmation authorizes the outputs generated from it. Mint the
       // authorization id from the attempt, the scope, and the confirmed content
@@ -2475,6 +2477,7 @@ function handleAnswer(args: string[]): void {
       const reply = personsGateReply(pd, invokingChat(pd), flags.stage);
       if (reply.words) fields["Person Reply"] = reply.words;
       if (reply.messageId) fields["Message Id"] = reply.messageId;
+      Object.assign(fields, windowMessageIds(reply));
     }
     if (instruction !== undefined) {
       if (!personSpokeInThisWork(pd)) {
@@ -3992,6 +3995,7 @@ function handleReview(args: string[]): void {
           const reply = personsGateReply(pd, invokingChat(pd), flags.stage as string);
           if (reply.words) fields["Person Reply"] = reply.words;
           if (reply.messageId) fields["Message Id"] = reply.messageId;
+          Object.assign(fields, windowMessageIds(reply));
         }
         stampRequestedSourceBinding(node, true);
         openReviewDraftSlot(attempt.floor);
