@@ -465,8 +465,8 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
       "Asking for the guards or the checks as a whole to be off (\"turn the guards off\") is Guard Policy `off`",
       ...PHRASE_AND_LINE,
       "Where it applies is what they say: this piece of work, this project, or this machine.",
-      "`{{INVOKE}} config flags --bypass <switch> --local --yes`",
-      "`{{INVOKE}} engine config set <key> <on|off> --person-words '<their words>'`",
+      "`{{INVOKE}} config flags --bypass <switch> --local --yes --message <id>`",
+      "`{{INVOKE}} engine config set <key> <on|off> --message <id>`",
     ]) {
       if (!onboarding.includes(tok)) problems.push(`core/templates/onboarding-harness.md  missing: ${tok}`);
     }
@@ -899,8 +899,8 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
         .map((file) => readFileSync(join(REPO_ROOT, file), "utf-8"))
         .join("\n");
       for (const setter of [
-        "run `{{INVOKE}} engine config set guard-policy <value> --person-words '<their words>'` yourself",
-        "running `{{INVOKE}} engine config set summary-confirmation off --person-words '<their words>'` yourself",
+        "run `{{INVOKE}} engine config set guard-policy <value> --message <id>` yourself",
+        "running `{{INVOKE}} engine config set summary-confirmation off --message <id>` yourself",
       ]) {
         if (!body.includes(setter)) found.push(`${rel}  missing: ${setter}`);
       }
@@ -1660,7 +1660,7 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
       .replace(/\s+/g, " ");
     for (const rule of [
       'When a user leaves a choice to you ("up to you", "whatever you think is best", or "choose the recommended answers" for this stage), decide',
-      "--on-instruction '<their words that left it to you>'",
+      "--on-instruction --message <id>`, with `<id>` the message of theirs that left it to you",
       '**SAY:** "You left <the question> to me, so I chose <the choice>. Say if you want something else."',
       '**SAY:** "Approvals are still yours: I\'ll stop at each stage for you to approve."',
       "When the person's request already chose",
@@ -1832,7 +1832,6 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
       for (const token of [
         "goes in a file instead, so no shell reads it at all",
         "`<record>/.aidlc-engine/answer-text/answer.txt` and pass `--details-file .aidlc-engine/answer-text/answer.txt`",
-        "`--on-instruction-file`",
       ]) {
         if (!body.includes(token)) missing.push(`${rel}  missing: ${token}`);
       }
