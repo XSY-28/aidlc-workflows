@@ -19,6 +19,7 @@ import {
   listMessages,
   personsSaidWords,
   proveMessage,
+  readMessage,
   type StoredMessage,
 } from "./aidlc-message-store.ts";
 import {
@@ -1766,15 +1767,26 @@ function answerEnginePlanApproval(
 // The person's message behind the answer to the verification command or a
 // Construction policy question, after the stage started: the one the agent
 // names (--message), or, when the hook kept no reply to the question (the agent
-// showed it before logging it), their latest reply in this chat that no
-// decision has used yet, as for the agent's other questions.
+// showed it before logging it), their latest typed reply in this chat that no
+// decision has used yet, as for the agent's other questions. A question box's
+// reply answered the question the box listed, and the hook already kept it when
+// that was this one. A Request Changes recorded on one of this chat's protected
+// questions used the replies before it, though it spends nothing elsewhere.
 function namedProtectedReply(
   pd: string, stage: string, session: string, message: string | undefined,
 ): { message: string; floor: string | null } | undefined {
+  const floor = protectedReplyFloor(pd, [stage]);
+  if (message !== undefined) return { message, floor };
   const question = readProtectedQuestion(pd, session);
-  const kept = question !== null && readProtectedResponse(pd, session)?.challengeId === question.challengeId;
-  const id = message ?? (kept ? null : personsGateReply(pd, session, stage).messageId);
-  return id === null ? undefined : { message: id, floor: protectedReplyFloor(pd, [stage]) };
+  if (question !== null && readProtectedResponse(pd, session)?.challengeId === question.challengeId) return undefined;
+  const rows = readAuditShardEvents(pd);
+  const declined = rows.findLastIndex((row) => row.event === "QUESTION_ANSWERED" &&
+    auditBlockField(row.block, "Session") === session &&
+    [VERIFICATION_COMMAND_CHECKPOINT, CONSTRUCTION_POLICY_CHECKPOINT].includes(auditBlockField(row.block, "Checkpoint") ?? ""));
+  const since = new Set(rows.slice(declined + 1).map((row) => auditBlockField(row.block, "Message Id")));
+  const typed = personsGateReply(pd, session, stage).replies
+    .findLast((reply) => since.has(reply.id) && readMessage(pd, reply.id)?.source === "prompt");
+  return typed === undefined ? undefined : { message: typed.id, floor };
 }
 
 function handleAnswer(args: string[]): void {

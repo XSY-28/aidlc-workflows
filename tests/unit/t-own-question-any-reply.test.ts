@@ -13,7 +13,8 @@
 // personsGateReply), never another chat's words, and the engine says nothing
 // back for the agent to read out. The verification command and a Construction
 // policy question the agent shows before it logs take the same reply. The one
-// refusal left is presence: no reply since the last decision. Every case runs
+// refusal left is presence: no reply since the last decision. Text typed into a
+// question box is kept as their words, whatever it reads like. Every case runs
 // under Guard Policy off, relaxed and strict.
 
 import { NATIVE_FIXTURE_SETUP_TIMEOUT_MS, NATIVE_STARTUP_TIMEOUT_MS, remainingOperationTimeoutMs } from "../harness/test-budget.ts";
@@ -24,7 +25,8 @@ import { appendAuditEntry } from "../../dist/claude/.claude/tools/aidlc-audit.ts
 import { auditBlockField, readAuditShardEvents } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
 import { saveMessage } from "../../dist/claude/.claude/tools/aidlc-message-store.ts";
 import {
-  AIDLC_SRC, cleanupTestProject, createTestProject, seedAidlcMemory, seedBoltDag, seededStateFile, seedStateFile,
+  AIDLC_SRC, cleanupTestProject, createTestProject, seedAidlcMemory, seedBoltDag, seededRecordDir, seededStateFile,
+  seedStateFile,
 } from "../harness/fixtures.ts";
 
 setDefaultTimeout(NATIVE_FIXTURE_SETUP_TIMEOUT_MS);
@@ -157,6 +159,22 @@ for (const policy of POLICIES) {
       expect(log(proj, ["answer", "--stage", STAGE, "--details", "Guide me"]).status).toBe(0);
       expect(field(proj, "QUESTION_ANSWERED", "Picker Note")).toBeNull();
       expect(field(proj, "QUESTION_REPLIED", "Options")).toBe(JSON.stringify(["Lightweight release note", "Full changelog"]));
+    });
+
+    // The box gives no mark between a pick and text typed into it, so what it
+    // carried back is kept as their words, one of the agent's labels included.
+    test("text typed into a box is kept as their words, even when it reads as one of the box's labels", () => {
+      const proj = inception(policy);
+      const question = "Approve this stage?";
+      for (const typed of ["Approve (Recommended)", "Approve it, ship"]) {
+        hook(proj, CHAT, { hook_event_name: "PostToolUse", tool_name: "AskUserQuestion",
+          tool_input: { questions: [{ question, options: [{ label: "Approve" }, { label: "Request Changes" }] }] },
+          tool_response: { answers: { [question]: typed } } });
+        expect(field(proj, "HUMAN_TURN", "Picked")).toBe(JSON.stringify([typed]));
+      }
+      const kept = readFileSync(join(seededRecordDir(proj), ".aidlc-engine", "gate-words", `${CHAT}.json`), "utf-8");
+      expect(kept).toContain("Approve (Recommended)");
+      expect(kept).toContain("Approve it, ship");
     });
 
     test("a question an older engine left open takes the reply sent after the update, with their words", () => {

@@ -93,7 +93,6 @@ import {
   sortAttemptEvents,
   splitKiroCommandArgs,
   stateFilePath,
-  stripRecommendedDecorator,
   suppliedTurnOrigin,
   swarmWorkerWorktreeMeta,
   terminalCommandRelay,
@@ -366,14 +365,6 @@ function stoppedReviewNote(projectDir: string): string | null {
     // A note, never a block: a read that fails says nothing.
   }
   return null;
-}
-
-// The words a person typed into a single-choice picker's free-text field. A
-// pick of one of the offered labels is the conductor's wording, not theirs.
-function pickerFreeText(text: string, picker: PlanApprovalPickerQuestion | undefined): string {
-  if (!picker || !text || picker.severalPicks || picker.options === null) return "";
-  const typed = stripRecommendedDecorator(text).toLowerCase();
-  return picker.options.some((label) => stripRecommendedDecorator(label).toLowerCase() === typed) ? "" : text;
 }
 
 // What a question box carried back, one entry per question it asked: the
@@ -867,11 +858,14 @@ try {
             ...(messageId ? { "Message Id": messageId } : {}),
           }, projectDir);
           // Keep what the person typed in this chat (recordGateWords in
-          // aidlc-lib.ts). A command to AIDLC instructs the framework; of a
-          // picker reply, free text typed into it counts. Never blocks the turn.
+          // aidlc-lib.ts). A command to AIDLC instructs the framework; the one
+          // answer a single-choice box carried back counts, since the host
+          // gives no mark between a pick and text typed into it (several picks
+          // are the row's Picked). Never blocks the turn.
           const typedWords = openQuestion !== null ? "" : typedPrompt
             ? (notAReply ? "" : entryReply ?? typedPrompt)
-            : pickerFreeText(humanResponseText, pickerQuestion);
+            : pickerQuestion === undefined || pickerQuestion.severalPicks || pickerQuestion.options === null
+            ? "" : humanResponseText;
           if (sessionId && typedWords) {
             try {
               recordGateWords(projectDir, sessionId, typedWords);
