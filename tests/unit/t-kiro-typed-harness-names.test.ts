@@ -92,7 +92,8 @@ describe("Kiro harness names a person types", () => {
     expect(declined.status).toBe(2);
     expect(stamp(dir)).toBe("kiro");
 
-    const switched = config(dir, ["--harness", "kiro"], { AIDLC_TEST_CONFIG_TTY: "1", AIDLC_TEST_CONFIG_INPUT: "y\n" });
+    // A second answer for setup's own check, which asks only where the hook PATH lacks aidlc (as on CI).
+    const switched = config(dir, ["--harness", "kiro"], { AIDLC_TEST_CONFIG_TTY: "1", AIDLC_TEST_CONFIG_INPUT: "y\nn\n" });
     expect(switched.status, switched.out).toBe(0);
     expect(switched.out).toContain("switched .kiro in place from kiro-v2 to kiro (aidlc/ kept)");
     expect(stamp(dir)).toBe("kiro-ide");
@@ -176,7 +177,8 @@ describe("Kiro harness names a person types", () => {
     const planned = config(dir, ["--harness", "kiro", "--dry-run", "--json"]);
     expect(planned.status, planned.out).toBe(0);
     const token = (JSON.parse(planned.stdout) as { data: { planToken: string } }).data.planToken;
-    const applied = config(dir, ["--harness", "kiro", "--plan-token", token], { AIDLC_TEST_CONFIG_TTY: "1", AIDLC_TEST_CONFIG_INPUT: "" });
+    // The one answer is for setup's own check, which asks only where the hook PATH lacks aidlc (as on CI).
+    const applied = config(dir, ["--harness", "kiro", "--plan-token", token], { AIDLC_TEST_CONFIG_TTY: "1", AIDLC_TEST_CONFIG_INPUT: "n\n" });
     expect(applied.status, applied.out).toBe(0);
     expect(applied.out).not.toContain("[y/N]");
     expect(stamp(dir)).toBe("kiro-ide");
