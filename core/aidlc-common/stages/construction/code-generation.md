@@ -223,7 +223,7 @@ When both files from Step 2 are written, run `next`:
   For a question about several Units, add `--units "<unit>,<unit>"` to record a
   choice for some of them, then record the rest. The person's words are kept
   with the record. When they asked for changes, pass what to change after the
-  choice (`--details 'Request Changes: <what they asked>'`, single-quoted); when
+  choice (`--details "Request Changes: <what they asked>"`); when
   their reply only picked Request Changes, ask what should change before you
   record it. When they approved and asked for a change ("approve,
   but add a test for the empty cart"), make that change in the plan first (once
