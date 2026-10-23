@@ -35,7 +35,7 @@ import {
 } from "node:path";
 import { pathToFileURL } from "node:url";
 import { QUESTION_UNAVAILABLE, readQuestion, retireRequest, startedRequestFor } from "./aidlc-question-store.ts";
-import { planApprovalAskState, withdrawPlanApprovalReplies } from "./aidlc-plan-approval-ask.ts";
+import { planApprovalAskState } from "./aidlc-plan-approval-ask.ts";
 import {
   appendAuditEntries,
   appendAuditEntry,
@@ -349,8 +349,6 @@ import {
   readUnitClaimRegistryCache,
   readUnitScopeStamp,
   recordHookDrop,
-  isReadOnlyEngineProbe,
-  withdrawProtectedReplyWords,
   readCurrentSessionId,
   resolveChat,
   SELECTION_NOTICE_FOLLOW,
@@ -12332,7 +12330,6 @@ function handleScopeChange(projectDir: string, flags: Record<string, string>): v
       addPendingPersonLines(projectDir, selection.sessionId, outputLines.map((line) => /[.!?]$/.test(line) ? line : `${line}.`));
     if (!keptForTheStage) process.stdout.write(`${outputLines.join("\n")}\n`);
   }, intent, space));
-  withdrawSettingWords(projectDir, named.message);
 }
 
 // ---------------------------------------------------------------------------
@@ -12715,7 +12712,6 @@ function handleRecompose(projectDir: string, flags: Record<string, string>, rawA
         settingsUpdate.lines.map((line) => `${line}\n`).join(""),
     );
   }, undefined, undefined, WORKSPACE_MUTATION_LOCK_RETRIES);
-  withdrawSettingWords(projectDir, asked.message);
 }
 
 // ---------------------------------------------------------------------------
@@ -12958,22 +12954,6 @@ function setterMessage(
   return { message: proof.message, agentText };
 }
 
-// A setting the person asked for while a question of the work in progress is
-// open is an instruction to the engine, like words sent to new work: the
-// question keeps none of the message the setter names (the message the engine
-// is acting on), so the answer recorded later holds the answer alone. A live
-// run kept "turn the specialist reviewers off for the rest of this work" as the
-// first line of the plan approval's Person Reply, above "looks good, go ahead".
-function withdrawSettingWords(projectDir: string, message: StoredMessage | undefined): void {
-  if (message === undefined || isReadOnlyEngineProbe()) return;
-  try {
-    const words = message.words ?? message.text;
-    withdrawProtectedReplyWords(projectDir, words);
-    withdrawPlanApprovalReplies(projectDir, words);
-  } catch (e) {
-    recordHookDrop(projectDir, "setting-words", errorMessage(e));
-  }
-}
 
 function handleConfigChange(projectDir: string, flags: Record<string, string>): void {
   const named = setterMessage(projectDir, flags);
@@ -12997,7 +12977,6 @@ function handleConfigChange(projectDir: string, flags: Record<string, string>): 
   const lines = writeSettings(projectDir, intent, space, intentSettingsFromFlags(flags), {
     sessionId: selection.sessionId, fail: die, ...named,
   });
-  withdrawSettingWords(projectDir, named.message);
   process.stdout.write(`${lines.join("\n")}\n`);
 }
 

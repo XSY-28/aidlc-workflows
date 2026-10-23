@@ -960,6 +960,27 @@ describe("the engine asks for Plan Approval", () => {
     expect(readFileSync(seededStateFile(proj), "utf-8")).toContain("- **Sensors**: off (set by you)");
   });
 
+  // The other order: the setter naming their message runs first, as the plan
+  // question's own step says for a setting beside the answer. The setting takes
+  // nothing of the reply away, so the approval in it still records.
+  test("an approval and a setting in one reply: the setting run first, the approval still records", () => {
+    const proj = project();
+    askFor(proj);
+    reply(proj, "approve it, and turn the sensors off");
+    const id = turnId(proj);
+    const set = spawnSync(BUN, [DISPATCHER, "engine", "config", "set", "sensors", "off", "--message", id, "--project-dir", proj], {
+      cwd: proj,
+      env: { ...process.env, CLAUDE_PROJECT_DIR: proj, AIDLC_PROJECT_DIR: proj, AIDLC_UNATTENDED: "0" },
+      encoding: "utf-8",
+      timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS),
+    });
+    expect(set.status, `${set.stdout}${set.stderr}`).toBe(0);
+    expect(readFileSync(seededStateFile(proj), "utf-8")).toContain("- **Sensors**: off (set by you)");
+    const approved = answer(proj, "Approve Plan");
+    expect(approved.code, approved.message).toBe(0);
+    expect(auditText(proj)).toContain("**Event**: PLAN_APPROVAL_RECORDED");
+  });
+
   test("Guard Policy off typed before a plan choice lands on this work through the setter, which then builds", () => {
     const proj = project("strict");
     askFor(proj);
