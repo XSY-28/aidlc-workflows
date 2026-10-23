@@ -29935,7 +29935,8 @@ export function answeredBeforeShownStep(
 // the stage's questions and answers on record, each in order and never paired:
 // which reply answers which question is the agent's to read. Nothing here
 // reads meaning into them. A stage already at its gate, or a reply whose
-// message is no longer on record whole, gives none.
+// message is no longer on record whole, gives none; a turn that names no
+// message (an older release's record) is left out.
 export function keptRepliesSinceStageStart(
   projectDir: string,
   stage: { stage: string; unit?: string },
@@ -29980,7 +29981,8 @@ export function keptRepliesSinceStageStart(
       continue;
     }
     const id = auditBlockField(row.block, "Message Id");
-    const message = id === null ? null : readMessage(projectDir, id);
+    if (id === null) continue;
+    const message = readMessage(projectDir, id);
     if (message === null || message.cut === true) return null;
     if (message.words !== null && message.words.trim() !== "") replies.push(message.words);
   }

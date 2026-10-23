@@ -258,6 +258,16 @@ describe("a stage resumed with blank answers hands back what the person already 
     expect((resumed(proj).directive.kept_replies as { replies: string[] }).replies)
       .toEqual(["B, every year counts on its own though"]);
   });
+
+  // A record from before the hook named each message (2.11.0 and older), updated
+  // mid-stage: that turn's words are not on the message record, and the replies
+  // after it still come back.
+  test("a turn an older release kept with no message record leaves the later replies standing", () => {
+    appendAuditEntry("HUMAN_TURN", { Session: SESSION, Origin: "person", Source: "typed" }, proj);
+    says(proj, "B, every year counts on its own though");
+    expect((resumed(proj).directive.kept_replies as { replies: string[] }).replies)
+      .toEqual(["1", "B, every year counts on its own though"]);
+  });
 });
 
 describe("a chat that only picked in the question box, with nothing typed, hands its picks back", () => {
