@@ -16,7 +16,9 @@
 // the engine handed, which is recorded as their pick. At a stage gate the
 // choice is the agent's reading, recorded as it passed it. These cases protect
 // that split at a stage gate, the summary confirmation, a protected checkpoint
-// question, and a recovery ask.
+// question, and a recovery ask. What the person says after a bare Request
+// changes at the summary answers "What should change?", on its own row behind
+// that change request, never on the confirmation that follows.
 
 import { NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS, NATIVE_STARTUP_TIMEOUT_MS, remainingOperationTimeoutMs } from "../harness/test-budget.ts";
 import { afterEach, beforeEach, describe, expect, test, setDefaultTimeout } from "bun:test";
@@ -635,8 +637,10 @@ describe("the summary confirmation records the choice the agent read", () => {
     const r = answer("Request changes: rename the handler");
     expect(r.rc, r.out).toBe(0);
     expect(r.out).toContain("rename the handler");
-    // What to change is known, so the agent revises: the stage's work goes on.
-    expect(r.out).not.toContain("agent_note");
+    // What to change is known, so the agent revises: the stage's work goes on,
+    // and the revised summary's question is recorded before it is shown.
+    expect(r.out).not.toContain("What should change?");
+    expect(r.out).toMatch(/\blog(?:\.ts)? decision --checkpoint summary-confirmation --stage /);
     expect(turnEndIsOpen(proj)).toBe(false);
     expect(statSync(engineTouchMarkerPath(proj)).mtimeMs).toBeGreaterThan(statSync(humanTurnMarkerPath(proj)).mtimeMs);
   });
@@ -647,8 +651,37 @@ describe("the summary confirmation records the choice the agent read", () => {
     summary("Request changes");
     const r = answer("Request changes");
     expect(r.rc, r.out).toBe(0);
-    expect(r.out).toContain('Ask \\"What should change?\\" and end the turn');
+    expect(r.out).toContain('Ask the free-text question \\"What should change?\\" and end the turn');
     expect(turnEndIsOpen(proj)).toBe(true);
+  });
+
+  // With nothing open to answer, their words had no row of their own, and the
+  // next confirmation took them as its Person Reply.
+  test("the words after a bare Request changes are recorded with that change request, not on the next confirmation", () => {
+    summary("Request changes");
+    const r = answer("Request changes");
+    expect(r.rc, r.out).toBe(0);
+    const asked = events(proj, "DECISION_RECORDED").at(-1);
+    expect(auditBlockField(asked!.block, "Decision")).toBe("What should change?");
+    const note = String(JSON.parse(r.out.split("\n").find((line) => line.startsWith("{")) as string).agent_note);
+    const step = /`([^`]+)`/.exec(note)?.[1] ?? "";
+    expect(step, note).toMatch(new RegExp(`\\blog(?:\\.ts)? answer --stage ${slug} --details `));
+    says(proj, "rename the handler to onSave");
+    const words = log(proj, ["answer", "--stage", slug, "--details", "rename the handler to onSave"]);
+    expect(words.rc, words.out).toBe(0);
+    const kept = events(proj, "QUESTION_ANSWERED").at(-1);
+    expect(auditBlockField(kept!.block, "Person Reply")).toBe("rename the handler to onSave");
+    summary("");
+    expect(log(proj, [
+      "decision", "--stage", slug, "--checkpoint", "summary-confirmation", "--questions-file", questions,
+      "--decision", "Does this all look correct?", "--options", "Looks correct,Request changes",
+    ]).rc).toBe(0);
+    says(proj, "Looks correct");
+    summary("Looks correct");
+    const confirmed = answer("Looks correct");
+    expect(confirmed.rc, confirmed.out).toBe(0);
+    const receipt = events(proj, "SUMMARY_CONFIRMATION_RECORDED").at(-1);
+    expect(auditBlockField(receipt!.block, "Person Reply")).toBe("Looks correct");
   });
 
   // The protocol's quoting rule, through a real shell: single quotes keep a
@@ -857,14 +890,14 @@ describe("a recovery question: a pick in a question box is recorded, every typed
     expect(response()?.picked_by).toBeUndefined();
   });
 
-  test("Request Changes with what to change, read by the agent, is ready and bound to their words", () => {
+  test("Request Changes with what to change, read by the agent, is ready for the rejection that keeps their words", () => {
     ask();
     consumeSharedDirectiveAsk(proj, "split the save-search flow into two steps");
     const picked = recordGuardRecoveryChoice(proj, "Request Changes: split the save-search flow into two steps", true);
     expect(picked).toMatchObject({ op: "request-changes", awaitingWords: false });
     expect(response()).toMatchObject({ selected_op: "request-changes", status: "ready", picked_by: "person" });
-    expect(guardRecoveryFeedbackStatus(proj, readFileSync(seededStateFile(proj), "utf-8"), "functional-design", undefined,
-      "split the save-search flow into two steps")).toBe("match");
+    expect(guardRecoveryFeedbackStatus(proj, readFileSync(seededStateFile(proj), "utf-8"), "functional-design", undefined))
+      .toBe("ready");
   });
 
   test("no tool holds the agent to a reading of a typed number: its record stands as it hands it", () => {
@@ -890,8 +923,8 @@ describe("a recovery question: a pick in a question box is recorded, every typed
     expect(response()?.selected_op ?? null).toBeNull();
     expect(response()).not.toHaveProperty("feedback_sha256");
     expect(recordGuardRecoveryChoice(proj, "reconfirm-summary", false).op).toBe("reconfirm-summary");
-    expect(guardRecoveryFeedbackStatus(proj, readFileSync(seededStateFile(proj), "utf-8"), "functional-design", undefined,
-      "2")).toBe("other-remedy");
+    expect(guardRecoveryFeedbackStatus(proj, readFileSync(seededStateFile(proj), "utf-8"), "functional-design", undefined))
+      .toBe("other-remedy");
   });
 
   test("the agent can correct its own misread in one step", () => {

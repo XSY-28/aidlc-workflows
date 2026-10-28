@@ -1466,6 +1466,15 @@ const POWERSHELL_ALIASES: Record<string, string> = {
   tee: "tee-object",
 };
 
+// A cmdlet whose every written path cmdletWriteTargets binds (New-Item,
+// Set-Content, Out-File, ...), named in full or by an alias PowerShell gives no
+// native program: PowerShell 7 runs sc.exe for `sc`.
+export function powerShellPathBoundWriter(name: string): boolean {
+  const command = name.toLowerCase();
+  if (command === "sc") return false;
+  return Object.hasOwn(CMDLET_WRITES, Object.hasOwn(POWERSHELL_ALIASES, command) ? POWERSHELL_ALIASES[command] : command);
+}
+
 function powerShellCommandName(name: string, args: CmdletArg[]): string {
   if (Object.hasOwn(POWERSHELL_ALIASES, name)) return POWERSHELL_ALIASES[name];
   // Copy-Item's -Destination is not cp's -t.
@@ -1511,7 +1520,7 @@ const MAX_SHELL_ROOTS = 64;
 // The directories a bare `cd` or a leading `~` or $HOME names: HOME, else the
 // OS home. PowerShell on Windows takes them from its user profile instead
 // (USERPROFILE, or HOMEDRIVE and HOMEPATH), never from HOME.
-function shellHomes(powerShell: boolean): string[] {
+export function shellHomes(powerShell: boolean): string[] {
   if (!powerShell || process.platform !== "win32") return [resolve(process.env.HOME || homedir())];
   const homes = [process.env.USERPROFILE || homedir()];
   if (process.env.HOMEDRIVE && process.env.HOMEPATH) homes.push(process.env.HOMEDRIVE + process.env.HOMEPATH);

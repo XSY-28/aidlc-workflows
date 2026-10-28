@@ -13,6 +13,7 @@
 // through matching provenance; new worktrees never use legacy names.
 // Nested checkouts are refused; external linked worktrees remain supported.
 
+import { gitSubmoduleNames } from "./aidlc-git.ts";
 import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -38,7 +39,6 @@ import {
   GIT_PLATFORM_ARGS,
   legacyBoltIdentity,
   gitCommitSourceListing,
-  gitSubmoduleNames,
   idSuffix,
   intentUuidForSelection,
   isValidRepoName,
@@ -68,6 +68,7 @@ import {
   resolveWorkflowSelection,
   serializeSourceListing,
   sourceChangedOutsideAidlc,
+  sourceChangedOutsideAidlcSince,
   sourceListingEntriesEqual,
   sourceListingSha256,
   swarmUnitCheckpointRejections,
@@ -75,6 +76,7 @@ import {
   type WorkflowSelection,
   UNBINDABLE_FINGERPRINT,
   onlyAidlcFilesChangedSince,
+  mainCheckoutChangeAllowed,
   validateUnitName,
   workspaceSourceFailureSuffix,
   recordedSourceListingUnderCurrentBoundary,
@@ -89,11 +91,12 @@ import {
   worktreesDir,
   worktreeStateFilePath,
   writeFileAtomic,
-  REPO_NAME_REGEX,
+  repoNameRefusal,
   entrySkillInvocation,
   asksForHelp,
   printUsageAndExit,
 } from "./aidlc-lib.js";
+import { mainCheckoutChangeStep } from "./aidlc-message-store.ts";
 import { aidlcDispatcherInvocation } from "./aidlc-runtime-paths.ts";
 import { captureCodeGenerationDiscardApproval } from "./aidlc-testing-posture.ts";
 
@@ -233,7 +236,7 @@ function initializeBoltSubmodules(sourceDir: string, worktreeDir: string, prefix
   if (depth > 16) return `submodules nest more than 16 levels deep under ${prefix || "the worktree"}`;
   const paths = gitlinkPaths(worktreeDir);
   if (paths === null) return `cannot list the submodules of ${prefix || "the worktree"}`;
-  const names = gitSubmoduleNames(worktreeDir);
+  const names = gitSubmoduleNames(worktreeDir, GIT_PLATFORM_ARGS);
   for (const path of paths) {
     const source = join(sourceDir, path);
     const name = names.get(path);
@@ -2001,17 +2004,26 @@ function assertAggregateSourceBeforeMerge(
   const current = workspaceSourceState(pd, intent, space);
   // Under relaxed or off the person's own edits to the main checkout during
   // the build are kept: the merge starts from the checkout as it is, and the
-  // change is recorded once so the merge chain stays readable.
-  const keepChange = (recorded: string, changed: string[] | null) => {
+  // change is recorded once so the merge chain stays readable. Under strict so
+  // are the files the person asked to change (swarm allow-change), recorded
+  // with the message they asked in; that step already told them.
+  const keepChange = (recorded: string, changed: string[] | null, asked: string[] | null = null) => {
     const notice = changed && changed.length > 0
-      ? `You changed ${renderChangedPaths(changed)} during the build; kept them and merged unit ${record.unit}.`
+      ? `You changed ${renderChangedPaths(changed)} during the build${asked ? ", as you asked" : ""}; kept them and merged unit ${record.unit}.`
       : `The main checkout changed during the build; kept it and merged unit ${record.unit}.`;
-    for (const line of recordAcceptedChanges(pd, [{
+    const said = recordAcceptedChanges(pd, [{
       checkpoint: "swarm-batch", stage: record.stage, unit: record.unit, changed,
-      recorded, current: current!.fingerprint, notice,
-    }], { intent, space })) process.stderr.write(`note: ${line}\n`);
+      recorded, current: current!.fingerprint, notice, ...(asked ? { messageIds: asked } : {}),
+    }], { intent, space });
+    if (asked === null) for (const line of said) process.stderr.write(`note: ${line}\n`);
     return { state: current!, openingFingerprint: current!.fingerprint };
   };
+  // Under strict, the step for the person's own changes: theirs to keep, with
+  // the message they asked in, or to undo.
+  const personDecides = (changed: string[] | null): string =>
+    changed && changed.length > 0
+      ? mainCheckoutChangeStep(pd, changed, PERSON_DECIDES_CHANGES, "run the merge again")
+      : PERSON_DECIDES_CHANGES;
   const acceptsChanges = current !== null && guardPolicyAcceptsChanges(pd, undefined, { selection: { intent, space } });
   if (current === null) {
     errorWithSlug(
@@ -2044,9 +2056,13 @@ function assertAggregateSourceBeforeMerge(
       !onlyAidlcFilesChangedSince(pd, record.stage, chain.listing, current, intent, space)
     ) {
       if (acceptsChanges) return keepChange(chain.fingerprint, null);
+      const changed = sourceChangedOutsideAidlcSince(pd, record.stage, chain.listing, current, intent, space);
+      const asked = mainCheckoutChangeAllowed(pd, changed, { intent, space });
+      if (asked !== null) return keepChange(chain.fingerprint, changed, asked);
       errorWithSlug(
         slug,
-        `refusing to merge: the main checkout source changed after the previous reviewed-source merge. ${PERSON_DECIDES_CHANGES}`,
+        "refusing to merge: the main checkout source changed after the previous reviewed-source merge" +
+          `${changed && changed.length > 0 ? ` (${renderChangedPaths(changed)})` : ""}. ${personDecides(changed)}`,
       );
     }
     return {
@@ -2077,12 +2093,14 @@ function assertAggregateSourceBeforeMerge(
     : [];
   if (changed.length > 0) {
     if (acceptsChanges) return keepChange(opening.fingerprint, changed);
+    const asked = mainCheckoutChangeAllowed(pd, changed, { intent, space });
+    if (asked !== null) return keepChange(opening.fingerprint, changed, asked);
     errorWithSlug(
       slug,
       (opening.source === "prior-accepted"
         ? "refusing to merge: the main checkout source does not match the prior attempt's final reviewed aggregate"
         : "refusing to merge: the main checkout source changed since the stage-entry baseline") +
-        ` (${renderChangedPaths(changed)}). ${PERSON_DECIDES_CHANGES}`,
+        ` (${renderChangedPaths(changed)}). ${personDecides(changed)}`,
     );
   }
   // A rejection an earlier release wrote kept no listing: compare fingerprints.
@@ -3335,11 +3353,15 @@ function combinedSinceMerge(repoCwd: string): string[] {
   )].sort();
 }
 
-// The files the agent may write while a parallel batch is out: those git could
-// not merge, or that were combined since, in a landing this tool staged for one
-// of `units` (refuseClash names them), in the checkout that landing runs in: the
-// project's, or in a workspace of several repositories the Unit's own. Relative
-// to `projectDir`, forward slashes; none when no such landing is staged.
+// The files the agent may write while a parallel batch is out, in a landing this
+// tool staged for one of `units`: while git could not merge some, those and the
+// ones combined since (refuseClash names them), and only those once all are
+// combined; when the landing merged clean and the person's hook refused its
+// commit, every file it staged (refuseLanding names them). A clean merge has no
+// combined file: git clears them when the next merge starts. In the checkout that
+// landing runs in: the project's, or in a workspace of several repositories the
+// Unit's own. Relative to `projectDir`, forward slashes; none when no such landing
+// is staged.
 export function stagedLandingClashFiles(projectDir: string, units: readonly string[]): string[] {
   const selection = resolveWorkflowSelection(projectDir, {});
   const files = new Set<string>();
@@ -3355,7 +3377,10 @@ export function stagedLandingClashFiles(projectDir: string, units: readonly stri
       const prefix = runGit(["rev-parse", "--show-prefix"], cwd);
       if (!prefix.ok) continue;
       const under = prefix.stdout.trim();
-      for (const path of [...listConflictFiles(cwd), ...combinedSinceMerge(cwd)]) {
+      const unmerged = listConflictFiles(cwd);
+      const combined = combinedSinceMerge(cwd);
+      const toCommit = unmerged.length > 0 || combined.length > 0 ? [] : gitPaths(cwd, ["--cached"]) ?? [];
+      for (const path of [...unmerged, ...combined, ...toCommit]) {
         if (path.startsWith(under)) files.add(`${repo === null ? "" : `${repo}/`}${path.slice(under.length)}`);
       }
     } catch {
@@ -3591,7 +3616,7 @@ function handleDiscard(args: string[]): void {
   const slug = validateSlug(flags.slug);
   const pd = resolveProjectDir(projectDir);
   if (flags.repo !== undefined && !isValidRepoName(flags.repo)) {
-    errorWithSlug(slug, `Invalid --repo "${flags.repo}": a repo name must be a single path segment matching ${REPO_NAME_REGEX}.`);
+    errorWithSlug(slug, repoNameRefusal("Invalid --repo", flags.repo));
   }
   const selection = resolveWorkflowSelection(pd, { intent: flags.intent, space: flags.space });
   const identity = resolveCommandBoltIdentity(pd, slug, selection);

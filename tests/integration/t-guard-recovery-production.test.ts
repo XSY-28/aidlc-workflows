@@ -519,23 +519,15 @@ class Journey {
     return json(this.tool("orchestrate", ["report", "--stage", stage, "--result", result, ...extra]));
   }
 
-  // A report the named guard refuses before it runs: the state and the ledger
-  // stay exactly as they were, and no other guard objects.
-  deniedReport(result: string, extra: string[], stage: string, guardName: string): void {
+  // A report the engine holds itself: every guard admits it, the engine
+  // answers with a step, and the state and the ledger stay exactly as they were.
+  heldReport(result: string, extra: string[], stage: string): Json {
     const before = this.state();
     const count = this.events("STAGE_COMPLETED", stage).length;
-    const command = [
-      BUN, join(this.dir, ".claude", "tools", "aidlc-orchestrate.ts"),
-      "report", "--stage", stage, "--result", result, ...extra, "--project-dir", this.dir,
-    ].map(quote).join(" ");
-    const guards = this.preflight("Bash", { command });
-    const refusing = guards.find((entry) => entry.guard === guardName)!;
-    expect(refusing.code, JSON.stringify(guards)).toBe(2);
-    for (const guard of guards.filter((entry) => entry.guard !== guardName)) {
-      succeeded(guard, `Unrelated guard ${guard.guard}`);
-    }
+    const answer = this.report(result, extra, stage);
     expect(this.state()).toBe(before);
     expect(this.events("STAGE_COMPLETED", stage)).toHaveLength(count);
+    return answer;
   }
 
   deniedCompletion(stage = STAGE): Json {
@@ -771,21 +763,17 @@ describe("production guards: summary, terminal review, and recovery compose", ()
     expect(p.marker().guard_recovery_response).toMatchObject({
       status: "ready", selected_op: "request-changes",
     });
-    const mismatch = p.report("rejected", [
-      "--user-input", "Request Changes", "--reason", "Make all saved searches visible to the team.",
-    ]);
-    // Their own words are on record: the step is to pass them, not to ask again.
-    expect(mismatch.kind, JSON.stringify(mismatch)).toBe("print");
-    expect(String(mismatch.message)).not.toContain("is still open");
-    expect(String(mismatch.message)).toContain("does not exactly match");
-    expect(p.state()).toBe(beforeRejection);
-    expect(p.events("GATE_REJECTED", STAGE)).toHaveLength(0);
-
-    const rejected = p.report("rejected", ["--user-input", "Request Changes", "--reason", feedback]);
+    // The agent's own account differs from what they said: the rejection keeps
+    // their words from their message and the agent's text beside them.
+    const agentsAccount = "Make all saved searches visible to the team.";
+    const rejected = p.report("rejected", ["--user-input", "Request Changes", "--reason", agentsAccount]);
     expect(rejected.kind, JSON.stringify(rejected)).toBe("print");
     expect(p.state()).toMatch(/^- \[R\] requirements-analysis/m);
     expect(p.events("GATE_REJECTED", STAGE)).toHaveLength(1);
-    expect(p.events("GATE_REJECTED", STAGE)[0].block).toContain(feedback);
+    const row = p.events("GATE_REJECTED", STAGE)[0].block;
+    expect(auditBlockField(row, "Feedback")).toContain(feedback);
+    expect(auditBlockField(row, "Conductor Summary")).toBe(agentsAccount);
+    expect(auditBlockField(row, "Message Id")).not.toBeNull();
     p.deniedCompletion();
 
     const revisedId = p.confirm(CHANGED);
@@ -926,9 +914,11 @@ describe("production guards: summary, terminal review, and recovery compose", ()
     const source = join(p.dir, "src", "saved-search.ts");
     p.deniedWrite(source, "export const shared = true;\n", "plan-approval-guard");
     expect(p.tool("testing-posture", ["begin", ...target]).code).not.toBe(0);
-    // Before the plan is approved, completing Code Generation is refused by the
-    // plan-approval guard in every spelling, the per-tool script included.
-    p.deniedReport("approved", ["--user-input", "Approve"], "code-generation", "plan-approval-guard");
+    // Before the plan is approved, completing Code Generation is the engine's
+    // own command, the per-tool script included: every guard admits it, and
+    // `report` holds it with nothing completed.
+    const held = p.heldReport("approved", ["--user-input", "Approve"], "code-generation");
+    expect(String(held.message), JSON.stringify(held)).toStartWith("The code plan is not approved yet: run ");
     directive = json(p.tool("orchestrate", ["next"]));
     for (let steps = 0; directive.kind === "load-steering" && steps < 40; steps++) {
       directive = json(p.tool("orchestrate", ["continue", directive.continue_token as string]));

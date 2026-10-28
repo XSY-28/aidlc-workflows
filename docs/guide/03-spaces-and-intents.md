@@ -108,6 +108,10 @@ intent owns a row in the space's `intents.json` registry — `{uuid, slug, dirNa
 scope, repos, status}` — and a **record dir** holding that run's state, audit
 trail, and artifacts. The `uuid` (a UUIDv7) is the canonical, collision-proof
 identity; `dirName` records the human-readable record-dir name verbatim.
+A hand edit that leaves a trailing comma, a comment or a BOM still reads as every
+row. A list nothing can read is never written over: the next new piece of work
+keeps its bytes as `intents.json.unreadable-<UTC time>` beside the new list, and
+you are told once.
 
 The row's `status` is the intent's lifecycle: `in-flight` from creation,
 `complete` once the last in-scope gate closes, or `archived` when you retire
@@ -150,15 +154,16 @@ before starting a second intent alongside the first:
  > 1. Part of the active work
       Continue the current workflow
    2. Separate new piece of work
-      Yes, set it up alongside the current one without changing it; you pick its plan next
+      Set it up alongside the current one as "bugfix" work (6 stages, 6 approval gates) without changing it
    3. Reshape the active work
       Change how the remaining plan is shaped
    4. Type something.
    5. Chat about this
 ```
 
-- Choose **2** and you pick the new work's plan next (here the agent proposed
-  `bugfix`); then AI-DLC creates a second intent beside the first. In that run
+- Choose **2** and AI-DLC creates a second intent beside the first, on the plan
+  that option names, with its size (here the agent proposed `bugfix`). When the
+  option names no plan, you pick the new work's plan next. In that run
   the agent said: "I've set up the export timeout fix as a separate piece of
   work using the bug-fix plan, and it's waiting at Requirements Analysis. Your
   inventory API work is unchanged at the feasibility stage." The first intent's
@@ -187,8 +192,12 @@ spent on a plan you did not choose.
 So does a scope that differs from the active intent's, typed with a
 description (`/aidlc --scope express "add a health endpoint"`), with new work
 first: choose **1** and the description starts new express work, the active
-intent kept as it is, or **2** and the active intent changes to express. A
-scope with no description changes the active intent's scope without asking.
+intent kept as it is, or **2** and the active intent changes to express.
+`--scope` with no description (`/aidlc --scope express`) changes the active
+intent's scope without asking. Another plan's name typed alone
+(`/aidlc workshop`) may mean new work on that plan or the active intent moved
+to it: the assistant reads which you meant and asks you once when it cannot
+tell, and new work on it asks what the work is for before anything starts.
 
 AI-DLC never creates a second intent without asking. If a prompt is genuinely a
 follow-up to the current work — answering a gate, correcting a requirement — it
@@ -322,8 +331,8 @@ creation times, and parent PIDs identify the owning session within the same
 select a session.
 Shared-process harnesses still cannot distinguish chats that use one process,
 including Kiro IDE multi-chat. In multi-session opencode the shell commands carry
-their chat (item 2), but a file write's audit row and sensors, and the to-do
-list sync, still go by the process. Children of payload-bearing hooks follow
+their chat (item 2), and so do a file write's audit row and sensors and the to-do
+list sync. Children of payload-bearing hooks follow
 the payload session; tools without that parent still fall back to the shared
 cursors when ancestry is unavailable unless the harness process has a valid
 `AIDLC_SESSION_OVERRIDE`.
@@ -511,6 +520,17 @@ of the workspace root that has its own `.git`) and records the set in the intent
 `intents.json` row. During Construction, each git operation is then anchored to
 the right repo automatically.
 
+Each repo is recorded by its folder's name as you gave it: a space, an accent,
+an apostrophe or another letter works (`my lib`, `C# lib`, a name with an accent). A few
+characters break something AI-DLC relies on, so a folder whose name has one is
+left out of the work, and the first step says which folder and why: `<` `>`
+`:` `"` `|` `?` `*` (Windows cannot hold them in a folder name), `&` `^` `%`
+(AI-DLC's commands on Windows), `(` `)` `[` `]` `{` `}` `;` `$` and a backtick
+(AI-DLC's commands on Cursor), a comma (it separates repo names), an apostrophe
+together with `!` (no one quoting reads both alike in PowerShell and Git Bash on
+Windows), a name that is `-` or starts with `--`, ends with `@checkout`, or starts
+or ends with a space.
+
 ```
 my-project/
 ├── aidlc/          # AI-DLC's records
@@ -542,8 +562,9 @@ records that expected set so it can be reproduced with one command:
 `org` supplies the default clone host (a repo with no `url` clones from
 `git@github.com:<org>/<name>.git`; set `url` on an entry to override). `branch`
 selects the checkout for a new clone and is an advisory expectation for a repo
-already on disk; omit it to use the repo's own default. Repo names must be safe
-single path segments, matching the runtime's immediate-child discovery model. The
+already on disk; omit it to use the repo's own default. A repo name is the name
+of one folder directly in the workspace, with the characters a discovered folder
+may have (above). The
 [CLI Commands](12-cli-commands.md#aidlc-workspace-sync-clone-and-reconcile-the-declared-repo-set)
 guide documents the `aidlc-workspace-sync` tool that reads this file to clone
 missing repos, keep the gitignore block current, and generate a VSCode
@@ -630,6 +651,12 @@ Everything else under a space — `memory/**`, `knowledge/**`, `codekb/**`,
 `intents.json`, each record's `aidlc-state.md`, `audit/` shards, and artifacts — is
 committed. The rule of thumb: **cursors and runtime scratch are local; the shared
 work is committed.**
+
+When a pull, a rebase or a stash pop leaves git's conflict in a record's
+`aidlc-state.md` (two clones advanced the same work), the next step carries on
+from your own side and writes the record back without git's markers. It says
+once where the other side stands and the git command that takes it instead; git
+shows the file as conflicted until you add it.
 
 `knowledge/documents/` and `knowledge/documentkb/` are both committed, but they are
 owned by different parties and that difference is the whole design. `documents/`

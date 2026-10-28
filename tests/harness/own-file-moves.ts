@@ -10,9 +10,6 @@
 // the stand-in takes it. The move passes when the person is asked again or the
 // work moves on; a refusal that comes back after its step (ScopeRunDeadlock),
 // a refusal with no step, or 40 steps without either is a failure.
-//
-// The copies keep each file's modification time to the fraction of a
-// millisecond: the engine binds the strict Reverse Engineering handoff to it.
 
 import { afterAll, describe, expect, test } from "bun:test";
 import {
@@ -129,7 +126,7 @@ export function walk(spec: WalkSpec): HandOff[] {
       ? (stage, a) => {
         if (stage !== "units-generation") return undefined;
         a.person.say("build it stage by stage: every Unit through each stage before the next");
-        const set = a.host.bash(`bun ${a.host.dir}/tools/aidlc-state.ts set-construction-iteration stage-major`);
+        const set = a.host.bash(`bun ${a.host.dir}/tools/aidlc-state.ts set-construction-iteration stage-major --message ${a.latestMessageId()}`);
         if (set.status !== 0) a.fail(`stage-major was refused: ${set.stderr || set.stdout}`);
         return undefined;
       }

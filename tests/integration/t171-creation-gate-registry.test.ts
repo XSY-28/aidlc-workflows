@@ -30,7 +30,9 @@ import {
   HARNESS_MATRIX,
   harnessByName,
 } from "../harness/harness-matrix.ts";
-import { intentDisplayLabel, loadScopeMapping, readIntentRegistry, toPosix } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
+import { intentDisplayLabel, loadScopeMapping, MESSAGE_SLOT, personsWordsText, readIntentRegistry, toPosix } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
+import { listMessages } from "../../dist/claude/.claude/tools/aidlc-message-store.ts";
+import { quoteCommandArgument } from "../../dist/claude/.claude/tools/aidlc-runtime-paths.ts";
 import { mintQuestionId, saveQuestion } from "../../dist/claude/.claude/tools/aidlc-question-store.ts";
 
 const BUN = process.execPath;
@@ -183,7 +185,7 @@ function asWork(words: string) {
 }
 
 // The person's approval of a composed plan, recorded as their hook records a
-// reply; the creation the engine prints names it in place of <their words>.
+// reply; the creation the engine prints names its message in place of <id>.
 const APPROVAL = "Approve";
 function personApproves(p = proj): void {
   const r = Bun.spawnSync({
@@ -199,10 +201,15 @@ function personApproves(p = proj): void {
   expect(r.exitCode, r.stderr.toString()).toBe(0);
 }
 
-function printedCommand(message: string): string {
+// The command as the agent runs it. A setting the print asks their message for
+// names the message the person approved in; with none of theirs on record, the
+// agent names none.
+function printedCommand(message: string, p = proj): string {
   const command = message.match(/Run `([^`]+)`/)?.[1];
   expect(command, message).toBeDefined();
-  return command!.replace('"<2-3 word kebab essence>"', "pending-work").replace("'<their words>'", `'${APPROVAL}'`);
+  const approved = listMessages(p).findLast((entry) => personsWordsText(entry.text) === APPROVAL);
+  return command!.replace('"<2-3 word kebab essence>"', "pending-work")
+    .replace(` --message '${MESSAGE_SLOT}'`, approved === undefined ? "" : ` --message ${approved.id}`);
 }
 
 // The person names a routing option in chat: `next` runs none of them; it
@@ -527,19 +534,17 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
       });
     }
 
-    test("non-Kiro confirmation preserves pending work on the second hop and route 2 creates it", () => {
+    // Every tool asks which work the request belongs to first, naming the plan
+    // the agent proposed: one question, and its route 2 creates on that plan.
+    test("pending work reaches the which-work question first, naming the agent's plan, and route 2 creates it", () => {
       seedTwoIntentsNoCursor();
       const description = "fix the broken login button";
-      const first = JSON.parse(next([description]).stdout.trim());
-      expect(first.ask_type).toBe("scope-confirm");
-      expect(first.intent_text, "the ask names the request only by id").toBeUndefined();
-      expect(first.question).toContain(description);
-      const confirmed = runEmittedCommand(first.confirm_command);
-      expect(confirmed.status, confirmed.out).toBe(0);
-      const second = JSON.parse(confirmed.stdout.trim());
-      expect(second.ask_type, "confirmed pending work must reach new-work-routing, not a bare picker").toBe("new-work-routing");
+      const second = JSON.parse(next([description]).stdout.trim());
+      expect(second.ask_type, "pending work must reach new-work-routing, never a bare picker or the plan question first").toBe("new-work-routing");
+      expect(second.intent_text, "the ask names the request only by id").toBeUndefined();
+      expect(second.question).toContain(description);
       expect(second.new_work_description).toBe(description);
-      expect(second.proposed_scope).toBe(first.proposed_scope);
+      expect(second.proposed_scope).toBe(planFor(description));
       // Routes are fields; the human-facing text carries no engine commands.
       for (const text of [second.question, second.numbered_prose_question]) {
         expect(text).not.toContain("--request");
@@ -550,7 +555,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
       expect(secondId).toMatch(/^[0-9a-f]{8}$/);
       expect(second.compose_command).toContain(`--request ${secondId}`);
       const stored = JSON.parse(readFileSync(questionFile(secondId), "utf-8"));
-      expect(stored).toMatchObject({ text: description, proposedScope: first.proposed_scope, origin: "routing" });
+      expect(stored).toMatchObject({ text: description, proposedScope: planFor(description), origin: "routing" });
       expect(second.scope_commands.length).toBeGreaterThan(1);
       for (const { scope, command } of second.scope_commands) {
         expect(emittedArgv(command)).toEqual(["next", "--new-intent", "--scope", scope, "--request", secondId]);
@@ -632,6 +637,17 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
         expect(recordDirs(proj)).toHaveLength(3);
       });
     }
+
+    test("a plan saved at the gate keeps its save through the fresh-clone question", () => {
+      seedTwoIntentsNoCursor();
+      const dispatch = JSON.parse(next(["compose", "fix the flaky date parser"]).stdout.trim());
+      const composed: string = dispatch.message.match(/--request ([0-9a-f]{8})/)?.[1] ?? "";
+      personApproves();
+      const ask = JSON.parse(next(["--scope", "bugfix", "--request", composed, ...PLAN, "--save-as", "price-check"]).stdout.trim());
+      expect(ask.ask_type).toBe("new-work-routing");
+      const creation = JSON.parse(runEmittedCommand(ask.new_intent_command).stdout.trim());
+      expect(creation.message).toContain("--plan-name price-check --save-as price-check");
+    });
 
     test("asked again about work selected meanwhile, the composed plan still rides along", () => {
       seedTwoIntentsNoCursor();
@@ -756,11 +772,10 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
       expect(existsSync(join(proj, "pwned"))).toBe(false);
     });
 
-    test("non-Kiro reshape selects the listed record, then composes the same pending request", () => {
+    test("a reshape selects the listed record, then composes the same pending request", () => {
       seedTwoIntentsNoCursor();
       const description = "fix the broken login button";
-      const first = JSON.parse(next([description]).stdout.trim());
-      const second = JSON.parse(runEmittedCommand(first.confirm_command).stdout.trim());
+      const second = JSON.parse(next([description]).stdout.trim());
       expect(second.ask_type).toBe("new-work-routing");
       const [target] = second.select_commands;
       const selected = runEmittedCommand(target.command);
@@ -778,8 +793,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
 
     test("a routing reshape with no listed record selected asks again instead of composing", () => {
       seedTwoIntentsNoCursor();
-      const first = JSON.parse(next(["fix the broken login button"]).stdout.trim());
-      const second = JSON.parse(runEmittedCommand(first.confirm_command).stdout.trim());
+      const second = JSON.parse(next(["fix the broken login button"]).stdout.trim());
       expect(second.ask_type).toBe("new-work-routing");
       const again = JSON.parse(runEmittedCommand(second.compose_command).stdout.trim());
       expect(again.ask_type, JSON.stringify(again).slice(0, 300)).toBe("new-work-routing");
@@ -805,19 +819,16 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
       expect(JSON.parse(runEmittedCommand(again.compose_command).stdout.trim()).kind).toBe("print");
     });
 
-    test("a routing reshape re-asks with the scope the human already confirmed", () => {
+    test("a routing reshape re-asks with the plan the question named", () => {
       seedTwoIntentsNoCursor();
-      const first = JSON.parse(next(["fix the broken login button"]).stdout.trim());
-      expect(first.proposed_scope).not.toBe("classic");
-      const classic = first.scope_commands.find((row: { scope: string }) => row.scope === "classic");
-      const second = JSON.parse(runEmittedCommand(classic.command).stdout.trim());
+      const second = JSON.parse(next(["fix the broken login button"], proj, ORCH, "classic").stdout.trim());
       expect(second.ask_type).toBe("new-work-routing");
       expect(second.proposed_scope).toBe("classic");
       // Other work is created and selected before the human answers "reshape".
       expect(util(["intent-create", "--scope", "feature", "--arguments", "third", "--label", "third"]).status).toBe(0);
       const again = JSON.parse(runEmittedCommand(second.compose_command).stdout.trim());
       expect(again.ask_type, JSON.stringify(again).slice(0, 300)).toBe("new-work-routing");
-      expect(again.proposed_scope, "the human's scope choice survives the re-ask").toBe("classic");
+      expect(again.proposed_scope, "the plan the question named survives the re-ask").toBe("classic");
     });
 
     test("a routing continue answer continues the workflow it named, and re-asks when another is selected", () => {
@@ -928,8 +939,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
 
     test("a routing question with a record to pick continues through its select command", () => {
       seedTwoIntentsNoCursor();
-      const first = JSON.parse(next(["fix the broken login button"]).stdout.trim());
-      const second = JSON.parse(runEmittedCommand(first.confirm_command).stdout.trim());
+      const second = JSON.parse(next(["fix the broken login button"]).stdout.trim());
       expect(second.ask_type).toBe("new-work-routing");
       expect(second.continue_command).toBeUndefined();
       expect(second.select_commands.length).toBe(2);
@@ -953,8 +963,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
       test(`a routing question naming the record ${selector} stays answerable`, () => {
         const records = seedTwoIntentsNoCursor();
         cpSync(join(intentsDir(proj), records[0]), join(intentsDir(proj), selector), { recursive: true });
-        const first = JSON.parse(next(["fix the broken login button"]).stdout.trim());
-        const second = JSON.parse(runEmittedCommand(first.confirm_command).stdout.trim());
+        const second = JSON.parse(next(["fix the broken login button"]).stdout.trim());
         expect(second.ask_type).toBe("new-work-routing");
         expect(second.available_intents).toContain(selector);
         const routed = JSON.parse(runEmittedCommand(second.new_intent_command).stdout.trim());
@@ -966,8 +975,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
 
     test("a routing reshape of a listed record selects it, then reshapes it, without stopping", () => {
       seedTwoIntentsNoCursor();
-      const first = JSON.parse(next(["fix the broken login button"]).stdout.trim());
-      const second = JSON.parse(runEmittedCommand(first.confirm_command).stdout.trim());
+      const second = JSON.parse(next(["fix the broken login button"]).stdout.trim());
       expect(second.ask_type).toBe("new-work-routing");
       expect(second.reshape_commands.map((row: { selector: string }) => row.selector)).toEqual(second.available_intents);
       const [target] = second.reshape_commands;
@@ -987,14 +995,58 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
       expect(refused.kind).toBe("error");
     });
 
+    // The composer is a subagent with no chat: an Other answer read as a
+    // reshape reaches it through every print between the answer and the dispatch.
+    const OTHER_ANSWER = "Treat this as a documentation update for the work I pick instead.";
+    const reshapeNamed = (message: string): string => {
+      const at = message.indexOf('"Reshape existing work": ');
+      expect(at, message).toBeGreaterThanOrEqual(0);
+      return message.slice(at).match(/`([^`]+)`/)![1];
+    };
+
+    test("a reshape answer from the pick list carries the reply through the record switch to the composer", () => {
+      seedTwoIntentsNoCursor();
+      const ask = JSON.parse(next(["fix the broken login button"]).stdout.trim());
+      expect(ask.ask_type).toBe("new-work-routing");
+      const [target] = ask.reshape_commands;
+      const answer = reshapeNamed(routeNamed(OTHER_ANSWER).message);
+      expect(answer).toBe(`${target.command} -- ${quoteCommandArgument(OTHER_ANSWER)}`);
+      const step = JSON.parse(runEmittedCommand(answer).stdout.trim());
+      expect(step.kind, JSON.stringify(step).slice(0, 300)).toBe("print");
+      const commands = [...step.message.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+      expect(commands).toHaveLength(2);
+      expect(commands[1]).toEndWith(` -- ${quoteCommandArgument(OTHER_ANSWER)}`);
+      expect(runEmittedCommand(commands[0]).status).toBe(0);
+      const dispatch = JSON.parse(runEmittedCommand(commands[1]).stdout.trim());
+      expect(dispatch.message).toContain("RUNNING workflow");
+      expect(dispatch.message).toContain("fix the broken login button");
+      expect(dispatch.message).toContain(`Asked where that request belongs, the person answered: "${OTHER_ANSWER}"`);
+    });
+
+    test("the reshape-settings print carries the reply on to compose", () => {
+      expect(util(["intent-create", "--scope", "poc", "--arguments", "first", "--label", "first"]).status).toBe(0);
+      const read = JSON.parse(next(["--depth", "comprehensive", "rename the settings page"]).stdout.trim());
+      const id = /--request ([0-9a-f]{8})/.exec(String(read.message ?? read.confirm_command ?? ""))?.[1];
+      const ask = id === undefined ? read : JSON.parse(runEmittedCommand(`${ORCH_SH} next --request ${id} --propose feature`).stdout.trim());
+      expect(ask.ask_type, JSON.stringify(ask).slice(0, 300)).toBe("new-work-routing");
+      expect(ask.compose_command).toContain("--depth comprehensive");
+      const step = JSON.parse(runEmittedCommand(`${ask.compose_command} -- ${quoteCommandArgument(OTHER_ANSWER)}`).stdout.trim());
+      expect(step.kind, JSON.stringify(step).slice(0, 300)).toBe("print");
+      expect(step.message).toContain("config set depth comprehensive");
+      const commands = [...step.message.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+      expect(commands.at(-1)).toEndWith(` -- ${quoteCommandArgument(OTHER_ANSWER)}`);
+      const dispatch = JSON.parse(runEmittedCommand(commands.at(-1)!).stdout.trim());
+      expect(dispatch.message).toContain("RUNNING workflow");
+      expect(dispatch.message).toContain(`Asked where that request belongs, the person answered: "${OTHER_ANSWER}"`);
+    });
+
     // `next` reads none of these replies: it names each option's own command, and
     // the agent runs the one the person chose (agentRuns), or for continue and
     // reshape with several records the one for the work they named.
     describe("a reply that only names one of the no-selection routing question's options", () => {
       const DESCRIPTION = "fix the broken login button";
       const routingAsk = () => {
-        const first = JSON.parse(next([DESCRIPTION]).stdout.trim());
-        const second = JSON.parse(runEmittedCommand(first.confirm_command).stdout.trim());
+        const second = JSON.parse(next([DESCRIPTION]).stdout.trim());
         expect(second.ask_type, JSON.stringify(second).slice(0, 300)).toBe("new-work-routing");
         expect(second.available_intents).toBeDefined();
         return second;
@@ -1007,6 +1059,10 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
       const SEPARATE = "Separate new piece of work";
       const RESHAPE = "Reshape existing work";
       const commandsOf = (rows: Array<{ command: string }>) => rows.map((row) => row.command);
+      // A reshape answer hands the composer, which has no chat, the person's reply.
+      const withReply = (command: string, text: string) => `${command} -- ${quoteCommandArgument(text)}`;
+      const reshapesOf = (ask: { reshape_commands: Array<{ command: string }> }, text: string) =>
+        commandsOf(ask.reshape_commands).map((command) => withReply(command, text));
       // The same line marked as a request of their own. With a question of ours
       // already open, a bare words line is read as a possible reply to it
       // (t-three-ways-to-read-a-line), so a case about a REQUEST says so.
@@ -1058,8 +1114,10 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
             seedTwoIntentsNoCursor();
             const ask = routingAsk();
             const before = questionCount();
-            const named = routeNamed(reply(ask, text));
-            expect(namedCommands(named.message, route === "continue" ? CONTINUE : RESHAPE)).toEqual(commandsOf(ask[field]));
+            const said = reply(ask, text);
+            const named = routeNamed(said);
+            expect(namedCommands(named.message, route === "continue" ? CONTINUE : RESHAPE))
+              .toEqual(route === "continue" ? commandsOf(ask[field]) : reshapesOf(ask, said));
             expect(questionCount(), "no new question is asked").toBe(before);
             if (route === "continue") {
               const [target] = ask.select_commands;
@@ -1082,8 +1140,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
 
       test("a setting typed with the request reaches the record the continue option picks", () => {
         const record = seedOneIntentNoCursor();
-        const first = JSON.parse(next(["--depth", "comprehensive", DESCRIPTION]).stdout.trim());
-        const ask = JSON.parse(runEmittedCommand(first.confirm_command).stdout.trim());
+        const ask = JSON.parse(next(["--depth", "comprehensive", DESCRIPTION]).stdout.trim());
         expect(ask.ask_type, JSON.stringify(ask).slice(0, 300)).toBe("new-work-routing");
         // Its select command carries the setting, and a reply naming the option runs the same.
         expect(ask.select_commands[0].command).toContain("--depth comprehensive");
@@ -1104,8 +1161,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
 
       test("a continue answer given from another space goes back to the question's space first", () => {
         const record = seedOneIntentNoCursor();
-        const first = JSON.parse(next(["--depth", "comprehensive", DESCRIPTION]).stdout.trim());
-        const ask = JSON.parse(runEmittedCommand(first.confirm_command).stdout.trim());
+        const ask = JSON.parse(next(["--depth", "comprehensive", DESCRIPTION]).stdout.trim());
         // Another chat moves the shared space cursor before the answer runs.
         mkdirSync(join(proj, "aidlc", "spaces", "other", "intents"), { recursive: true });
         writeFileSync(join(proj, "aidlc", "active-space"), "other\n");
@@ -1122,8 +1178,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
         renameSync(join(intentsDir(proj), kept), join(intentsDir(proj), odd));
         const rows = readIntentRegistry(proj).map((row) => (row.dirName === kept ? { ...row, dirName: odd } : row));
         writeFileSync(join(intentsDir(proj), "intents.json"), `${JSON.stringify(rows, null, 2)}\n`);
-        const first = JSON.parse(next(["--depth", "comprehensive", DESCRIPTION]).stdout.trim());
-        const ask = JSON.parse(runEmittedCommand(first.confirm_command).stdout.trim());
+        const ask = JSON.parse(next(["--depth", "comprehensive", DESCRIPTION]).stdout.trim());
         const entry = ask.select_commands.find((row: { selector: string }) => row.selector === odd);
         expect(entry, JSON.stringify(ask).slice(0, 400)).toBeDefined();
         // Other work is selected by the time the answer runs.
@@ -1137,8 +1192,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
 
       test("with two records, the setting rides the continue command of whichever one is picked", () => {
         seedTwoIntentsNoCursor();
-        const first = JSON.parse(next(["--depth", "comprehensive", DESCRIPTION]).stdout.trim());
-        const ask = JSON.parse(runEmittedCommand(first.confirm_command).stdout.trim());
+        const ask = JSON.parse(next(["--depth", "comprehensive", DESCRIPTION]).stdout.trim());
         for (const row of ask.select_commands) expect(row.command).toContain(`--record ${row.selector} --depth comprehensive`);
         expect(namedCommands(routeNamed("1").message, CONTINUE)).toEqual(commandsOf(ask.select_commands));
       });
@@ -1147,7 +1201,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
         seedOneIntentNoCursor();
         const ask = routingAsk();
         for (const text of ["3", "Reshape existing work"]) {
-          expect(agentRuns(text, RESHAPE)).toEqual(emitted(ask.reshape_commands[0].command));
+          expect(agentRuns(text, RESHAPE)).toEqual(emitted(withReply(ask.reshape_commands[0].command, text)));
         }
       });
 
@@ -1155,7 +1209,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
         const records = seedTwoIntentsNoCursor();
         routingAsk();
         const d = routeNamed("Separate new piece of work, and add CSV export");
-        expect(d.message).toContain("which keeps every word of theirs");
+        expect(d.message).toContain(` next -- ${quoteCommandArgument("Separate new piece of work, and add CSV export")}`);
         expect(recordDirs(proj)).toEqual(records);
       });
 
@@ -1177,7 +1231,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
         const ask = routingAsk();
         progressRecord(record);
         expect(agentRuns("1", CONTINUE)).toEqual(emitted(ask.select_commands[0].command));
-        expect(agentRuns("Reshape existing work", RESHAPE)).toEqual(emitted(ask.reshape_commands[0].command));
+        expect(agentRuns("Reshape existing work", RESHAPE)).toEqual(emitted(withReply(ask.reshape_commands[0].command, "Reshape existing work")));
       });
 
       for (const [text, field] of [["1", "select_commands"], ["3", "reshape_commands"]] as const) {
@@ -1185,7 +1239,8 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
           const records = seedTwoIntentsNoCursor();
           const ask = routingAsk();
           progressRecord(records[0]);
-          expect(namedCommands(routeNamed(text).message, text === "1" ? CONTINUE : RESHAPE)).toEqual(commandsOf(ask[field]));
+          expect(namedCommands(routeNamed(text).message, text === "1" ? CONTINUE : RESHAPE))
+            .toEqual(field === "select_commands" ? commandsOf(ask[field]) : reshapesOf(ask, text));
         });
       }
 
@@ -1210,7 +1265,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
           addRecordUnselected();
           const before = questionCount();
           const named = namedCommands(routeNamed(text).message, field === "select_commands" ? CONTINUE : RESHAPE);
-          expect(named).toEqual(commandsOf(ask[field]));
+          expect(named).toEqual(field === "select_commands" ? commandsOf(ask[field]) : reshapesOf(ask, text));
           expect(questionCount(), "no new question is asked").toBe(before);
           for (const command of named) {
             const chosen = emitted(command);
@@ -1236,7 +1291,7 @@ describe("t171 creation gate consults the intent registry (Blocker B1)", () => {
 
       test("an option answers from any chat on this work, not only the one that was asked", () => {
         seedTwoIntentsNoCursor();
-        const ask = emittedIn("chat-a", inSession("chat-a", DESCRIPTION).confirm_command);
+        const ask = inSession("chat-a", DESCRIPTION);
         expect(ask.ask_type, JSON.stringify(ask).slice(0, 300)).toBe("new-work-routing");
         const [named] = namedCommands(String(inSession("chat-b", "2").message), SEPARATE);
         expect(emittedIn("chat-b", named)).toEqual(emittedIn("chat-b", ask.new_intent_command));

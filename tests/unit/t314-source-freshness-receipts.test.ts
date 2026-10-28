@@ -109,6 +109,11 @@ import {
 } from "../harness/fixtures.ts";
 import { approveSuppliedCheckCommand } from "../harness/verification-command.ts";
 
+// The stage's checks run once before its review or gate, and again at the gate
+// (completionChecksStep, t-checks-before-review); this file's fixture documents
+// are not written for them and its subject is not them, so they stay off here.
+process.env.AIDLC_DISABLE_SENSORS = "1";
+
 // The default also governs afterAll removal of a dozen-plus worktree fixtures,
 // which exceeds bun's 5s hook default under load; per-case literals stay.
 setDefaultTimeout(NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
@@ -2119,11 +2124,11 @@ describe("t314 receipt stamping + completion guard (cli)", () => {
     expect(gate.out).toContain("app.ts changed after the Code Generation review; carrying on.");
   }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
 
-  // #2244: when the approved plan uses stage-level artifacts the guard returns
-  // after the stage review and the unclaimed check never runs, so excluding a
-  // cache after the review costs what any source change after a review costs:
-  // the one recovery review. Not a loop: the approve after it completes.
-  test("with stage-level artifacts, excluding a cache after the review costs one recovery review, then completes", () => {
+  // #2244: when the approved plan uses stage-level artifacts the guard compares
+  // the stage review's own listing, and a cache the registry's exclude list now
+  // leaves out of the walk is nobody's change there too, so the exclude works at
+  // once, as on the per-Unit path, even after the one recovery review.
+  function skipUnitsGeneration(): void {
     writeFileSync(
       seededStateFile(proj),
       readFileSync(seededStateFile(proj), "utf-8").replace(
@@ -2131,19 +2136,67 @@ describe("t314 receipt stamping + completion guard (cli)", () => {
         "- [S] units-generation $1 SKIP",
       ),
     );
+  }
+
+  test("with stage-level artifacts, the refusal names the cache, and excluding it completes with no further review", () => {
+    skipUnitsGeneration();
     const cache = seedInTreeCache(proj);
     recordReview(proj);
     churnInTreeCache(cache);
     const stale = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
     expect(stale.rc).toBe(1);
     expect(stale.out).toContain("project source changed after");
+    expect(stale.out).toContain("apps/web/.jest-cache/haste-map-abc");
+    expect(stale.out).toContain('naming it under \\"exclude\\" in .aidlc-source-paths.json');
+    const requests = reviewRequestCount(proj);
     sourceRegistry(proj, { exclude: ["apps/web/.jest-cache"] });
-    const still = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
-    expect(still.rc).toBe(1);
-    expect(still.out).toContain("project source changed after");
-    recordReview(proj);
     const done = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
     expect(done.rc, done.out).toBe(0);
+    expect(reviewRequestCount(proj)).toBe(requests);
+  }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
+
+  test("with stage-level artifacts, a cache that changes again after the one recovery review completes once it is excluded", () => {
+    skipUnitsGeneration();
+    const cache = seedInTreeCache(proj);
+    recordReview(proj);
+    churnInTreeCache(cache);
+    expect(guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]).rc).toBe(1);
+    recordReview(proj);
+    writeFileSync(join(cache, "haste-map-abc"), "\u0000haste-v3", "utf-8");
+    const spent = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
+    expect(spent.rc).toBe(1);
+    expect(spent.out).toContain("SOURCE_RECOVERY_SPENT");
+    expect(spent.out).toContain("apps/web/.jest-cache/haste-map-abc");
+    expect(spent.out).toContain('naming it under \\"exclude\\" in .aidlc-source-paths.json');
+    sourceRegistry(proj, { exclude: ["apps/web/.jest-cache"] });
+    const done = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
+    expect(done.rc, done.out).toBe(0);
+  }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
+
+  test("with stage-level artifacts, excluding a cache still leaves a real source change refused", () => {
+    skipUnitsGeneration();
+    const cache = seedInTreeCache(proj);
+    recordReview(proj);
+    churnInTreeCache(cache);
+    writeFileSync(src, "export const answer = 1337; // edited after review\n", "utf-8");
+    sourceRegistry(proj, { exclude: ["apps/web/.jest-cache"] });
+    const stale = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
+    expect(stale.rc).toBe(1);
+    expect(stale.out).toContain("What changed: app.ts; a path that is not source");
+    expect(stale.out).not.toContain(".jest-cache/");
+  }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
+
+  test("under relaxed, with stage-level artifacts, a cache excluded after the review is not said as a change", () => {
+    setGuardPolicy("relaxed (set by you)");
+    skipUnitsGeneration();
+    const cache = seedInTreeCache(proj);
+    recordReview(proj);
+    churnInTreeCache(cache);
+    sourceRegistry(proj, { exclude: ["apps/web/.jest-cache"] });
+    const r = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
+    expect(r.rc, r.out).toBe(0);
+    expect(r.out).not.toContain("changed after the Code Generation review");
+    expect(readAllAuditShards(proj)).not.toMatch(/\*\*Event\*\*: CHANGE_ACCEPTED\n(?:\*\*[^\n]*\n)*?\*\*Checkpoint\*\*: review-receipt/);
   }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
 
   test.each([
@@ -2883,6 +2936,41 @@ describe("t314 multi-unit source attribution", () => {
     // The step it names: beta's next pass, admitted as the one recovery review.
     recordReview(proj, "code-generation", REVIEWER, "beta", "READY", [{ path: "beta.ts" }]);
     expect(readAllAuditShards(proj)).toContain("**Recovery**: stale-receipt");
+    const approved = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
+    expect(approved.rc, approved.out).toBe(0);
+  }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
+
+  // Named as stale source, the edit's one recovery review would go without the
+  // claim, and the claim would then have no review left to ride on.
+  test("under strict, an edit no Unit claims after the last review is named first, and the one recovery review that claims it completes the stage", () => {
+    reviewBothUnits();
+    writeFileSync(join(proj, "notes.ts"), "export const note = 'nobody claimed me';\n", "utf-8");
+    const refused = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
+    expect(refused.rc).not.toBe(0);
+    expect(refused.out).toContain("no Unit's review covers (notes.ts)");
+    expect(refused.out).not.toContain("project source changed after");
+    // The way it names: beta lists the path and is reviewed once more, admitted
+    // as the one recovery review.
+    recordReview(proj, "code-generation", REVIEWER, "beta", "READY", [{ path: "beta.ts" }, { path: "notes.ts" }]);
+    expect(readAllAuditShards(proj)).toContain("**Recovery**: stale-receipt");
+    const approved = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
+    expect(approved.rc, approved.out).toBe(0);
+  }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
+
+  // With a reviewed Unit's own file edited too, each Unit's review once more
+  // carries its own part and nothing is left for a Request Changes.
+  test("under strict, an unclaimed edit beside a reviewed Unit's own edit completes once each Unit is reviewed once more", () => {
+    reviewBothUnits();
+    writeFileSync(join(proj, "alpha.ts"), "export const alpha = 9; // after its review\n", "utf-8");
+    writeFileSync(join(proj, "notes.ts"), "export const note = 'nobody claimed me';\n", "utf-8");
+    const refused = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
+    expect(refused.rc).not.toBe(0);
+    expect(refused.out).toContain("no Unit's review covers (notes.ts)");
+    recordReview(proj, "code-generation", REVIEWER, "beta", "READY", [{ path: "beta.ts" }, { path: "notes.ts" }]);
+    const alphaOwed = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
+    expect(alphaOwed.rc).not.toBe(0);
+    expect(alphaOwed.out).toContain("Changed after review: alpha");
+    recordReview(proj, "code-generation", REVIEWER, "alpha", "READY", [{ path: "alpha.ts" }]);
     const approved = guarded(proj, ["approve", "code-generation", "--user-input", "ship it"]);
     expect(approved.rc, approved.out).toBe(0);
   }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
@@ -6428,6 +6516,43 @@ process.stdin.on("end", () => server.stop(true));
         expect(r.out).toContain("Files in the main checkout changed after the last unit was merged. Kept them.");
       }
     }
+  }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
+
+  // The person asked for that edit in the chat: under strict the refusal names
+  // the step that records their words, and then the stage completes with it.
+  test("under strict, an edit after the last merge the person asked for completes the stage once allowed", () => {
+    const chat = { AIDLC_UNATTENDED: "0", AIDLC_SESSION_OVERRIDE: "t314-asked", AIDLC_SESSION_OVERRIDE_SOURCE: "payload" };
+    const proj = makeFixture();
+    finalizeKeptUnit(proj);
+    const merged = mergeKept(proj);
+    expect(merged.status, merged.out).toBe(0);
+    const path = seededStateFile(proj);
+    writeFileSync(path, readFileSync(path, "utf-8").replace(
+      /^- \*\*Construction Autonomy Mode\*\*: .*$/m, "- **Construction Autonomy Mode**: autonomous"));
+    const said = spawnSync(BUN, [join(AIDLC_SRC, "tools", "aidlc.ts"), "engine", "hook", "record-human-turn"], {
+      timeout: remainingOperationTimeoutMs(NATIVE_STARTUP_TIMEOUT_MS), cwd: proj, encoding: "utf-8",
+      input: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "t314-asked", prompt: "also add the notes file" }),
+      env: { ...process.env, AIDLC_PROJECT_DIR: proj, CLAUDE_PROJECT_DIR: proj, AIDLC_UNATTENDED: "0" },
+    });
+    expect(said.status, said.stderr).toBe(0);
+    const asked = [...readAllAuditShards(proj).matchAll(
+      /\*\*Event\*\*: HUMAN_TURN\n(?:\*\*[^\n]*\n)*?\*\*Message Id\*\*: ([0-9a-f]{8})/g)].at(-1)?.[1];
+    expect(asked).toBeDefined();
+    writeFileSync(join(proj, "notes.ts"), "export const notes = 2;\n", "utf-8");
+    const refused = guarded(proj, ["gate-start", "code-generation"], chat);
+    expect(refused.out).toContain("no longer matches the final reviewed swarm merge (notes.ts)");
+    expect(refused.out).toContain(`If their message ${asked} (sent `);
+    expect(refused.out).toContain("aidlc-swarm.ts allow-change notes.ts` with --message <id>");
+    const allowed = runSwarm(proj, ["allow-change", "notes.ts", "--message", asked as string], chat);
+    expect(allowed.rc, allowed.diagnostic).toBe(0);
+    // Every Unit has landed: the line promises no landing, only that the change is kept.
+    expect((JSON.parse(allowed.out) as { notice: string }).notice)
+      .toBe('notes.ts can change during this Code Generation, because you said: "also add the notes file". It is kept.');
+    const r = guarded(proj, ["gate-start", "code-generation"], chat);
+    expect(r.out).not.toContain("no longer matches the final reviewed swarm merge");
+    expect(r.out).not.toContain("Kept them.");
+    expect(readAllAuditShards(proj)).toMatch(new RegExp(
+      `\\*\\*Event\\*\\*: CHANGE_ACCEPTED\\n(?:\\*\\*[^\\n]*\\n)*?\\*\\*Message Id\\*\\*: ${asked}`));
   }, NATIVE_MULTI_WORKTREE_CASE_TIMEOUT_MS);
 
   test("with Guard Policy off, files a Unit changed outside its planned files are kept and named once", () => {
